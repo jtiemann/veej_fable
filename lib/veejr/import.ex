@@ -46,11 +46,44 @@ defmodule Veejr.Import do
 
         %{
           owner: owner.username,
+          owner_user: owner,
+          friends: manifest["friends"] || [],
           ghost_contacts: map_size(ghosts),
           envelopes: envelope_count,
           blobs: blob_count
         }
       end)
+    end
+  end
+
+  @doc """
+  Re-establishes friendships from the export over federation: each old friend
+  gets a normal friend request from the owner's new home, which they accept
+  on their side like any other. Local-instance friends (rare: someone who
+  also moved here) get a local request. Returns `[{handle, result}]`.
+  """
+  def reconnect_friends(%Veejr.Accounts.User{} = owner, friends) when is_list(friends) do
+    ours = Veejr.instance_authority()
+
+    for %{"username" => username, "host" => host} <- friends do
+      handle = "@#{username}@#{host}"
+
+      result =
+        if host == ours do
+          Veejr.Social.send_friend_request(owner, username)
+        else
+          Veejr.Social.send_remote_friend_request(owner, username, host)
+        end
+
+      {handle,
+       case result do
+         {:ok, _} -> :request_sent
+         {:error, :already_friends} -> :already_friends
+         {:error, :already_requested} -> :already_requested
+         {:error, {:http, 404}} -> :unknown_user
+         {:error, :key_changed} -> :key_changed
+         {:error, _} -> :unreachable
+       end}
     end
   end
 
@@ -153,6 +186,8 @@ defmodule Veejr.Import do
           kind: entry["kind"],
           ciphertext: entry["ciphertext"],
           nonce: entry["nonce"],
+          sender_public_key: entry["sender"]["public_key"],
+          resealed: entry["resealed"] || false,
           inserted_at: inserted_at,
           updated_at: inserted_at
         })

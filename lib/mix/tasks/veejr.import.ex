@@ -32,9 +32,20 @@ defmodule Mix.Tasks.Veejr.Import do
           envelopes:      #{summary.envelopes} restored
           ghost contacts: #{summary.ghost_contacts} (senders of your received messages)
           attachments:    #{summary.blobs} blobs restored
-
-        Unlock your keys at /keys with the same passphrase you used before.
         """)
+
+        if summary.friends != [] do
+          Mix.shell().info(
+            "Reconnecting with #{length(summary.friends)} friends over federation:"
+          )
+
+          for {handle, result} <-
+                Veejr.Import.reconnect_friends(summary.owner_user, summary.friends) do
+            Mix.shell().info("  #{handle}: #{describe(result)}")
+          end
+        end
+
+        Mix.shell().info("\nUnlock your keys at /keys with the same passphrase you used before.")
 
       {:error, :owner_already_exists} ->
         Mix.raise("An account with that username or email already exists on this instance.")
@@ -48,4 +59,15 @@ defmodule Mix.Tasks.Veejr.Import do
   end
 
   def run(_args), do: Mix.raise("Usage: mix veejr.import path/to/export.zip")
+
+  defp describe(:request_sent), do: "friend request sent — they'll see it on their instance"
+  defp describe(:already_friends), do: "already friends"
+  defp describe(:already_requested), do: "request already pending"
+  defp describe(:unknown_user), do: "their instance doesn't know that username"
+
+  defp describe(:key_changed),
+    do: "their pinned key changed — verify with them, then re-add manually"
+
+  defp describe(:unreachable),
+    do: "instance unreachable — re-add them later from the Friends page"
 end
