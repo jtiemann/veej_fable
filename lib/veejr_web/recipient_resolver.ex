@@ -33,7 +33,15 @@ defmodule VeejrWeb.RecipientResolver do
 
     %{
       recipients:
-        Enum.map(with_keys, &%{id: &1.id, username: &1.username, public_key: &1.public_key}),
+        Enum.map(
+          with_keys,
+          &%{
+            id: &1.id,
+            username: &1.username,
+            handle: Veejr.Social.Address.handle(&1),
+            public_key: &1.public_key
+          }
+        ),
       missing_keys: Enum.map(without_keys, & &1.username)
     }
   end

@@ -59,19 +59,45 @@ defmodule VeejrWeb.MessagesLive do
       </section>
 
       <section class="mt-8">
-        <h2 class="text-lg font-semibold">Conversation history</h2>
-        <p :if={@history == []} class="mt-2 text-sm opacity-60">
+        <h2 class="text-lg font-semibold">Conversations</h2>
+        <p :if={@conversations == []} class="mt-2 text-sm opacity-60">
           Nothing yet. Messages you send and accept will appear here, decrypted
           only in your browser.
         </p>
-        <ul class="mt-2 space-y-2">
-          <.envelope_item
-            :for={{envelope, label} <- @history}
-            envelope={envelope}
-            user={@current_scope.user}
-            label={label}
-          />
-        </ul>
+        <div class="mt-2 space-y-3">
+          <details
+            :for={{conv, index} <- Enum.with_index(@conversations)}
+            open={index == 0}
+            class="rounded-lg border border-base-300"
+          >
+            <summary class="flex cursor-pointer items-center justify-between gap-2 p-3">
+              <span class="font-medium truncate">💬 {Enum.join(conv.participants, ", ")}</span>
+              <span class="flex items-center gap-2 whitespace-nowrap text-sm opacity-70">
+                <span class="badge badge-ghost badge-sm">{length(conv.envelopes)}</span>
+                {Calendar.strftime(conv.latest.inserted_at, "%b %d, %H:%M")}
+              </span>
+            </summary>
+            <div class="border-t border-base-300 p-3">
+              <ul class="space-y-2">
+                <.envelope_item
+                  :for={envelope <- conv.envelopes}
+                  envelope={envelope}
+                  user={@current_scope.user}
+                  label={item_label(envelope, @current_scope.user)}
+                />
+              </ul>
+              <button
+                :if={conv.reply_ids != ""}
+                id={"reply-#{conv.key}"}
+                phx-hook="ReplyTo"
+                data-friend-ids={conv.reply_ids}
+                class="btn btn-ghost btn-sm mt-3"
+              >
+                ↩ Reply to this conversation
+              </button>
+            </div>
+          </details>
+        </div>
       </section>
     </Layouts.app>
     """
@@ -138,31 +164,61 @@ defmodule VeejrWeb.MessagesLive do
 
   defp refresh(socket) do
     user = socket.assigns.current_scope.user
-
-    history =
-      user
-      |> Messaging.list_history(kind: "message", limit: 100)
-      |> Enum.map(&{&1, history_label(user, &1)})
-
     pending = Messaging.list_pending_notifications(user)
+    friends = Social.list_friends(user)
 
     assign(socket,
       pending: pending,
       pending_count: length(pending),
-      friends: Social.list_friends(user),
+      friends: friends,
       groups: Social.list_groups(user),
-      history: history
+      conversations: build_conversations(user, friends)
     )
   end
 
-  defp history_label(user, envelope) do
+  # Groups history by participant set: what you sent to {@alice, @bob} and
+  # what @alice sent you form separate threads (a received group message
+  # lands in the sender's thread — the server can't see its other
+  # recipients; the decrypted payload shows them).
+  defp build_conversations(user, friends) do
+    handle_to_id = Map.new(friends, &{Veejr.Social.Address.handle(&1), &1.id})
+
+    user
+    |> Messaging.list_history(kind: "message", limit: 200)
+    |> Enum.group_by(&participants(user, &1))
+    |> Enum.map(fn {participants, envelopes} ->
+      envelopes = Enum.sort_by(envelopes, & &1.id)
+
+      %{
+        key:
+          :crypto.hash(:md5, Enum.join(participants, "|")) |> Base.url_encode64(padding: false),
+        participants: participants,
+        envelopes: envelopes,
+        latest: List.last(envelopes),
+        reply_ids:
+          participants
+          |> Enum.map(&handle_to_id[&1])
+          |> Enum.reject(&is_nil/1)
+          |> Enum.join(",")
+      }
+    end)
+    |> Enum.sort_by(& &1.latest.id, :desc)
+  end
+
+  defp participants(user, envelope) do
     if envelope.sender_id == user.id do
       case Messaging.batch_recipients(user, envelope.batch_id) do
-        [] -> "To yourself"
-        handles -> "To " <> Enum.join(handles, ", ")
+        [] -> ["notes to yourself"]
+        handles -> Enum.sort(handles)
       end
     else
-      "From #{Veejr.Social.Address.handle(envelope.sender)}"
+      [Veejr.Social.Address.handle(envelope.sender)]
     end
+  end
+
+  defp item_label(envelope, user) do
+    if envelope.sender_id == user.id,
+      do: "You",
+      else: Veejr.Social.Address.handle(envelope.sender)
   end
 end
