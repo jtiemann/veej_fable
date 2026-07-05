@@ -98,11 +98,13 @@ defmodule Veejr.Export do
         kind: envelope.kind,
         ciphertext: envelope.ciphertext,
         nonce: envelope.nonce,
+        resealed: envelope.resealed,
         inserted_at: DateTime.to_iso8601(envelope.inserted_at),
         sender: %{
           username: envelope.sender.username,
           display_name: envelope.sender.display_name,
-          public_key: envelope.sender.public_key,
+          # the key the envelope was sealed with, not the sender's current one
+          public_key: envelope.sender_public_key || envelope.sender.public_key,
           host: envelope.sender.host || Veejr.instance_authority()
         },
         recipients: recipients

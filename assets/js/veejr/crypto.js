@@ -42,20 +42,25 @@ async function deriveKey(passphrase, salt) {
   return new Uint8Array(bits)
 }
 
+// Wraps an existing raw secret key under a (new) passphrase — used for both
+// initial setup and passphrase changes.
+export async function wrapSecretKey(secretKey, passphrase) {
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const nonce = crypto.getRandomValues(new Uint8Array(nacl.secretbox.nonceLength))
+  const kek = await deriveKey(passphrase, salt)
+  const wrapped = nacl.secretbox(secretKey, nonce, kek)
+  return {encSecretKey: toB64(wrapped), keySalt: toB64(salt), keyNonce: toB64(nonce)}
+}
+
 // Generates a fresh identity keypair and wraps the secret key with the
 // passphrase. Returns everything the server may store, plus the raw secret
 // key for the local session cache.
 export async function generateIdentity(passphrase) {
   const pair = nacl.box.keyPair()
-  const salt = crypto.getRandomValues(new Uint8Array(16))
-  const nonce = crypto.getRandomValues(new Uint8Array(nacl.secretbox.nonceLength))
-  const kek = await deriveKey(passphrase, salt)
-  const wrapped = nacl.secretbox(pair.secretKey, nonce, kek)
+  const wrapped = await wrapSecretKey(pair.secretKey, passphrase)
   return {
     publicKey: toB64(pair.publicKey),
-    encSecretKey: toB64(wrapped),
-    keySalt: toB64(salt),
-    keyNonce: toB64(nonce),
+    ...wrapped,
     secretKey: pair.secretKey,
   }
 }

@@ -7,6 +7,7 @@
 import {
   generateIdentity,
   unlockIdentity,
+  wrapSecretKey,
   cacheSecretKey,
   getSecretKey,
   forgetSecretKey,
@@ -15,6 +16,16 @@ import {
   encryptBlob,
   decryptBlob,
 } from "./crypto.js"
+
+// Promise wrapper around pushEvent-with-reply, shared by several hooks.
+function pushWithReply(hook, event, params) {
+  return new Promise((resolve, reject) => {
+    hook.pushEvent(event, params, (reply) => {
+      if (reply && reply.error) reject(new Error(reply.error))
+      else resolve(reply)
+    })
+  })
+}
 
 const csrfToken = () =>
   document.querySelector("meta[name='csrf-token']").getAttribute("content")
@@ -99,7 +110,18 @@ export const KeyUnlock = {
     const {userId, encSecretKey, keySalt, keyNonce, returnTo} = form.dataset
 
     if (getSecretKey(userId)) {
-      this.pushEvent("unlocked", {})
+      if (returnTo) {
+        // the user was sent here to unlock before doing something else
+        this.pushEvent("unlocked", {})
+      } else {
+        // visiting the keys page directly while unlocked: show state, keep
+        // the management sections below reachable
+        form.querySelectorAll("input, button, label").forEach((el) => el.classList.add("hidden"))
+        const note = document.createElement("p")
+        note.className = "text-sm text-success"
+        note.textContent = "✓ Keys are unlocked for this session."
+        form.appendChild(note)
+      }
       return
     }
 
@@ -112,12 +134,174 @@ export const KeyUnlock = {
       const secretKey = await unlockIdentity(pass, encSecretKey, keySalt, keyNonce)
       if (secretKey) {
         cacheSecretKey(userId, secretKey)
-        window.location.assign(returnTo || "/")
+        if (returnTo) window.location.assign(returnTo)
+        else window.location.reload()
       } else {
         btn.disabled = false
         btn.textContent = "Unlock"
         showError(form, "Wrong passphrase.")
       }
+    })
+  },
+}
+
+// Passphrase change: unwrap with the current passphrase, re-wrap under the
+// new one. The keypair — and therefore everything encrypted — is unchanged.
+export const KeyRewrap = {
+  mounted() {
+    const form = this.el
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault()
+      const current = form.querySelector("[data-role=current]").value
+      const next = form.querySelector("[data-role=next]").value
+      const confirm = form.querySelector("[data-role=confirm]").value
+      if (next.length < 8) return showError(form, "New passphrase must be at least 8 characters.")
+      if (next !== confirm) return showError(form, "New passphrases do not match.")
+
+      const {userId, encSecretKey, keySalt, keyNonce} = form.dataset
+      const secretKey = await unlockIdentity(current, encSecretKey, keySalt, keyNonce)
+      if (!secretKey) return showError(form, "Current passphrase is wrong.")
+
+      const wrapped = await wrapSecretKey(secretKey, next)
+      await pushWithReply(this, "rewrap_keys", {
+        enc_secret_key: wrapped.encSecretKey,
+        key_salt: wrapped.keySalt,
+        key_nonce: wrapped.keyNonce,
+      })
+      cacheSecretKey(userId, secretKey)
+      form.reset()
+    })
+  },
+}
+
+// Key rotation: decrypt the entire history with the old key, generate a new
+// keypair, re-encrypt everything to it, and hand the server new wrapped keys
+// plus the resealed ciphertext in one push. All crypto happens here.
+export const KeyRotate = {
+  mounted() {
+    const form = this.el
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault()
+      const current = form.querySelector("[data-role=current]").value
+      const next = form.querySelector("[data-role=next]").value
+      if (next.length < 8) return showError(form, "New passphrase must be at least 8 characters.")
+
+      const btn = form.querySelector("button[type=submit]")
+      const busy = (label) => (btn.textContent = label)
+      btn.disabled = true
+
+      try {
+        const {userId, encSecretKey, keySalt, keyNonce} = form.dataset
+        const oldSecret = await unlockIdentity(current, encSecretKey, keySalt, keyNonce)
+        if (!oldSecret) throw new Error("Current passphrase is wrong.")
+
+        busy("Fetching history…")
+        const {envelopes} = await pushWithReply(this, "list_resealable", {})
+
+        busy(`Re-encrypting ${envelopes.length} items…`)
+        const identity = await generateIdentity(next)
+        const resealed = []
+        let unreadable = 0
+        for (const entry of envelopes) {
+          const payload = openFrom(entry.ciphertext, entry.nonce, entry.peer_key, oldSecret)
+          if (!payload) {
+            unreadable++
+            continue
+          }
+          resealed.push({
+            public_id: entry.public_id,
+            ...sealFor(identity.publicKey, payload, identity.secretKey),
+          })
+        }
+
+        busy("Saving new keys…")
+        await pushWithReply(this, "rotate_keys", {
+          keys: {
+            public_key: identity.publicKey,
+            enc_secret_key: identity.encSecretKey,
+            key_salt: identity.keySalt,
+            key_nonce: identity.keyNonce,
+          },
+          envelopes: resealed,
+          unreadable: unreadable,
+        })
+        cacheSecretKey(userId, identity.secretKey)
+        window.location.reload()
+      } catch (err) {
+        btn.disabled = false
+        btn.textContent = "Rotate my keys"
+        showError(form, err.message)
+      }
+    })
+  },
+}
+
+// Key reset for a lost passphrase: brand-new keypair; old ciphertext is
+// gone for good (the server deletes this user's undecryptable copies).
+export const KeyReset = {
+  mounted() {
+    const form = this.el
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault()
+      const next = form.querySelector("[data-role=next]").value
+      const confirm = form.querySelector("[data-role=confirm]").value
+      if (next.length < 8) return showError(form, "Passphrase must be at least 8 characters.")
+      if (next !== confirm) return showError(form, "Passphrases do not match.")
+      if (!window.confirm("Really reset? Every message you've received so far becomes permanently unreadable."))
+        return
+
+      const identity = await generateIdentity(next)
+      await pushWithReply(this, "reset_keys", {
+        keys: {
+          public_key: identity.publicKey,
+          enc_secret_key: identity.encSecretKey,
+          key_salt: identity.keySalt,
+          key_nonce: identity.keyNonce,
+        },
+      })
+      cacheSecretKey(this.el.dataset.userId, identity.secretKey)
+      window.location.assign("/")
+    })
+  },
+}
+
+// PWA install button: visible only when the browser offered an install
+// prompt (Chrome/Edge; other browsers install from their own menus).
+export const InstallApp = {
+  mounted() {
+    const btn = this.el
+    const show = () => btn.classList.remove("hidden")
+    if (window.veejrInstallPrompt) show()
+    window.addEventListener("veejr:installable", show)
+
+    btn.addEventListener("click", async () => {
+      const prompt = window.veejrInstallPrompt
+      if (!prompt) return
+      prompt.prompt()
+      const {outcome} = await prompt.userChoice
+      if (outcome === "accepted") {
+        btn.textContent = "✅ Installed"
+        btn.disabled = true
+        window.veejrInstallPrompt = null
+      }
+    })
+  },
+}
+
+// Reply button on a conversation: preselects its participants in the
+// composer and jumps there.
+export const ReplyTo = {
+  mounted() {
+    this.el.addEventListener("click", () => {
+      const ids = (this.el.dataset.friendIds || "").split(",").filter(Boolean)
+      const composer = document.querySelector("#message-composer")
+      if (!composer) return
+      composer
+        .querySelectorAll("input[name='friends[]']")
+        .forEach((cb) => (cb.checked = ids.includes(cb.value)))
+      composer.scrollIntoView({behavior: "smooth", block: "center"})
+      const text = composer.querySelector("[data-role=text]")
+      if (text) text.focus()
     })
   },
 }
@@ -258,7 +442,10 @@ export const Composer = {
         attachments.push(await encryptAndUpload(file))
       }
 
-      const payload = {v: 1, kind, text, attachments, sent_at: new Date().toISOString(), ...extra}
+      // recipient handles ride inside the encrypted payload so group
+      // messages can show all participants after decryption
+      const to = recipients.map((r) => r.handle || `@${r.username}`)
+      const payload = {v: 1, kind, text, attachments, to, sent_at: new Date().toISOString(), ...extra}
 
       busy("Encrypting…")
       const envelopes = recipients.map((r) => ({
@@ -338,6 +525,13 @@ export const Decrypt = {
       this.el.appendChild(p)
     }
 
+    if (Array.isArray(payload.to) && payload.to.length > 1) {
+      const p = document.createElement("p")
+      p.className = "text-xs opacity-60 mt-1"
+      p.textContent = `👥 ${payload.to.join(", ")}`
+      this.el.appendChild(p)
+    }
+
     if (kind === "location" || kind === "note") {
       if (typeof payload.lat === "number" && typeof payload.lng === "number") {
         const p = document.createElement("p")
@@ -361,4 +555,17 @@ export const Decrypt = {
 
 import VeejrMap from "./map_hook.js"
 
-export default {KeySetup, KeyUnlock, KeyLock, PushSetup, Composer, Decrypt, VeejrMap}
+export default {
+  KeySetup,
+  KeyUnlock,
+  KeyLock,
+  KeyRewrap,
+  KeyRotate,
+  KeyReset,
+  PushSetup,
+  InstallApp,
+  Composer,
+  Decrypt,
+  ReplyTo,
+  VeejrMap,
+}

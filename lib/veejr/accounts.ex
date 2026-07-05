@@ -141,6 +141,29 @@ defmodule Veejr.Accounts do
   end
 
   @doc """
+  Passphrase change: replaces only the wrapped secret key (re-wrapped
+  client-side under the new passphrase). The keypair itself is unchanged, so
+  nothing else in the system is affected.
+  """
+  def rewrap_user_keys(%User{public_key: pk} = user, attrs) when is_binary(pk) do
+    user
+    |> Ecto.Changeset.cast(attrs, [:enc_secret_key, :key_salt, :key_nonce])
+    |> Ecto.Changeset.validate_required([:enc_secret_key, :key_salt, :key_nonce])
+    |> Repo.update()
+  end
+
+  @doc """
+  Key rotation/reset: replaces the whole keypair. Callers are responsible for
+  what happens to existing ciphertext (re-encrypt on rotation, purge on
+  reset) and for announcing the change to remote friends.
+  """
+  def rotate_user_keys(%User{} = user, attrs) do
+    user
+    |> User.keys_changeset(attrs)
+    |> Repo.update()
+  end
+
+  @doc """
   Permanently deletes a user account.
 
   Foreign keys cascade: envelopes the user sent (including copies held for

@@ -25,6 +25,10 @@ defmodule Veejr.Accounts.User do
     field :key_salt, :string
     field :key_nonce, :string
 
+    # For remote contacts only: a key change their instance announced, held
+    # here until a human confirms it on the Friends page.
+    field :pending_public_key, :string
+
     timestamps(type: :utc_datetime)
   end
 

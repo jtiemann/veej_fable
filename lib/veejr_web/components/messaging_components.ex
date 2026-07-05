@@ -101,7 +101,7 @@ defmodule VeejrWeb.MessagingComponents do
         phx-hook="Decrypt"
         phx-update="ignore"
         data-user-id={@user.id}
-        data-peer-key={peer_key(@envelope, @user)}
+        data-peer-key={Veejr.Messaging.peer_key(@envelope, @user)}
         data-ciphertext={@envelope.ciphertext}
         data-nonce={@envelope.nonce}
         data-kind={@envelope.kind}
@@ -117,9 +117,4 @@ defmodule VeejrWeb.MessagingComponents do
   def kind_icon("location"), do: "📍"
   def kind_icon("note"), do: "📝"
   def kind_icon(_), do: "✉️"
-
-  # For self-copies we decrypt against our own public key; for received
-  # envelopes, against the sender's.
-  defp peer_key(%Envelope{sender_id: uid}, %User{id: uid} = user), do: user.public_key
-  defp peer_key(%Envelope{sender: sender}, _user), do: sender.public_key
 end

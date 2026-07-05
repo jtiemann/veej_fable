@@ -33,7 +33,7 @@ defmodule VeejrWeb.MapLive do
           <li
             :for={envelope <- @geo_envelopes}
             data-role="map-envelope"
-            data-peer-key={peer_key(envelope, @current_scope.user)}
+            data-peer-key={Veejr.Messaging.peer_key(envelope, @current_scope.user)}
             data-ciphertext={envelope.ciphertext}
             data-nonce={envelope.nonce}
             data-kind={envelope.kind}
@@ -133,7 +133,4 @@ defmodule VeejrWeb.MapLive do
 
   defp map_label(%Envelope{sender_id: uid}, %User{id: uid}), do: "You"
   defp map_label(%Envelope{sender: sender}, _user), do: Veejr.Social.Address.handle(sender)
-
-  defp peer_key(%Envelope{sender_id: uid}, %User{id: uid} = user), do: user.public_key
-  defp peer_key(%Envelope{sender: sender}, _user), do: sender.public_key
 end

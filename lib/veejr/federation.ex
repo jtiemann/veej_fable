@@ -123,6 +123,54 @@ defmodule Veejr.Federation do
   end
 
   @doc """
+  Tells every instance hosting a friend of `user` that their key changed.
+  Receivers hold the new key as *pending* until a human confirms it.
+  """
+  def announce_key_update(%User{host: nil} = user) do
+    hosts =
+      user
+      |> Veejr.Social.list_friends()
+      |> Enum.map(& &1.host)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    for host <- hosts do
+      Veejr.Federation.Outbox.deliver(host, "/api/federation/key_update", %{
+        from: %{username: user.username, authority: Veejr.instance_authority()},
+        public_key: user.public_key
+      })
+    end
+
+    :ok
+  end
+
+  @doc "Handles a key-change announcement from a verified peer."
+  def handle_key_update(
+        %{
+          "from" => %{"username" => username, "authority" => authority},
+          "public_key" => new_key
+        },
+        verified_authority
+      )
+      when is_binary(new_key) do
+    with :ok <- validate_origin(username, authority, verified_authority),
+         %User{} = remote <-
+           Repo.get_by(User, username: username, host: authority) || {:error, :unknown_recipient} do
+      cond do
+        remote.public_key == new_key ->
+          {:ok, :unchanged}
+
+        true ->
+          remote
+          |> Ecto.Changeset.change(pending_public_key: new_key)
+          |> Repo.update()
+      end
+    end
+  end
+
+  def handle_key_update(_, _), do: {:error, :bad_request}
+
+  @doc """
   Fetches the ciphertext of a remote envelope from its origin instance. The
   URL is built from the pinned sender host — never from request payloads.
   """

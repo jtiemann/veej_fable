@@ -55,7 +55,12 @@ defmodule Veejr.Messaging do
           end
 
           envelope =
-            %Envelope{sender_id: sender.id, public_id: random_id(), batch_id: batch_id}
+            %Envelope{
+              sender_id: sender.id,
+              public_id: random_id(),
+              batch_id: batch_id,
+              sender_public_key: sender.public_key
+            }
             |> Envelope.changeset(%{
               recipient_id: recipient.id,
               kind: kind,
@@ -204,7 +209,8 @@ defmodule Veejr.Messaging do
                 recipient_id: local_recipient.id,
                 kind: kind,
                 ciphertext: "",
-                nonce: ""
+                nonce: "",
+                sender_public_key: remote_sender.public_key
               })
 
             notification =
@@ -237,6 +243,20 @@ defmodule Veejr.Messaging do
       envelope -> {:ok, mark_delivered(envelope)}
     end
   end
+
+  @doc """
+  The public key an envelope's ciphertext must be opened against, for `user`
+  as the reader. Resealed envelopes use the reader's own current key; all
+  others use the sender-key snapshot taken at send time, so history stays
+  readable across key rotations.
+  """
+  def peer_key(%Envelope{resealed: true}, %User{} = user), do: user.public_key
+
+  def peer_key(%Envelope{sender_id: uid, sender_public_key: snapshot}, %User{id: uid} = user),
+    do: snapshot || user.public_key
+
+  def peer_key(%Envelope{sender_public_key: snapshot} = envelope, _user),
+    do: snapshot || envelope.sender.public_key
 
   ## Reading envelopes
 
@@ -329,6 +349,61 @@ defmodule Veejr.Messaging do
     )
     |> Repo.all()
     |> Enum.map(&Veejr.Social.Address.handle/1)
+  end
+
+  ## Key rotation support
+
+  @doc """
+  Everything the user can decrypt, in the shape the rotation hook needs to
+  re-encrypt it: ciphertext + the key it must be opened against.
+  """
+  def list_resealable(%User{} = user) do
+    for envelope <- list_history(user) do
+      %{
+        public_id: envelope.public_id,
+        kind: envelope.kind,
+        ciphertext: envelope.ciphertext,
+        nonce: envelope.nonce,
+        peer_key: peer_key(envelope, user)
+      }
+    end
+  end
+
+  @doc """
+  Replaces ciphertext with copies re-encrypted (client-side) to the user's
+  new key. Only the user's own received/self copies are touched.
+  """
+  def reseal_envelopes(%User{id: user_id}, entries) when is_list(entries) do
+    {:ok, count} =
+      Repo.transaction(fn ->
+        for entry <- entries, reduce: 0 do
+          count ->
+            public_id = entry["public_id"] || entry[:public_id]
+
+            {n, _} =
+              from(e in Envelope, where: e.public_id == ^public_id and e.recipient_id == ^user_id)
+              |> Repo.update_all(
+                set: [
+                  ciphertext: entry["ciphertext"] || entry[:ciphertext],
+                  nonce: entry["nonce"] || entry[:nonce],
+                  resealed: true
+                ]
+              )
+
+            count + n
+        end
+      end)
+
+    {:ok, count}
+  end
+
+  @doc """
+  Deletes every envelope copy addressed to the user (key reset: they are
+  undecryptable forever). Copies held by other recipients are untouched.
+  """
+  def purge_received_envelopes(%User{id: user_id}) do
+    {count, _} = from(e in Envelope, where: e.recipient_id == ^user_id) |> Repo.delete_all()
+    {:ok, count}
   end
 
   ## Blobs (encrypted attachments)

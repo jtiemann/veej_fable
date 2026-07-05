@@ -11,6 +11,10 @@ defmodule Veejr.Messaging.Envelope do
     field :ciphertext, :string
     field :nonce, :string
     field :delivered_at, :utc_datetime
+    # the sender's public key at send time — decryption survives rotation
+    field :sender_public_key, :string
+    # re-encrypted to the recipient's own key during their rotation
+    field :resealed, :boolean, default: false
 
     belongs_to :sender, Veejr.Accounts.User
     belongs_to :recipient, Veejr.Accounts.User

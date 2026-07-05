@@ -202,6 +202,24 @@ defmodule Veejr.Social do
     end
   end
 
+  @doc """
+  Confirms a remote friend's announced key change: the pinned key is swapped
+  only on this explicit human decision. Old messages remain readable — they
+  decrypt against the per-envelope sender-key snapshot.
+  """
+  def confirm_new_key(%User{} = user, friend_id) do
+    with %Friendship{status: "accepted"} <- get_friendship_between(user.id, friend_id),
+         %User{host: host, pending_public_key: pending} = friend
+         when is_binary(host) and is_binary(pending) <-
+           Repo.get(User, friend_id) do
+      friend
+      |> Ecto.Changeset.change(public_key: pending, pending_public_key: nil)
+      |> Repo.update()
+    else
+      _ -> {:error, :not_applicable}
+    end
+  end
+
   def get_friendship_between(user_a_id, user_b_id) do
     from(f in Friendship,
       where:

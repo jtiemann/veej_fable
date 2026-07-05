@@ -48,6 +48,7 @@ defmodule VeejrWeb.Router do
     post "/friend_request", FederationController, :friend_request
     post "/friend_response", FederationController, :friend_response
     post "/notify", FederationController, :notify
+    post "/key_update", FederationController, :key_update
   end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development

@@ -30,6 +30,33 @@ defmodule VeejrWeb.FriendsLive do
         <button type="submit" class="btn btn-primary">Send request</button>
       </form>
 
+      <section :if={@key_changes != []} class="mt-8">
+        <h2 class="text-lg font-semibold text-warning">⚠ Key changes need your confirmation</h2>
+        <p class="text-sm opacity-70">
+          These friends' instances announced new encryption keys (rotation or reset).
+          Confirm only if you expected this — ideally check with them directly.
+        </p>
+        <ul class="mt-2 space-y-2">
+          <li
+            :for={friend <- @key_changes}
+            class="flex items-center justify-between rounded-lg border border-warning/50 p-3"
+          >
+            <span>
+              <span class="font-medium">{friend.display_name || friend.username}</span>
+              <span class="opacity-60">{Veejr.Social.Address.handle(friend)}</span>
+            </span>
+            <button
+              phx-click="confirm_key"
+              phx-value-id={friend.id}
+              data-confirm="Accept this friend's new encryption key? Messages you send will be encrypted to it."
+              class="btn btn-warning btn-sm"
+            >
+              Accept new key
+            </button>
+          </li>
+        </ul>
+      </section>
+
       <section :if={@incoming != []} class="mt-8">
         <h2 class="text-lg font-semibold">Incoming requests</h2>
         <ul class="mt-2 space-y-2">
@@ -168,6 +195,20 @@ defmodule VeejrWeb.FriendsLive do
     {:noreply, socket |> put_flash(:info, "Friend removed.") |> refresh()}
   end
 
+  def handle_event("confirm_key", %{"id" => id}, socket) do
+    case Social.confirm_new_key(socket.assigns.current_scope.user, String.to_integer(id)) do
+      {:ok, friend} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "New key accepted for @#{friend.username}.")
+         |> refresh()}
+
+      {:error, _} ->
+        {:noreply,
+         socket |> put_flash(:error, "Nothing to confirm for that friend.") |> refresh()}
+    end
+  end
+
   defp add_local_friend(socket, username) do
     case Social.send_friend_request(socket.assigns.current_scope.user, username) do
       {:ok, %Veejr.Social.Friendship{status: "accepted"}} ->
@@ -195,9 +236,12 @@ defmodule VeejrWeb.FriendsLive do
 
   defp refresh(socket) do
     user = socket.assigns.current_scope.user
+    friends = Social.list_friends(user)
 
     assign(socket,
-      friends: Social.list_friends(user),
+      friends: friends,
+      key_changes:
+        Enum.filter(friends, &(&1.pending_public_key && &1.pending_public_key != &1.public_key)),
       incoming: Social.list_incoming_requests(user),
       outgoing: Social.list_outgoing_requests(user)
     )
