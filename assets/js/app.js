@@ -49,6 +49,19 @@ window.addEventListener("phx:veejr:notify", ({detail}) => {
   })
 })
 
+// Keep the service worker registered on every visit (needed for push
+// delivery and PWA installability, harmless otherwise).
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {})
+}
+
+// Stash the browser's install prompt so Settings can offer an Install button.
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault()
+  window.veejrInstallPrompt = e
+  window.dispatchEvent(new CustomEvent("veejr:installable"))
+})
+
 // Ask for notification permission on the first interaction after login.
 window.addEventListener(
   "click",

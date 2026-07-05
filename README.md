@@ -90,6 +90,19 @@ and retried automatically** with backoff, and **Web Push** (RFC 8291/8292,
 implemented on OTP crypto) notifies closed browsers with content-free
 payloads.
 
+### Key lifecycle, conversations, PWA
+
+- **Change your passphrase** any time (client-side re-wrap; keypair
+  unchanged), **rotate your keys** after a suspected compromise (history is
+  re-encrypted in your browser; remote friends confirm your new key before
+  it's trusted), or **reset** after a lost passphrase (received history is
+  gone — that's E2E working as intended). Envelopes remember the sender key
+  they were sealed with, so nobody's history breaks when someone rotates.
+- Messages are grouped into **conversations** by participants, with one-click
+  reply.
+- veejr is an installable **PWA**: web app manifest + service worker, install
+  button in Settings, push notifications with the app closed.
+
 A personal instance can host several people (family, a group): generate an
 invite link from Settings to admit someone despite closed registration.
 

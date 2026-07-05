@@ -30,6 +30,28 @@ all.
   independent: compromising the account (e.g. email takeover) does not reveal
   content.
 
+### Key lifecycle
+
+Envelopes store a **snapshot of the sender's public key at send time**
+(`sender_public_key`), so decryption is immune to later rotations — you can
+always open history against the key it was actually sealed with.
+
+- **Passphrase change** (Keys page): the secret key is unwrapped and
+  re-wrapped client-side under the new passphrase. Keypair unchanged; nothing
+  else in the system notices.
+- **Key rotation** (suspected compromise): the browser decrypts the entire
+  history with the old key, generates a fresh keypair, and re-encrypts every
+  envelope to it (`resealed: true` — such envelopes open against the owner's
+  *current* key). The server swaps keys and ciphertext in one transaction,
+  then announces the new key to every instance hosting a friend.
+- **Key reset** (lost passphrase): fresh keypair; received history is
+  *deleted* — it is undecryptable forever, which is the promise working as
+  intended. Sent copies held by friends are untouched.
+- **Re-pin confirmation**: instances receiving a (signed) `key_update` hold
+  the new key as `pending_public_key`. A human must accept it on the Friends
+  page before outgoing messages encrypt to it — a key change is never applied
+  silently.
+
 ### Envelopes
 
 Sending anything (message / location / note) to N recipients produces N+1
@@ -126,7 +148,10 @@ Leaving an instance is a supported, tested flow:
   payloads, by design).
 - `mix veejr.import export.zip` restores the account on a fresh (typically
   personal) instance: owner recreated and confirmed, envelopes with original
-  ids/timestamps, received items pre-`accepted`, blobs rewritten to disk.
+  ids/timestamps (sender-key snapshots preserved), received items
+  pre-`accepted`, blobs rewritten to disk. It then **reconnects friendships
+  over federation**: every exported friend gets a normal friend request from
+  the new home, reported per-friend (sent / unreachable / unknown).
   Senders of received envelopes become **ghost contacts**: local user rows
   with only a username + public key, on a reserved `.invalid` email domain so
   they can never log in. Ghosts keep old ciphertext decryptable and are the

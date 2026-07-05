@@ -1,0 +1,17 @@
+{
+  "name": "veejr",
+  "short_name": "veejr",
+  "description": "Private, end-to-end encrypted sharing with the people you choose.",
+  "start_url": "/messages",
+  "display": "standalone",
+  "background_color": "#1d232a",
+  "theme_color": "#1d232a",
+  "icons": [
+    {
+      "src": "/images/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

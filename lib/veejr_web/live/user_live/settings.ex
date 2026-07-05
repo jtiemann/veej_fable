@@ -81,6 +81,14 @@ defmodule VeejrWeb.UserLive.Settings do
         <button type="button" data-role="push-enable" class="btn btn-outline btn-sm mt-3">
           Enable push on this device
         </button>
+        <button
+          id="install-app"
+          phx-hook="InstallApp"
+          type="button"
+          class="btn btn-outline btn-sm mt-3 ml-2 hidden"
+        >
+          📱 Install veejr as an app
+        </button>
         <p data-role="push-status" class="mt-2 text-sm opacity-70"></p>
       </section>
 
