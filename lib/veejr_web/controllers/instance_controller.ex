@@ -19,7 +19,8 @@ defmodule VeejrWeb.InstanceController do
       name: Veejr.instance_name(),
       host: Veejr.instance_authority(),
       mode: Veejr.instance_mode(),
-      registration_open: Veejr.registration_open?()
+      registration_open: Veejr.registration_open?(),
+      public_key: Veejr.Federation.Identity.signing_public_key()
     })
   end
 

@@ -110,9 +110,9 @@ defmodule Veejr.FederationTest do
         "to" => "alice"
       }
 
-      assert {:ok, _} = Federation.handle_friend_request(params)
+      assert {:ok, _} = Federation.handle_friend_request(params, @remote_host)
       # idempotent
-      assert {:ok, _} = Federation.handle_friend_request(params)
+      assert {:ok, _} = Federation.handle_friend_request(params, @remote_host)
 
       assert [request] = Social.list_incoming_requests(alice)
       assert request.requester.host == @remote_host
@@ -125,10 +125,13 @@ defmodule Veejr.FederationTest do
 
     test "claims of being local are refused before any callback" do
       assert {:error, :bad_request} =
-               Federation.handle_friend_request(%{
-                 "from" => %{"username" => "mallory", "authority" => Veejr.instance_authority()},
-                 "to" => "alice"
-               })
+               Federation.handle_friend_request(
+                 %{
+                   "from" => %{"username" => "mallory", "authority" => Veejr.instance_authority()},
+                   "to" => "alice"
+                 },
+                 Veejr.instance_authority()
+               )
     end
 
     test "notify from a non-friend is rejected" do
@@ -136,12 +139,15 @@ defmodule Veejr.FederationTest do
       stub_remote_instance()
 
       assert {:error, :not_friends} =
-               Federation.handle_notify(%{
-                 "from" => %{"username" => "carol", "authority" => @remote_host},
-                 "to" => "alice",
-                 "kind" => "message",
-                 "public_id" => "spam123"
-               })
+               Federation.handle_notify(
+                 %{
+                   "from" => %{"username" => "carol", "authority" => @remote_host},
+                   "to" => "alice",
+                   "kind" => "message",
+                   "public_id" => "spam123"
+                 },
+                 @remote_host
+               )
 
       assert Repo.aggregate(Veejr.Messaging.Envelope, :count) == 0
     end
@@ -153,10 +159,13 @@ defmodule Veejr.FederationTest do
       stub_remote_instance()
 
       {:ok, _} =
-        Federation.handle_friend_request(%{
-          "from" => %{"username" => "carol", "authority" => @remote_host},
-          "to" => "alice"
-        })
+        Federation.handle_friend_request(
+          %{
+            "from" => %{"username" => "carol", "authority" => @remote_host},
+            "to" => "alice"
+          },
+          @remote_host
+        )
 
       [request] = Social.list_incoming_requests(alice)
       {:ok, fr} = Social.accept_friend_request(alice, request.id)
@@ -165,21 +174,27 @@ defmodule Veejr.FederationTest do
 
     test "incoming notify stores a content-free stub until accepted", %{alice: alice} do
       assert {:ok, :created} =
-               Federation.handle_notify(%{
-                 "from" => %{"username" => "carol", "authority" => @remote_host},
-                 "to" => "alice",
-                 "kind" => "message",
-                 "public_id" => "remote-env-1"
-               })
+               Federation.handle_notify(
+                 %{
+                   "from" => %{"username" => "carol", "authority" => @remote_host},
+                   "to" => "alice",
+                   "kind" => "message",
+                   "public_id" => "remote-env-1"
+                 },
+                 @remote_host
+               )
 
       # duplicate deliveries are absorbed
       assert {:ok, :duplicate} =
-               Federation.handle_notify(%{
-                 "from" => %{"username" => "carol", "authority" => @remote_host},
-                 "to" => "alice",
-                 "kind" => "message",
-                 "public_id" => "remote-env-1"
-               })
+               Federation.handle_notify(
+                 %{
+                   "from" => %{"username" => "carol", "authority" => @remote_host},
+                   "to" => "alice",
+                   "kind" => "message",
+                   "public_id" => "remote-env-1"
+                 },
+                 @remote_host
+               )
 
       assert [notification] = Messaging.list_pending_notifications(alice)
       assert notification.envelope.ciphertext == ""

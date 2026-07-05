@@ -91,15 +91,19 @@ defmodule Veejr.Federation do
 
   def deliver_friend_response(%User{host: nil} = from, %User{host: authority} = to, action)
       when is_binary(authority) and action in ["accepted", "declined"] do
-    post(authority, "/api/federation/friend_response", %{
+    Veejr.Federation.Outbox.deliver(authority, "/api/federation/friend_response", %{
       from: %{username: from.username, authority: Veejr.instance_authority()},
       to: to.username,
       action: action
     })
   end
 
+  @doc """
+  Announces an envelope to a remote recipient's instance. Unreachable peers
+  get the notify parked in the outbox and retried automatically.
+  """
   def deliver_notify(envelope, %User{host: authority} = recipient) when is_binary(authority) do
-    post(authority, "/api/federation/notify", %{
+    Veejr.Federation.Outbox.deliver(authority, "/api/federation/notify", %{
       from: %{username: envelope.sender.username, authority: Veejr.instance_authority()},
       to: recipient.username,
       kind: envelope.kind,
@@ -134,13 +138,20 @@ defmodule Veejr.Federation do
   end
 
   ## Incoming handlers (called by FederationController)
+  #
+  # `verified_authority` is the peer whose signature the FederationAuth plug
+  # checked. Payload origin claims must match it — a signed request from B
+  # cannot speak for users of C.
 
-  def handle_friend_request(%{
-        "from" => %{"username" => username, "authority" => authority},
-        "to" => to
-      })
+  def handle_friend_request(
+        %{
+          "from" => %{"username" => username, "authority" => authority},
+          "to" => to
+        },
+        verified_authority
+      )
       when is_binary(username) and is_binary(authority) and is_binary(to) do
-    with :ok <- validate_remote_address(username, authority),
+    with :ok <- validate_origin(username, authority, verified_authority),
          {:ok, remote} <- ensure_remote_user(username, authority),
          %User{host: nil} = local <-
            Veejr.Accounts.get_user_by_username(to) || {:error, :unknown_recipient} do
@@ -148,15 +159,18 @@ defmodule Veejr.Federation do
     end
   end
 
-  def handle_friend_request(_), do: {:error, :bad_request}
+  def handle_friend_request(_, _), do: {:error, :bad_request}
 
-  def handle_friend_response(%{
-        "from" => %{"username" => username, "authority" => authority},
-        "to" => to,
-        "action" => action
-      })
+  def handle_friend_response(
+        %{
+          "from" => %{"username" => username, "authority" => authority},
+          "to" => to,
+          "action" => action
+        },
+        verified_authority
+      )
       when action in ["accepted", "declined"] do
-    with :ok <- validate_remote_address(username, authority),
+    with :ok <- validate_origin(username, authority, verified_authority),
          {:ok, remote} <- ensure_remote_user(username, authority),
          %User{host: nil} = local <-
            Veejr.Accounts.get_user_by_username(to) || {:error, :unknown_recipient} do
@@ -164,16 +178,19 @@ defmodule Veejr.Federation do
     end
   end
 
-  def handle_friend_response(_), do: {:error, :bad_request}
+  def handle_friend_response(_, _), do: {:error, :bad_request}
 
-  def handle_notify(%{
-        "from" => %{"username" => username, "authority" => authority},
-        "to" => to,
-        "kind" => kind,
-        "public_id" => public_id
-      })
+  def handle_notify(
+        %{
+          "from" => %{"username" => username, "authority" => authority},
+          "to" => to,
+          "kind" => kind,
+          "public_id" => public_id
+        },
+        verified_authority
+      )
       when is_binary(public_id) do
-    with :ok <- validate_remote_address(username, authority),
+    with :ok <- validate_origin(username, authority, verified_authority),
          {:ok, remote} <- ensure_remote_user(username, authority),
          %User{host: nil} = local <-
            Veejr.Accounts.get_user_by_username(to) || {:error, :unknown_recipient},
@@ -182,13 +199,16 @@ defmodule Veejr.Federation do
     end
   end
 
-  def handle_notify(_), do: {:error, :bad_request}
+  def handle_notify(_, _), do: {:error, :bad_request}
 
-  # Refuse claims of being local (loopback through federation) and obviously
-  # malformed addresses before making any outbound call.
-  defp validate_remote_address(username, authority) do
-    case Address.parse("#{username}@#{authority}") do
-      {:remote, _, _} -> :ok
+  # The claimed origin must be a well-formed remote address AND the same
+  # authority whose signature was verified on this request.
+  defp validate_origin(username, authority, verified_authority) do
+    with true <- authority == verified_authority || {:error, :origin_mismatch},
+         {:remote, _, _} <- Address.parse("#{username}@#{authority}") do
+      :ok
+    else
+      {:error, :origin_mismatch} -> {:error, :origin_mismatch}
       _ -> {:error, :bad_request}
     end
   end

@@ -27,6 +27,9 @@ defmodule Veejr.Messaging do
       topic(notification.user_id),
       {:veejr_notification, notification}
     )
+
+    # closed-tab devices: content-free Web Push
+    Veejr.Push.notify_async(notification)
   end
 
   ## Sending
@@ -88,14 +91,14 @@ defmodule Veejr.Messaging do
         broadcast_notification(Repo.preload(notification, envelope: [:sender]))
       end
 
-      failures =
+      queued =
         for {envelope, {:remote, recipient}} <- pairs,
             envelope = Repo.preload(envelope, :sender),
-            {:error, _} <- [Veejr.Federation.deliver_notify(envelope, recipient)] do
+            {:queued, _} <- [Veejr.Federation.deliver_notify(envelope, recipient)] do
           Veejr.Social.Address.handle(recipient)
         end
 
-      {:ok, batch_id, failures}
+      {:ok, batch_id, queued}
     end
   end
 

@@ -17,6 +17,11 @@ defmodule VeejrWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :federation do
+    plug :accepts, ["json"]
+    plug VeejrWeb.FederationAuth
+  end
+
   scope "/", VeejrWeb do
     pipe_through :browser
 
@@ -31,12 +36,18 @@ defmodule VeejrWeb.Router do
     get "/instance", InstanceController, :instance
     get "/directory/:username", InstanceController, :directory
 
-    # Federation: instance-to-instance. Origin claims are verified by
-    # callback; the envelope endpoint is a capability URL.
+    # Capability URL: the unguessable id (delivered only to the recipient's
+    # instance) is the credential, and the content is E2E ciphertext.
     get "/envelopes/:public_id", FederationController, :envelope
-    post "/federation/friend_request", FederationController, :friend_request
-    post "/federation/friend_response", FederationController, :friend_response
-    post "/federation/notify", FederationController, :notify
+  end
+
+  # Instance-to-instance writes require a valid signature from a pinned peer.
+  scope "/api/federation", VeejrWeb do
+    pipe_through :federation
+
+    post "/friend_request", FederationController, :friend_request
+    post "/friend_response", FederationController, :friend_response
+    post "/notify", FederationController, :notify
   end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
@@ -85,6 +96,8 @@ defmodule VeejrWeb.Router do
     post "/blobs", BlobController, :create
     get "/blobs/:id", BlobController, :show
     get "/export", ExportController, :download
+    post "/push/subscriptions", PushController, :create
+    delete "/push/subscriptions", PushController, :delete
   end
 
   scope "/", VeejrWeb do

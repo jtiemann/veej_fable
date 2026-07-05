@@ -116,13 +116,13 @@ defmodule VeejrWeb.MessagesLive do
       {:ok, _batch_id, []} ->
         {:reply, %{ok: true}, socket |> put_flash(:info, "Encrypted and sent.") |> refresh()}
 
-      {:ok, _batch_id, failures} ->
+      {:ok, _batch_id, queued} ->
         {:reply, %{ok: true},
          socket
          |> put_flash(
-           :error,
-           "Sent, but #{Enum.join(failures, ", ")} could not be notified (instance unreachable). " <>
-             "The encrypted copy is stored here — resend to them once their instance is back."
+           :info,
+           "Encrypted and sent. #{Enum.join(queued, ", ")}: instance unreachable right now — " <>
+             "the notification is queued and will be retried automatically."
          )
          |> refresh()}
 

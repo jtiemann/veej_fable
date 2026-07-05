@@ -188,20 +188,52 @@ Notifies to unreachable instances are reported to the sender ("could not be
 notified — resend later"); the envelope stays safely at home. Duplicate
 notifies are absorbed by the envelope `public_id` uniqueness.
 
-### Trust model (and its current limits)
+### Trust model
 
-- **Callback verification**: incoming requests claim an origin; the receiver
-  never trusts payload identity. It fetches `/api/directory/:username` from
-  the *claimed* authority itself and pins that key. Impersonating `alice@A`
-  requires controlling A (or its DNS/TLS), not just sending requests.
+- **Signed requests**: every instance has an Ed25519 signing keypair
+  (generated on first use, published via `/api/instance`). Federation POSTs
+  carry `x-veejr-authority` / `x-veejr-timestamp` / `x-veejr-signature`
+  headers; the signature covers the path, the timestamp (±5 min window), and
+  a SHA-256 of the raw body, so a signature can't be replayed onto a
+  different endpoint or payload. `VeejrWeb.FederationAuth` verifies against
+  the sender's **pinned instance key** (trust-on-first-use via the `peers`
+  table); a peer later presenting a different key is rejected outright.
+- **Origin binding**: handlers only accept payload origin claims that match
+  the authority whose signature was verified — a signed request from B can
+  never speak for users of C.
+- **User-key pinning**: user public keys are still resolved from the claimed
+  instance's directory and pinned; a changed key is a hard error
+  (`key_changed`), never a silent swap.
 - **Constructed URLs**: envelope fetches go to a URL built from the pinned
   sender host + public id — URLs in payloads are never followed (no SSRF).
-- **Key pinning**: a directory later reporting a different key is a hard
-  error (`key_changed`), never a silent swap.
 - **Spam control**: `notify` requires an accepted friendship.
 - Loopback authorities use http (dev); everything else https.
-- **Next hardening step**: per-instance signing keys on federation POSTs,
-  which would also remove the callback round-trips.
+
+### Delivery reliability
+
+Notifies and friend responses go through `Veejr.Federation.Outbox`: tried
+immediately, and parked in `outbound_deliveries` if the peer is unreachable.
+A supervised worker retries with exponential backoff (30s doubling, capped at
+6h) for up to ~a week; definitive rejections (4xx) are dropped rather than
+retried. The sender sees "queued, will be retried automatically", and the
+envelope itself is never at risk — it lives on the sender's instance
+regardless. Friend *requests* stay synchronous on purpose: the sender should
+know immediately whether the address worked.
+
+### Web Push
+
+Closed-tab notifications via the Push API, implemented directly on OTP
+`:crypto` (no extra dependencies):
+
+- payload encryption per **RFC 8291** (`aes128gcm`), unit-tested byte-for-byte
+  against the RFC's Appendix A test vector
+- **VAPID** (RFC 8292) ES256 JWTs signed with a per-instance P-256 key
+- per-device subscriptions (Settings → "Enable push on this device"),
+  pruned automatically when the push service reports them gone (404/410)
+
+Push payloads carry only what the in-app notification shows — sender handle
+and kind — and are encrypted to the browser anyway, so the push relay
+(Google/Mozilla/Apple) learns nothing.
 
 ### Multi-user instances
 

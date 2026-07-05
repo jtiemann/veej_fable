@@ -14,8 +14,9 @@ defmodule Veejr.Application do
        repos: Application.fetch_env!(:veejr, :ecto_repos), skip: skip_migrations?()},
       {DNSCluster, query: Application.get_env(:veejr, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Veejr.PubSub},
-      # Start a worker by calling: Veejr.Worker.start_link(arg)
-      # {Veejr.Worker, arg},
+      # Retries federation deliveries to unreachable instances.
+      {Veejr.Federation.Outbox, []},
+      {Task.Supervisor, name: Veejr.TaskSupervisor},
       # Start to serve requests, typically the last entry
       VeejrWeb.Endpoint
     ]

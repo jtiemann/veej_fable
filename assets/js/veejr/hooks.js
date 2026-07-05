@@ -122,6 +122,62 @@ export const KeyUnlock = {
   },
 }
 
+// Web Push opt-in for this device: permission → service worker → subscribe
+// with the instance's VAPID key → register the subscription server-side.
+export const PushSetup = {
+  mounted() {
+    const el = this.el
+    const btn = el.querySelector("[data-role=push-enable]")
+    const status = el.querySelector("[data-role=push-status]")
+    const say = (msg) => status && (status.textContent = msg)
+
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      btn.disabled = true
+      say("Push is not supported in this browser.")
+      return
+    }
+
+    btn.addEventListener("click", async () => {
+      btn.disabled = true
+      try {
+        const permission = await Notification.requestPermission()
+        if (permission !== "granted") throw new Error("notification permission was not granted")
+
+        say("Registering service worker…")
+        const registration = await navigator.serviceWorker.register("/sw.js")
+        await navigator.serviceWorker.ready
+
+        say("Subscribing…")
+        const subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlB64ToBytes(el.dataset.vapidKey),
+        })
+
+        const resp = await fetch("/push/subscriptions", {
+          method: "POST",
+          headers: {"content-type": "application/json", "x-csrf-token": csrfToken()},
+          body: JSON.stringify(subscription.toJSON()),
+        })
+        if (!resp.ok) throw new Error(`server refused the subscription (${resp.status})`)
+
+        say("✅ Push notifications are enabled on this device.")
+      } catch (err) {
+        say(`Could not enable push: ${err.message}`)
+        btn.disabled = false
+      }
+    })
+  },
+}
+
+function urlB64ToBytes(b64url) {
+  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/")
+  const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4)
+  const bin = atob(padded)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return bytes
+}
+
 // Lock button: drop the cached secret key for this session.
 export const KeyLock = {
   mounted() {
@@ -305,4 +361,4 @@ export const Decrypt = {
 
 import VeejrMap from "./map_hook.js"
 
-export default {KeySetup, KeyUnlock, KeyLock, Composer, Decrypt, VeejrMap}
+export default {KeySetup, KeyUnlock, KeyLock, PushSetup, Composer, Decrypt, VeejrMap}

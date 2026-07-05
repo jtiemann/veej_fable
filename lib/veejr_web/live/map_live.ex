@@ -101,12 +101,12 @@ defmodule VeejrWeb.MapLive do
         {:reply, %{ok: true},
          put_flash(socket, :info, "Shared. It will appear on the map after a refresh.")}
 
-      {:ok, _batch_id, failures} ->
+      {:ok, _batch_id, queued} ->
         {:reply, %{ok: true},
          put_flash(
            socket,
-           :error,
-           "Shared, but #{Enum.join(failures, ", ")} could not be notified (instance unreachable)."
+           :info,
+           "Shared. #{Enum.join(queued, ", ")}: instance unreachable — notification queued for retry."
          )}
 
       {:error, _} ->

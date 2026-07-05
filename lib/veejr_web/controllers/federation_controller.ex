@@ -8,11 +8,14 @@ defmodule VeejrWeb.FederationController do
 
   alias Veejr.{Federation, Messaging}
 
-  def friend_request(conn, params), do: respond(conn, Federation.handle_friend_request(params))
+  def friend_request(conn, params),
+    do: respond(conn, Federation.handle_friend_request(params, conn.assigns.federation_peer))
 
-  def friend_response(conn, params), do: respond(conn, Federation.handle_friend_response(params))
+  def friend_response(conn, params),
+    do: respond(conn, Federation.handle_friend_response(params, conn.assigns.federation_peer))
 
-  def notify(conn, params), do: respond(conn, Federation.handle_notify(params))
+  def notify(conn, params),
+    do: respond(conn, Federation.handle_notify(params, conn.assigns.federation_peer))
 
   # Capability fetch: the recipient's instance retrieves ciphertext after the
   # recipient accepted. Only envelopes addressed to remote users are served.
@@ -31,6 +34,7 @@ defmodule VeejrWeb.FederationController do
       {:ok, _} -> json(conn, %{ok: true})
       {:error, :unknown_recipient} -> error(conn, :not_found, "unknown recipient")
       {:error, :not_friends} -> error(conn, :forbidden, "not friends")
+      {:error, :origin_mismatch} -> error(conn, :forbidden, "origin does not match signature")
       {:error, :key_changed} -> error(conn, :conflict, "pinned key mismatch")
       {:error, :bad_request} -> error(conn, :bad_request, "malformed request")
       {:error, {:unreachable, _}} -> error(conn, :bad_gateway, "could not verify origin")

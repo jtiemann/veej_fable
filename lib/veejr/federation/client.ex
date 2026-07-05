@@ -19,8 +19,23 @@ defmodule Veejr.Federation.Client do
     end
   end
 
+  @doc """
+  Signed federation POST: the JSON body is encoded once, and the signature
+  covers path, timestamp, and a hash of those exact bytes.
+  """
   def post_json(authority, path, payload) do
-    case Req.post(req(authority), url: path, json: payload) do
+    body = Jason.encode!(payload)
+    timestamp = Integer.to_string(System.system_time(:second))
+    signature = Veejr.Federation.Identity.sign_request(path, timestamp, body)
+
+    headers = [
+      {"content-type", "application/json"},
+      {"x-veejr-authority", Veejr.instance_authority()},
+      {"x-veejr-timestamp", timestamp},
+      {"x-veejr-signature", signature}
+    ]
+
+    case Req.post(req(authority), url: path, body: body, headers: headers) do
       {:ok, %Req.Response{status: status, body: body}} when status in 200..299 -> {:ok, body}
       {:ok, %Req.Response{status: status}} -> {:error, {:http, status}}
       {:error, exception} -> {:error, {:unreachable, Exception.message(exception)}}

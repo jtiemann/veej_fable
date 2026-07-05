@@ -84,6 +84,12 @@ notes flow between instances with the same pull-based rule: the encrypted
 envelope stays on the sender's server until the recipient explicitly
 requests it. Declined messages never leave home at all.
 
+Instance-to-instance requests are **Ed25519-signed** with per-instance keys
+pinned on first contact, deliveries to unreachable instances are **queued
+and retried automatically** with backoff, and **Web Push** (RFC 8291/8292,
+implemented on OTP crypto) notifies closed browsers with content-free
+payloads.
+
 A personal instance can host several people (family, a group): generate an
 invite link from Settings to admit someone despite closed registration.
 

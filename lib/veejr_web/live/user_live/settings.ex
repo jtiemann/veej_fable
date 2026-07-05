@@ -68,6 +68,24 @@ defmodule VeejrWeb.UserLive.Settings do
 
       <div class="divider" />
 
+      <section id="push-setup" phx-hook="PushSetup" data-vapid-key={@vapid_key}>
+        <h2 class="text-lg font-semibold">Push notifications</h2>
+        <p class="mt-1 text-sm opacity-70">
+          Get notified on this device even when veejr isn't open. Pushes carry only
+          who sent something and what kind — never the content, which stays put until
+          you request it.
+          <span :if={@push_devices > 0}>
+            Currently enabled on {@push_devices} device{if @push_devices != 1, do: "s"}.
+          </span>
+        </p>
+        <button type="button" data-role="push-enable" class="btn btn-outline btn-sm mt-3">
+          Enable push on this device
+        </button>
+        <p data-role="push-status" class="mt-2 text-sm opacity-70"></p>
+      </section>
+
+      <div class="divider" />
+
       <section>
         <h2 class="text-lg font-semibold">Your data</h2>
         <p class="mt-1 text-sm opacity-70">
@@ -142,6 +160,8 @@ defmodule VeejrWeb.UserLive.Settings do
       |> assign(:password_form, to_form(password_changeset))
       |> assign(:trigger_submit, false)
       |> assign(:invite_url, nil)
+      |> assign(:vapid_key, Veejr.Push.WebPush.vapid_public_key())
+      |> assign(:push_devices, Veejr.Push.subscription_count(user))
 
     {:ok, socket}
   end
