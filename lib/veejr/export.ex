@@ -37,7 +37,7 @@ defmodule Veejr.Export do
     manifest = %{
       veejr_export: @format_version,
       exported_at: DateTime.utc_now() |> DateTime.to_iso8601(),
-      instance: %{host: Veejr.instance_host(), version: Veejr.version()},
+      instance: %{host: Veejr.instance_authority(), version: Veejr.version()},
       profile: %{
         email: user.email,
         username: user.username,
@@ -72,7 +72,7 @@ defmodule Veejr.Export do
         username: friend.username,
         display_name: friend.display_name,
         public_key: friend.public_key,
-        host: Veejr.instance_host()
+        host: friend.host || Veejr.instance_authority()
       }
     end
   end
@@ -102,7 +102,8 @@ defmodule Veejr.Export do
         sender: %{
           username: envelope.sender.username,
           display_name: envelope.sender.display_name,
-          public_key: envelope.sender.public_key
+          public_key: envelope.sender.public_key,
+          host: envelope.sender.host || Veejr.instance_authority()
         },
         recipients: recipients
       }

@@ -136,30 +136,79 @@ Leaving an instance is a supported, tested flow:
   *sent*. That is deliberate: the sender owns the data, and deletion
   withdraws it from recipients.
 
-## Federation groundwork (implemented) and roadmap
+## Federation (implemented)
 
-Already in place:
+Instances are peers — the community server and a personal instance speak the
+same protocol, and neither has a special role. An instance is identified by
+its **authority** (`veejr.example.com`, `localhost:4001`), and people by
+`username@authority`.
 
-- **Addressing**: `Veejr.Social.Address` parses `username` / `username@host`;
-  the friends page accepts full addresses and refuses foreign hosts with a
-  clear message until delivery exists.
-- **Public instance API**: `GET /api/instance` (software, version, mode,
-  host, registration_open) and `GET /api/directory/:username` (public-key
-  discovery). These are the endpoints a sending instance will hit first.
+### Remote contacts
 
-The remaining design, enabled by envelopes having URL-safe `public_id`s:
+A remote person is an ordinary row in `users` with `host` set to their home
+authority and their public key pinned. Because they are regular user rows,
+friendships, groups, envelope addressing, and client-side encryption all work
+on them **unchanged** — the composer encrypts to a remote friend exactly as
+to a local one. Remote users can never log in (no credentials, `.invalid`
+email) and local lookups (login, the public directory) explicitly exclude
+them.
 
-1. Friend graph learns remote contacts (ghost contacts generalized: username,
-   host, pinned public key).
-2. A sender's instance stores the envelopes (data stays home) and POSTs a
-   signed, content-free notification to the recipient's instance:
-   `{from, kind, envelope_url}`.
-3. The recipient accepts → their browser fetches the ciphertext **from the
-   sender's instance** and decrypts locally. Declined? The data never left
-   the sender's server — the strongest possible reading of "no data is sent
-   unless the receiver has requested it".
-4. Keys resolved via the already-live `/api/directory/:username`, pinned on
-   first use.
+### Protocol
+
+All under `/api` (JSON, unauthenticated — see trust model):
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /instance` | who this server is |
+| `GET /directory/:username` | public-key discovery for local users |
+| `POST /federation/friend_request` | `{from: {username, authority}, to}` |
+| `POST /federation/friend_response` | accept/decline of a request we sent |
+| `POST /federation/notify` | content-free announce: `{from, to, kind, public_id}` |
+| `GET /envelopes/:public_id` | capability fetch of ciphertext |
+
+**Friendship**: A creates a pending friendship + remote-user row, POSTs
+`friend_request` to B (rolled back if unreachable). B mirrors it; when the
+addressee accepts, B POSTs `friend_response` back and both sides converge on
+`accepted`.
+
+**Delivery** stays pull-based across instances, in the strongest sense:
+
+```
+alice@A sends to carol@B:
+  A: envelope stored locally (ciphertext never leaves yet)
+  A → B: POST notify {from, to, kind, public_id}          (content-free)
+  B: stub envelope (empty ciphertext) + pending notification → live badge
+  carol clicks "Request it":
+  B → A: GET /api/envelopes/:public_id                    (capability URL)
+  B: stub filled, carol's browser decrypts with alice's pinned key
+  carol declines → the ciphertext never left A at all
+```
+
+Notifies to unreachable instances are reported to the sender ("could not be
+notified — resend later"); the envelope stays safely at home. Duplicate
+notifies are absorbed by the envelope `public_id` uniqueness.
+
+### Trust model (and its current limits)
+
+- **Callback verification**: incoming requests claim an origin; the receiver
+  never trusts payload identity. It fetches `/api/directory/:username` from
+  the *claimed* authority itself and pins that key. Impersonating `alice@A`
+  requires controlling A (or its DNS/TLS), not just sending requests.
+- **Constructed URLs**: envelope fetches go to a URL built from the pinned
+  sender host + public id — URLs in payloads are never followed (no SSRF).
+- **Key pinning**: a directory later reporting a different key is a hard
+  error (`key_changed`), never a silent swap.
+- **Spam control**: `notify` requires an accepted friendship.
+- Loopback authorities use http (dev); everything else https.
+- **Next hardening step**: per-instance signing keys on federation POSTs,
+  which would also remove the callback round-trips.
+
+### Multi-user instances
+
+A personal instance can host more than one person: any existing user can
+generate a signed **invite link** (Settings, 7-day expiry) that admits one
+registration despite closed registration. A family server federating with
+friends' servers and the community server is the intended shape.
 
 ## Notification transport roadmap
 

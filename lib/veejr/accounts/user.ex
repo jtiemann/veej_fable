@@ -12,6 +12,12 @@ defmodule Veejr.Accounts.User do
     field :username, :string
     field :display_name, :string
 
+    # nil for local accounts; a remote user's home-instance authority
+    # (e.g. "veejr.example.com", "localhost:4001") otherwise. Remote users
+    # never log in here — they exist so friendships and envelopes can
+    # reference them and so their pinned public key is at hand.
+    field :host, :string
+
     # E2E key material: the secret key is encrypted in the browser with a
     # passphrase-derived key before upload. The server cannot decrypt it.
     field :public_key, :string
@@ -34,8 +40,21 @@ defmodule Veejr.Accounts.User do
       message: "must be 3-30 characters: lowercase letters, digits, underscore"
     )
     |> validate_length(:display_name, max: 80)
-    |> unsafe_validate_unique(:username, Veejr.Repo)
-    |> unique_constraint(:username)
+    |> validate_username_available()
+    |> unique_constraint(:username, name: :users_username_host_index)
+  end
+
+  # Registration creates local users (host: nil); uniqueness is per-host, so
+  # check availability among local users explicitly rather than via
+  # unsafe_validate_unique (which can't express the nil-host scope).
+  defp validate_username_available(changeset) do
+    username = get_change(changeset, :username)
+
+    if username && Veejr.Accounts.get_user_by_username(username) do
+      add_error(changeset, :username, "has already been taken")
+    else
+      changeset
+    end
   end
 
   @doc """

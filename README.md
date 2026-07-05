@@ -76,10 +76,28 @@ flow:
 3. **Delete** — Settings → danger zone removes your community-server account
    and withdraws every message you ever sent. Sender owns the data.
 
-Every instance also speaks a small public API — the seed of federation:
-`GET /api/instance` (who this server is) and `GET /api/directory/:username`
-(public-key discovery). Friend requests already accept `user@host` addresses;
-cross-instance requests are politely refused until federation ships.
+### Federation
+
+Instances talk to each other — the community server is just another peer.
+Add a friend as `carol@her-server.example`, and messages, locations, and
+notes flow between instances with the same pull-based rule: the encrypted
+envelope stays on the sender's server until the recipient explicitly
+requests it. Declined messages never leave home at all.
+
+A personal instance can host several people (family, a group): generate an
+invite link from Settings to admit someone despite closed registration.
+
+Try it locally with two instances:
+
+```sh
+mix phx.server                                        # instance A on :4000
+PORT=4001 VEEJR_DB=veejr_dev2.db mix ecto.setup       # one-time DB for B
+PORT=4001 VEEJR_DB=veejr_dev2.db mix phx.server       # instance B on :4001
+```
+
+Register on both, then friend `someone@localhost:4001` from instance A. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the protocol and trust
+model.
 
 ## Security model in one paragraph
 

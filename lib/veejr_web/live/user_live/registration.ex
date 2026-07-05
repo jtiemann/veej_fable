@@ -59,15 +59,18 @@ defmodule VeejrWeb.UserLive.Registration do
     {:ok, redirect(socket, to: VeejrWeb.UserAuth.signed_in_path(socket))}
   end
 
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
     changeset = Accounts.change_user_registration(%User{}, %{}, validate_unique: false)
 
-    {:ok, assign_form(socket, changeset), temporary_assigns: [form: nil]}
+    {:ok,
+     socket
+     |> assign(:invite, params["invite"])
+     |> assign_form(changeset), temporary_assigns: [form: nil]}
   end
 
   @impl true
   def handle_event("save", %{"user" => user_params}, socket) do
-    case Accounts.register_user(user_params) do
+    case Accounts.register_user(user_params, socket.assigns.invite) do
       {:ok, user} ->
         {:ok, _} =
           Accounts.deliver_login_instructions(

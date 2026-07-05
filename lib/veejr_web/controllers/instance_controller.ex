@@ -17,7 +17,7 @@ defmodule VeejrWeb.InstanceController do
       software: "veejr",
       version: Veejr.version(),
       name: Veejr.instance_name(),
-      host: Veejr.instance_host(),
+      host: Veejr.instance_authority(),
       mode: Veejr.instance_mode(),
       registration_open: Veejr.registration_open?()
     })
@@ -30,7 +30,7 @@ defmodule VeejrWeb.InstanceController do
           username: user.username,
           display_name: user.display_name,
           public_key: public_key,
-          host: Veejr.instance_host()
+          host: Veejr.instance_authority()
         })
 
       _ ->

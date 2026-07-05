@@ -28,7 +28,9 @@ defmodule VeejrWeb.MessagesLive do
           >
             <span>
               {kind_icon(notif.envelope.kind)}
-              <span class="font-medium">@{notif.envelope.sender.username}</span>
+              <span class="font-medium">
+                {Veejr.Social.Address.handle(notif.envelope.sender)}
+              </span>
               sent you an encrypted {notif.envelope.kind}
               <span class="opacity-60 text-sm">
                 · {Calendar.strftime(notif.inserted_at, "%b %d, %H:%M")} UTC
@@ -86,6 +88,14 @@ defmodule VeejrWeb.MessagesLive do
       {:ok, _} ->
         {:noreply, refresh(socket)}
 
+      {:error, :origin_unreachable} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "The sender's instance is unreachable right now — try again later."
+         )}
+
       {:error, _} ->
         {:noreply, socket |> put_flash(:error, "Notification not found.") |> refresh()}
     end
@@ -103,8 +113,18 @@ defmodule VeejrWeb.MessagesLive do
 
   def handle_event("send_batch", %{"kind" => kind, "envelopes" => envelopes}, socket) do
     case Messaging.send_batch(socket.assigns.current_scope.user, kind, envelopes) do
-      {:ok, _batch_id} ->
+      {:ok, _batch_id, []} ->
         {:reply, %{ok: true}, socket |> put_flash(:info, "Encrypted and sent.") |> refresh()}
+
+      {:ok, _batch_id, failures} ->
+        {:reply, %{ok: true},
+         socket
+         |> put_flash(
+           :error,
+           "Sent, but #{Enum.join(failures, ", ")} could not be notified (instance unreachable). " <>
+             "The encrypted copy is stored here — resend to them once their instance is back."
+         )
+         |> refresh()}
 
       {:error, _} ->
         {:reply, %{error: "Sending failed — are all recipients still your friends?"}, socket}
@@ -139,10 +159,10 @@ defmodule VeejrWeb.MessagesLive do
     if envelope.sender_id == user.id do
       case Messaging.batch_recipients(user, envelope.batch_id) do
         [] -> "To yourself"
-        usernames -> "To " <> Enum.map_join(usernames, ", ", &"@#{&1}")
+        handles -> "To " <> Enum.join(handles, ", ")
       end
     else
-      "From @#{envelope.sender.username}"
+      "From #{Veejr.Social.Address.handle(envelope.sender)}"
     end
   end
 end

@@ -45,15 +45,16 @@ defmodule Veejr.Messaging do
       Repo.transaction(fn ->
         for attrs <- envelopes do
           recipient_id = parse_id(attrs["recipient_id"] || attrs[:recipient_id])
+          recipient = Repo.get(User, recipient_id) || Repo.rollback({:no_such_user, recipient_id})
 
-          unless recipient_id == sender.id or Social.friends?(sender.id, recipient_id) do
-            Repo.rollback({:not_a_friend, recipient_id})
+          unless recipient.id == sender.id or Social.friends?(sender.id, recipient.id) do
+            Repo.rollback({:not_a_friend, recipient.id})
           end
 
           envelope =
             %Envelope{sender_id: sender.id, public_id: random_id(), batch_id: batch_id}
             |> Envelope.changeset(%{
-              recipient_id: recipient_id,
+              recipient_id: recipient.id,
               kind: kind,
               ciphertext: attrs["ciphertext"] || attrs[:ciphertext],
               nonce: attrs["nonce"] || attrs[:nonce]
@@ -63,13 +64,21 @@ defmodule Veejr.Messaging do
               changeset -> Repo.rollback(changeset)
             end
 
-          if recipient_id == sender.id do
-            {envelope, nil}
-          else
-            notification =
-              Repo.insert!(%Notification{envelope_id: envelope.id, user_id: recipient_id})
+          cond do
+            recipient.id == sender.id ->
+              {envelope, nil}
 
-            {envelope, notification}
+            # Local recipient: notify in-place.
+            is_nil(recipient.host) ->
+              notification =
+                Repo.insert!(%Notification{envelope_id: envelope.id, user_id: recipient.id})
+
+              {envelope, notification}
+
+            # Remote recipient: the envelope stays here; their instance gets a
+            # content-free notify after commit.
+            true ->
+              {envelope, {:remote, recipient}}
           end
         end
       end)
@@ -79,7 +88,14 @@ defmodule Veejr.Messaging do
         broadcast_notification(Repo.preload(notification, envelope: [:sender]))
       end
 
-      {:ok, batch_id}
+      failures =
+        for {envelope, {:remote, recipient}} <- pairs,
+            envelope = Repo.preload(envelope, :sender),
+            {:error, _} <- [Veejr.Federation.deliver_notify(envelope, recipient)] do
+          Veejr.Social.Address.handle(recipient)
+        end
+
+      {:ok, batch_id, failures}
     end
   end
 
@@ -104,10 +120,44 @@ defmodule Veejr.Messaging do
   end
 
   @doc """
-  The recipient requests the data: only after this does the server serve the
-  ciphertext to them.
+  The recipient requests the data: only after this does the ciphertext move.
+
+  For envelopes that originated on another instance, this is the moment the
+  content is fetched from the origin server. If the origin is unreachable the
+  notification stays pending so the user can retry.
   """
-  def accept_notification(%User{} = user, id), do: set_notification_state(user, id, "accepted")
+  def accept_notification(%User{} = user, id) do
+    case Repo.get_by(Notification, id: id, user_id: user.id, state: "pending") do
+      nil ->
+        {:error, :not_found}
+
+      notification ->
+        envelope = Repo.preload(notification, envelope: [:sender]).envelope
+
+        with :ok <- maybe_fetch_remote_content(envelope) do
+          notification |> Ecto.Changeset.change(state: "accepted") |> Repo.update()
+        end
+    end
+  end
+
+  # Local envelopes already hold their ciphertext; remote stubs are empty
+  # until the recipient asks.
+  defp maybe_fetch_remote_content(%Envelope{ciphertext: ""} = envelope) do
+    case Veejr.Federation.fetch_envelope_content(envelope) do
+      {:ok, ciphertext, nonce} ->
+        {:ok, _} =
+          envelope
+          |> Ecto.Changeset.change(ciphertext: ciphertext, nonce: nonce)
+          |> Repo.update()
+
+        :ok
+
+      {:error, _reason} ->
+        {:error, :origin_unreachable}
+    end
+  end
+
+  defp maybe_fetch_remote_content(_envelope), do: :ok
 
   @doc "The recipient declines; the ciphertext is never served to them."
   def decline_notification(%User{} = user, id), do: set_notification_state(user, id, "declined")
@@ -121,6 +171,67 @@ defmodule Veejr.Messaging do
         notification
         |> Ecto.Changeset.change(state: state)
         |> Repo.update()
+    end
+  end
+
+  ## Federation
+
+  @doc """
+  Records an incoming cross-instance announcement as a content-free stub
+  envelope plus a pending notification. The ciphertext stays on the origin
+  instance until the recipient accepts.
+  """
+  def receive_remote_notify(%User{} = remote_sender, %User{} = local_recipient, kind, public_id) do
+    cond do
+      kind not in Envelope.kinds() ->
+        {:error, :bad_request}
+
+      Repo.get_by(Envelope, public_id: public_id) ->
+        # replay or duplicate delivery — already recorded
+        {:ok, :duplicate}
+
+      true ->
+        {:ok, {_envelope, notification}} =
+          Repo.transaction(fn ->
+            envelope =
+              Repo.insert!(%Envelope{
+                public_id: public_id,
+                batch_id: public_id,
+                sender_id: remote_sender.id,
+                recipient_id: local_recipient.id,
+                kind: kind,
+                ciphertext: "",
+                nonce: ""
+              })
+
+            notification =
+              Repo.insert!(%Notification{envelope_id: envelope.id, user_id: local_recipient.id})
+
+            {envelope, notification}
+          end)
+
+        broadcast_notification(Repo.preload(notification, envelope: [:sender]))
+        {:ok, :created}
+    end
+  end
+
+  @doc """
+  Serves an envelope over the federation capability endpoint. Only envelopes
+  addressed to remote recipients are ever served this way — local users read
+  through their authenticated session. Possession of the unguessable
+  public_id (delivered only to the recipient's instance) is the capability.
+  """
+  def get_public_envelope(public_id) do
+    envelope =
+      from(e in Envelope,
+        join: r in assoc(e, :recipient),
+        where: e.public_id == ^public_id and not is_nil(r.host)
+      )
+      |> Repo.one()
+
+    case envelope do
+      nil -> {:error, :not_found}
+      envelope -> {:ok, mark_delivered(envelope)}
     end
   end
 
@@ -203,17 +314,18 @@ defmodule Veejr.Messaging do
   end
 
   @doc """
-  For a batch the user sent: who else received it (usernames), so the sent
-  view can say "to alice, bob".
+  For a batch the user sent: who else received it (handles like `@bob` or
+  `@carol@other.host`), so the sent view can say who it went to.
   """
   def batch_recipients(%User{id: id}, batch_id) do
     from(e in Envelope,
       join: u in assoc(e, :recipient),
       where: e.batch_id == ^batch_id and e.sender_id == ^id and e.recipient_id != ^id,
-      select: u.username,
+      select: %{username: u.username, host: u.host},
       order_by: u.username
     )
     |> Repo.all()
+    |> Enum.map(&Veejr.Social.Address.handle/1)
   end
 
   ## Blobs (encrypted attachments)

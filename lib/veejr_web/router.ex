@@ -30,6 +30,13 @@ defmodule VeejrWeb.Router do
 
     get "/instance", InstanceController, :instance
     get "/directory/:username", InstanceController, :directory
+
+    # Federation: instance-to-instance. Origin claims are verified by
+    # callback; the envelope endpoint is a capability URL.
+    get "/envelopes/:public_id", FederationController, :envelope
+    post "/federation/friend_request", FederationController, :friend_request
+    post "/federation/friend_response", FederationController, :friend_response
+    post "/federation/notify", FederationController, :notify
   end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development

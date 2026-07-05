@@ -24,7 +24,7 @@ defmodule Veejr.Social do
   instead of creating a duplicate in the opposite direction.
   """
   def send_friend_request(%User{} = from, username) when is_binary(username) do
-    case Repo.get_by(User, username: username) do
+    case Veejr.Accounts.get_user_by_username(username) do
       nil ->
         {:error, :not_found}
 
@@ -59,7 +59,80 @@ defmodule Veejr.Social do
     end
   end
 
-  @doc "Accepts a pending request addressed to `user`."
+  @doc """
+  Sends a friend request to someone on another instance.
+
+  Their instance's directory is consulted (pinning their public key), a
+  pending friendship is created locally, and the request is delivered to
+  their server. If delivery fails, nothing is left behind.
+  """
+  def send_remote_friend_request(%User{host: nil} = from, username, authority) do
+    with {:ok, remote} <- Veejr.Federation.ensure_remote_user(username, authority) do
+      case get_friendship_between(from.id, remote.id) do
+        %Friendship{status: "accepted"} ->
+          {:error, :already_friends}
+
+        %Friendship{status: "pending"} ->
+          {:error, :already_requested}
+
+        nil ->
+          {:ok, fr} =
+            %Friendship{}
+            |> Friendship.changeset(%{
+              requester_id: from.id,
+              addressee_id: remote.id,
+              status: "pending"
+            })
+            |> Repo.insert()
+
+          case Veejr.Federation.deliver_friend_request(from, remote) do
+            :ok ->
+              {:ok, Repo.preload(fr, [:requester, :addressee])}
+
+            {:error, _} = error ->
+              Repo.delete(fr)
+              error
+          end
+      end
+    end
+  end
+
+  @doc "Handles a friend request arriving over federation (idempotent)."
+  def receive_remote_friend_request(%User{} = remote, %User{host: nil} = local) do
+    case get_friendship_between(remote.id, local.id) do
+      nil ->
+        %Friendship{}
+        |> Friendship.changeset(%{
+          requester_id: remote.id,
+          addressee_id: local.id,
+          status: "pending"
+        })
+        |> Repo.insert()
+
+      %Friendship{} = fr ->
+        {:ok, fr}
+    end
+  end
+
+  @doc "Handles the answer to a request we previously sent over federation."
+  def receive_remote_friend_response(%User{} = remote, %User{host: nil} = local, action) do
+    case Repo.get_by(Friendship, requester_id: local.id, addressee_id: remote.id) do
+      nil ->
+        {:error, :not_found}
+
+      fr when action == "accepted" ->
+        fr |> Ecto.Changeset.change(status: "accepted") |> Repo.update()
+
+      fr when action == "declined" ->
+        Repo.delete(fr)
+    end
+  end
+
+  @doc """
+  Accepts a pending request addressed to `user`. If the requester lives on
+  another instance, their server is told (best effort — state converges when
+  they can be reached).
+  """
   def accept_friend_request(%User{} = user, friendship_id) do
     case Repo.get_by(Friendship, id: friendship_id, addressee_id: user.id, status: "pending") do
       nil ->
@@ -70,8 +143,17 @@ defmodule Veejr.Social do
         |> Ecto.Changeset.change(status: "accepted")
         |> Repo.update()
         |> case do
-          {:ok, fr} -> {:ok, Repo.preload(fr, [:requester, :addressee])}
-          error -> error
+          {:ok, fr} ->
+            fr = Repo.preload(fr, [:requester, :addressee])
+
+            if fr.requester.host do
+              Veejr.Federation.deliver_friend_response(user, fr.requester, "accepted")
+            end
+
+            {:ok, fr}
+
+          error ->
+            error
         end
     end
   end
@@ -79,8 +161,17 @@ defmodule Veejr.Social do
   @doc "Declines a pending request addressed to `user` (deletes the row)."
   def decline_friend_request(%User{} = user, friendship_id) do
     case Repo.get_by(Friendship, id: friendship_id, addressee_id: user.id, status: "pending") do
-      nil -> {:error, :not_found}
-      fr -> Repo.delete(fr)
+      nil ->
+        {:error, :not_found}
+
+      fr ->
+        fr = Repo.preload(fr, :requester)
+
+        if fr.requester.host do
+          Veejr.Federation.deliver_friend_response(user, fr.requester, "declined")
+        end
+
+        Repo.delete(fr)
     end
   end
 

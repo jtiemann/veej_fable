@@ -1,8 +1,12 @@
 import Config
 
+# PORT / VEEJR_DB let you run a second dev instance side by side to test
+# federation, e.g.: PORT=4001 VEEJR_DB=veejr_dev2.db mix phx.server
+port = String.to_integer(System.get_env("PORT") || "4000")
+
 # Configure your database
 config :veejr, Veejr.Repo,
-  database: Path.expand("../veejr_dev.db", __DIR__),
+  database: Path.expand("../#{System.get_env("VEEJR_DB") || "veejr_dev.db"}", __DIR__),
   pool_size: 5,
   stacktrace: true,
   show_sensitive_data_on_connection_error: true
@@ -16,7 +20,8 @@ config :veejr, Veejr.Repo,
 config :veejr, VeejrWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
-  http: [ip: {127, 0, 0, 1}],
+  http: [ip: {127, 0, 0, 1}, port: port],
+  url: [host: "localhost", port: port],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,

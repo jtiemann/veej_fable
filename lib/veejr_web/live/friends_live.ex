@@ -23,7 +23,7 @@ defmodule VeejrWeb.FriendsLive do
           type="text"
           name="username"
           value={@add_username}
-          placeholder="username, or user@host once federation lands"
+          placeholder="username here, or user@host on another instance"
           class="input flex-1"
           autocomplete="off"
         />
@@ -39,7 +39,7 @@ defmodule VeejrWeb.FriendsLive do
           >
             <span>
               <span class="font-medium">{req.requester.display_name || req.requester.username}</span>
-              <span class="opacity-60">@{req.requester.username}</span>
+              <span class="opacity-60">{Veejr.Social.Address.handle(req.requester)}</span>
             </span>
             <span class="flex gap-2">
               <button phx-click="accept" phx-value-id={req.id} class="btn btn-primary btn-sm">
@@ -57,7 +57,7 @@ defmodule VeejrWeb.FriendsLive do
         <h2 class="text-lg font-semibold">Waiting on</h2>
         <ul class="mt-2 space-y-1">
           <li :for={req <- @outgoing} class="text-sm opacity-70">
-            @{req.addressee.username} — request sent
+            {Veejr.Social.Address.handle(req.addressee)} — request sent
           </li>
         </ul>
       </section>
@@ -74,7 +74,8 @@ defmodule VeejrWeb.FriendsLive do
           >
             <span>
               <span class="font-medium">{friend.display_name || friend.username}</span>
-              <span class="opacity-60">@{friend.username}</span>
+              <span class="opacity-60">{Veejr.Social.Address.handle(friend)}</span>
+              <span :if={friend.host} class="badge badge-info badge-sm ml-2">remote</span>
               <span :if={!friend.public_key} class="badge badge-warning badge-sm ml-2">
                 no keys yet
               </span>
@@ -105,14 +106,38 @@ defmodule VeejrWeb.FriendsLive do
       {:local, username} ->
         {:noreply, socket |> add_local_friend(username) |> assign(add_username: "") |> refresh()}
 
-      {:remote, username, host} ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           "@#{username}@#{host} lives on another instance. Instance-to-instance " <>
-             "friendships are on the roadmap — for now both accounts must be on this server."
-         )}
+      {:remote, username, authority} ->
+        socket =
+          case Social.send_remote_friend_request(
+                 socket.assigns.current_scope.user,
+                 username,
+                 authority
+               ) do
+            {:ok, _} ->
+              put_flash(socket, :info, "Request sent to @#{username}@#{authority}.")
+
+            {:error, :already_friends} ->
+              put_flash(socket, :error, "You are already friends with @#{username}@#{authority}.")
+
+            {:error, :already_requested} ->
+              put_flash(
+                socket,
+                :error,
+                "A request with @#{username}@#{authority} is already pending."
+              )
+
+            {:error, {:http, 404}} ->
+              put_flash(socket, :error, "#{authority} doesn't know any @#{username}.")
+
+            {:error, _} ->
+              put_flash(
+                socket,
+                :error,
+                "Could not reach #{authority} — check the address, or try again later."
+              )
+          end
+
+        {:noreply, socket |> assign(add_username: "") |> refresh()}
 
       {:error, :invalid} ->
         {:noreply,

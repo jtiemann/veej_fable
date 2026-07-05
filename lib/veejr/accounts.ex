@@ -74,13 +74,36 @@ defmodule Veejr.Accounts do
       {:error, %Ecto.Changeset{}}
 
   """
-  def register_user(attrs) do
-    if Veejr.registration_open?() do
+  @invite_salt "veejr invite"
+  @invite_max_age_seconds 7 * 24 * 60 * 60
+
+  def register_user(attrs, invite_token \\ nil) do
+    if Veejr.registration_open?() or valid_invite?(invite_token) do
       %User{}
       |> User.registration_changeset(attrs)
       |> Repo.insert()
     else
       {:error, :registration_closed}
+    end
+  end
+
+  @doc """
+  An invite link lets a personal (closed-registration) instance host more
+  people — a family or group sharing one server. Tokens are signed, carry the
+  inviting user's id, and expire after a week.
+  """
+  def generate_invite(%User{id: id}) do
+    Phoenix.Token.sign(VeejrWeb.Endpoint, @invite_salt, id)
+  end
+
+  def valid_invite?(nil), do: false
+
+  def valid_invite?(token) when is_binary(token) do
+    case Phoenix.Token.verify(VeejrWeb.Endpoint, @invite_salt, token,
+           max_age: @invite_max_age_seconds
+         ) do
+      {:ok, inviter_id} -> Repo.get(User, inviter_id) != nil
+      _ -> false
     end
   end
 
@@ -92,10 +115,12 @@ defmodule Veejr.Accounts do
   end
 
   @doc """
-  Gets a user by username (the public handle used for friend lookup).
+  Gets a *local* user by username (the public handle used for friend lookup
+  and the federation directory). Remote users share the table but are only
+  ever addressed together with their host.
   """
   def get_user_by_username(username) when is_binary(username) do
-    Repo.get_by(User, username: username)
+    Repo.one(from(u in User, where: u.username == ^username and is_nil(u.host)))
   end
 
   @doc """

@@ -3,6 +3,9 @@ import Config
 # Only in tests, remove the complexity from the password hashing algorithm
 config :bcrypt_elixir, :log_rounds, 1
 
+# Route federation HTTP through Req.Test so tests can stub remote instances.
+config :veejr, :federation_req_options, plug: {Req.Test, Veejr.FederationStub}
+
 # Keep test attachment blobs out of priv/
 config :veejr, :blob_dir, Path.join(System.tmp_dir!(), "veejr_test_uploads")
 

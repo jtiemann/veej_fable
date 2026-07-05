@@ -81,10 +81,10 @@ defmodule VeejrWeb.HistoryLive do
     if envelope.sender_id == user.id do
       case Messaging.batch_recipients(user, envelope.batch_id) do
         [] -> "To yourself"
-        usernames -> "To " <> Enum.map_join(usernames, ", ", &"@#{&1}")
+        handles -> "To " <> Enum.join(handles, ", ")
       end
     else
-      "From @#{envelope.sender.username}"
+      "From #{Veejr.Social.Address.handle(envelope.sender)}"
     end
   end
 end

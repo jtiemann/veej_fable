@@ -32,7 +32,7 @@ defmodule Veejr.ExportImportTest do
     befriend(alice, bob)
 
     # alice sends bob a message (with her self-copy)
-    {:ok, _batch} =
+    {:ok, _batch, []} =
       Messaging.send_batch(alice, "message", [
         %{"recipient_id" => bob.id, "ciphertext" => "ct-for-bob", "nonce" => "n1"},
         %{"recipient_id" => alice.id, "ciphertext" => "ct-for-alice", "nonce" => "n2"}
@@ -98,7 +98,7 @@ defmodule Veejr.ExportImportTest do
     bob = user_with_keys("bob")
     befriend(alice, bob)
 
-    {:ok, _} =
+    {:ok, _, []} =
       Messaging.send_batch(alice, "message", [
         %{"recipient_id" => bob.id, "ciphertext" => "ct", "nonce" => "n"}
       ])
@@ -114,15 +114,19 @@ defmodule Veejr.ExportImportTest do
     {:ok, summary} = Import.from_zip(zip)
     assert summary.ghost_contacts == 1
 
-    ghost = Accounts.get_user_by_username("alice")
+    # senders are restored as remote contacts of the export's origin instance
+    ghost = Repo.get_by(User, username: "alice", host: Veejr.instance_authority())
     assert ghost.public_key == alice.public_key
     assert ghost.email =~ ".invalid"
     # ghosts have no wrapped secret key and can never log in or decrypt
     refute ghost.enc_secret_key
+    # local username lookups (login, directory) never see them
+    refute Accounts.get_user_by_username("alice")
 
     new_bob = Accounts.get_user_by_username("bob")
     [restored] = Messaging.list_history(new_bob)
     assert restored.sender_id == ghost.id
+    assert Veejr.Social.Address.handle(restored.sender) =~ "@alice@"
   end
 
   test "export requires nothing beyond ciphertext — plaintext never appears" do
@@ -142,7 +146,7 @@ defmodule Veejr.ExportImportTest do
     bob = user_with_keys("bob")
     befriend(alice, bob)
 
-    {:ok, _} =
+    {:ok, _, []} =
       Messaging.send_batch(alice, "message", [
         %{"recipient_id" => bob.id, "ciphertext" => "ct", "nonce" => "n"}
       ])

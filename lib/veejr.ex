@@ -38,6 +38,21 @@ defmodule Veejr do
     Application.get_env(:veejr, VeejrWeb.Endpoint)[:url][:host] || "localhost"
   end
 
+  @doc """
+  The full authority (`host` or `host:port`) that identifies this instance in
+  federation. The port is included when non-standard, so two dev instances on
+  localhost:4000 and localhost:4001 are distinct peers.
+  """
+  def instance_authority do
+    uri = URI.parse(VeejrWeb.Endpoint.url())
+
+    if (uri.scheme == "https" and uri.port == 443) or (uri.scheme == "http" and uri.port == 80) do
+      uri.host
+    else
+      "#{uri.host}:#{uri.port}"
+    end
+  end
+
   @doc "Human-readable instance name, shown in instance metadata."
   def instance_name do
     Application.get_env(:veejr, :instance_name, "veejr @ #{instance_host()}")

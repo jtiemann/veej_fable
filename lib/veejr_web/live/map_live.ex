@@ -97,9 +97,17 @@ defmodule VeejrWeb.MapLive do
   def handle_event("send_batch", %{"kind" => kind, "envelopes" => envelopes}, socket)
       when kind in ["location", "note"] do
     case Messaging.send_batch(socket.assigns.current_scope.user, kind, envelopes) do
-      {:ok, _batch_id} ->
+      {:ok, _batch_id, []} ->
         {:reply, %{ok: true},
          put_flash(socket, :info, "Shared. It will appear on the map after a refresh.")}
+
+      {:ok, _batch_id, failures} ->
+        {:reply, %{ok: true},
+         put_flash(
+           socket,
+           :error,
+           "Shared, but #{Enum.join(failures, ", ")} could not be notified (instance unreachable)."
+         )}
 
       {:error, _} ->
         {:reply, %{error: "Sharing failed — are all recipients still your friends?"}, socket}
@@ -124,7 +132,7 @@ defmodule VeejrWeb.MapLive do
   end
 
   defp map_label(%Envelope{sender_id: uid}, %User{id: uid}), do: "You"
-  defp map_label(%Envelope{sender: sender}, _user), do: "@#{sender.username}"
+  defp map_label(%Envelope{sender: sender}, _user), do: Veejr.Social.Address.handle(sender)
 
   defp peer_key(%Envelope{sender_id: uid}, %User{id: uid} = user), do: user.public_key
   defp peer_key(%Envelope{sender: sender}, _user), do: sender.public_key

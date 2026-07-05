@@ -92,34 +92,40 @@ defmodule Veejr.Import do
     end
   end
 
-  # One stub user per distinct envelope sender, so received ciphertext keeps
-  # a resolvable sender with a public key to decrypt against.
+  # One remote-contact row per distinct envelope sender (keyed by their home
+  # instance), so received ciphertext keeps a resolvable sender with a public
+  # key to decrypt against. These are ordinary remote users — once federation
+  # can reach their instance again, friendships can be re-established.
   defp create_ghosts!(%{"envelopes" => envelopes} = manifest, owner) do
-    host = get_in(manifest, ["instance", "host"]) || "unknown"
+    export_host = get_in(manifest, ["instance", "host"]) || "unknown.invalid"
 
     envelopes
     |> Enum.map(& &1["sender"])
     |> Enum.reject(&(&1["username"] == owner.username))
-    |> Enum.uniq_by(& &1["username"])
+    |> Enum.uniq_by(&{&1["username"], &1["host"]})
     |> Map.new(fn sender ->
       username = sender["username"]
+      host = sender["host"] || export_host
 
       ghost =
-        Repo.get_by(User, username: username) ||
+        Repo.get_by(User, username: username, host: host) ||
           Repo.insert!(
             Changeset.change(%User{},
-              email: "ghost+#{username}@#{host}.invalid",
+              email: "remote+#{username}@#{String.replace(host, ":", ".")}.invalid",
               username: username,
+              host: host,
               display_name: sender["display_name"],
               public_key: sender["public_key"]
             )
           )
 
-      {username, ghost}
+      {{username, host}, ghost}
     end)
   end
 
-  defp import_envelopes!(%{"envelopes" => envelopes}, owner, ghosts) do
+  defp import_envelopes!(%{"envelopes" => envelopes} = manifest, owner, ghosts) do
+    export_host = get_in(manifest, ["instance", "host"]) || "unknown.invalid"
+
     existing =
       from(e in Envelope, where: e.recipient_id == ^owner.id, select: e.public_id)
       |> Repo.all()
@@ -128,12 +134,12 @@ defmodule Veejr.Import do
     envelopes
     |> Enum.reject(&MapSet.member?(existing, &1["public_id"]))
     |> Enum.map(fn entry ->
-      sender_username = entry["sender"]["username"]
+      sender = entry["sender"]
 
       sender_id =
-        if sender_username == owner.username,
+        if sender["username"] == owner.username,
           do: owner.id,
-          else: ghosts[sender_username].id
+          else: ghosts[{sender["username"], sender["host"] || export_host}].id
 
       {:ok, inserted_at, _} = DateTime.from_iso8601(entry["inserted_at"])
       inserted_at = DateTime.truncate(inserted_at, :second)

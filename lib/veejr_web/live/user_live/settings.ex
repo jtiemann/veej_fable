@@ -80,6 +80,21 @@ defmodule VeejrWeb.UserLive.Settings do
         </.link>
       </section>
 
+      <section :if={Veejr.instance_mode() == :personal}>
+        <div class="divider" />
+        <h2 class="text-lg font-semibold">Invite someone to this instance</h2>
+        <p class="mt-1 text-sm opacity-70">
+          Registration on a personal instance is closed, but you can host family or
+          friends here: an invite link lets one more person register. Valid for 7 days.
+        </p>
+        <button phx-click="generate_invite" class="btn btn-outline btn-sm mt-3">
+          Generate invite link
+        </button>
+        <p :if={@invite_url} class="mt-2 text-sm">
+          <code class="break-all select-all">{@invite_url}</code>
+        </p>
+      </section>
+
       <div class="divider" />
 
       <section class="rounded-lg border border-error/40 p-4">
@@ -126,6 +141,7 @@ defmodule VeejrWeb.UserLive.Settings do
       |> assign(:email_form, to_form(email_changeset))
       |> assign(:password_form, to_form(password_changeset))
       |> assign(:trigger_submit, false)
+      |> assign(:invite_url, nil)
 
     {:ok, socket}
   end
@@ -188,6 +204,11 @@ defmodule VeejrWeb.UserLive.Settings do
       changeset ->
         {:noreply, assign(socket, password_form: to_form(changeset, action: :insert))}
     end
+  end
+
+  def handle_event("generate_invite", _params, socket) do
+    token = Accounts.generate_invite(socket.assigns.current_scope.user)
+    {:noreply, assign(socket, :invite_url, url(~p"/users/register?invite=#{token}"))}
   end
 
   def handle_event("delete_account", _params, socket) do
