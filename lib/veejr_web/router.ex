@@ -41,6 +41,14 @@ defmodule VeejrWeb.Router do
     get "/envelopes/:public_id", FederationController, :envelope
   end
 
+  # Public attachment capability. No pipeline: serves opaque octet-stream
+  # bytes (not JSON) to a recipient's browser, which may be on another
+  # instance. The blob id is an unguessable capability and the content is
+  # E2E-encrypted; see BlobController.public_show/2.
+  scope "/api", VeejrWeb do
+    get "/blobs/:id", BlobController, :public_show
+  end
+
   # Instance-to-instance writes require a valid signature from a pinned peer.
   scope "/api/federation", VeejrWeb do
     pipe_through :federation

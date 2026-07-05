@@ -45,4 +45,28 @@ defmodule VeejrWeb.BlobController do
         |> send_file(200, blob.path)
     end
   end
+
+  @doc """
+  Public capability endpoint for cross-instance attachment downloads.
+
+  An attachment uploaded on the sender's instance must be fetchable by a
+  recipient whose session lives on a *different* instance. Like the envelope
+  capability endpoint, the unguessable blob id is the credential and the
+  bytes are E2E-encrypted (the symmetric key travels only inside the message
+  payload), so this is served without a session and with permissive CORS.
+  """
+  def public_show(conn, %{"id" => id}) do
+    conn = put_resp_header(conn, "access-control-allow-origin", "*")
+
+    case Messaging.get_blob(id) do
+      nil ->
+        send_resp(conn, :not_found, "not found")
+
+      blob ->
+        conn
+        |> put_resp_content_type("application/octet-stream")
+        |> put_resp_header("cache-control", "public, max-age=31536000, immutable")
+        |> send_file(200, blob.path)
+    end
+  end
 end

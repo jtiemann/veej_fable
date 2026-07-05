@@ -42,13 +42,26 @@ async function encryptAndUpload(file) {
   })
   if (!resp.ok) throw new Error(`upload failed (${resp.status})`)
   const {id} = await resp.json()
-  return {id, key: enc.key, nonce: enc.nonce, name: file.name, mime: file.type, size: file.size}
+  // `origin` records which instance holds the blob, so a recipient on a
+  // different instance knows where to fetch it from.
+  return {
+    id,
+    origin: window.location.origin,
+    key: enc.key,
+    nonce: enc.nonce,
+    name: file.name,
+    mime: file.type,
+    size: file.size,
+  }
 }
 
 // Downloads an encrypted blob, decrypts it locally, and hands it to the user
-// as a normal file download.
+// as a normal file download. Cross-instance attachments carry their origin
+// and are fetched from that instance's public capability endpoint; legacy
+// attachments (no origin) live on this instance behind the session route.
 async function downloadAttachment(att) {
-  const resp = await fetch(`/blobs/${att.id}`)
+  const fetchUrl = att.origin ? `${att.origin}/api/blobs/${att.id}` : `/blobs/${att.id}`
+  const resp = await fetch(fetchUrl)
   if (!resp.ok) throw new Error(`download failed (${resp.status})`)
   const cipher = new Uint8Array(await resp.arrayBuffer())
   const plain = decryptBlob(cipher, att.key, att.nonce)
