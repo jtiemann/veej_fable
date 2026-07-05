@@ -1,0 +1,37 @@
+<Layouts.app flash={@flash} current_scope={@current_scope}>
+  <div class="mx-auto max-w-xl text-center py-16">
+    <h1 class="text-4xl font-bold">🔐 veejr</h1>
+    <p class="mt-4 text-lg opacity-80">
+      Private sharing with the people you choose. Messages, locations, and map
+      notes — encrypted in your browser before they go anywhere.
+    </p>
+
+    <ul class="mt-8 space-y-3 text-left">
+      <li>
+        🔑 <strong>Your keys, your data.</strong>
+        Encryption keys are generated on your device; the server stores only ciphertext.
+      </li>
+      <li>
+        📬 <strong>Nothing arrives uninvited.</strong>
+        You're notified when a friend sends something, and no data transfers until you request it.
+      </li>
+      <li>
+        👥 <strong>Friends and groups.</strong>
+        Share with one person, a group, or everyone — friends can be in multiple groups.
+      </li>
+      <li>
+        🗺️ <strong>Places, privately.</strong>
+        Share your location or pin a note to the map for selected friends only.
+      </li>
+      <li>
+        🏠 <strong>Own your instance.</strong>
+        Run veejr on your own machine; the community server is just a starting point.
+      </li>
+    </ul>
+
+    <div class="mt-10 flex justify-center gap-3">
+      <.link navigate={~p"/users/register"} class="btn btn-primary">Create an account</.link>
+      <.link navigate={~p"/users/log-in"} class="btn btn-ghost">Log in</.link>
+    </div>
+  </div>
+</Layouts.app>

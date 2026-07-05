@@ -1,0 +1,225 @@
+defmodule Veejr.Social do
+  @moduledoc """
+  Friends and groups.
+
+  Friendships are symmetric once accepted: a single row records who asked
+  (`requester`) and who answered (`addressee`), and `status` moves from
+  `"pending"` to `"accepted"`. Groups are personal address-book labels — each
+  user organizes their own accepted friends, and a friend may sit in many
+  groups at once.
+  """
+
+  import Ecto.Query, warn: false
+
+  alias Veejr.Repo
+  alias Veejr.Accounts.User
+  alias Veejr.Social.{Friendship, Group, GroupMember}
+
+  ## Friendships
+
+  @doc """
+  Sends a friend request to the user with the given username.
+
+  If the other user already sent us a pending request, this accepts it
+  instead of creating a duplicate in the opposite direction.
+  """
+  def send_friend_request(%User{} = from, username) when is_binary(username) do
+    case Repo.get_by(User, username: username) do
+      nil ->
+        {:error, :not_found}
+
+      %User{id: id} when id == from.id ->
+        {:error, :self}
+
+      %User{} = to ->
+        case get_friendship_between(from.id, to.id) do
+          %Friendship{status: "accepted"} ->
+            {:error, :already_friends}
+
+          %Friendship{status: "pending", addressee_id: addressee_id} = fr
+          when addressee_id == from.id ->
+            accept_friend_request(from, fr.id)
+
+          %Friendship{status: "pending"} ->
+            {:error, :already_requested}
+
+          nil ->
+            %Friendship{}
+            |> Friendship.changeset(%{
+              requester_id: from.id,
+              addressee_id: to.id,
+              status: "pending"
+            })
+            |> Repo.insert()
+            |> case do
+              {:ok, fr} -> {:ok, Repo.preload(fr, [:requester, :addressee])}
+              error -> error
+            end
+        end
+    end
+  end
+
+  @doc "Accepts a pending request addressed to `user`."
+  def accept_friend_request(%User{} = user, friendship_id) do
+    case Repo.get_by(Friendship, id: friendship_id, addressee_id: user.id, status: "pending") do
+      nil ->
+        {:error, :not_found}
+
+      fr ->
+        fr
+        |> Ecto.Changeset.change(status: "accepted")
+        |> Repo.update()
+        |> case do
+          {:ok, fr} -> {:ok, Repo.preload(fr, [:requester, :addressee])}
+          error -> error
+        end
+    end
+  end
+
+  @doc "Declines a pending request addressed to `user` (deletes the row)."
+  def decline_friend_request(%User{} = user, friendship_id) do
+    case Repo.get_by(Friendship, id: friendship_id, addressee_id: user.id, status: "pending") do
+      nil -> {:error, :not_found}
+      fr -> Repo.delete(fr)
+    end
+  end
+
+  @doc "Removes an accepted friend (either side may do this). Also drops them from the remover's groups."
+  def remove_friend(%User{} = user, friend_id) do
+    case get_friendship_between(user.id, friend_id) do
+      %Friendship{status: "accepted"} = fr ->
+        Repo.transaction(fn ->
+          from(gm in GroupMember,
+            join: g in Group,
+            on: g.id == gm.group_id,
+            where: g.owner_id == ^user.id and gm.user_id == ^friend_id
+          )
+          |> Repo.delete_all()
+
+          from(gm in GroupMember,
+            join: g in Group,
+            on: g.id == gm.group_id,
+            where: g.owner_id == ^friend_id and gm.user_id == ^user.id
+          )
+          |> Repo.delete_all()
+
+          Repo.delete!(fr)
+        end)
+
+      _ ->
+        {:error, :not_found}
+    end
+  end
+
+  def get_friendship_between(user_a_id, user_b_id) do
+    from(f in Friendship,
+      where:
+        (f.requester_id == ^user_a_id and f.addressee_id == ^user_b_id) or
+          (f.requester_id == ^user_b_id and f.addressee_id == ^user_a_id)
+    )
+    |> Repo.one()
+  end
+
+  def friends?(user_a_id, user_b_id) do
+    case get_friendship_between(user_a_id, user_b_id) do
+      %Friendship{status: "accepted"} -> true
+      _ -> false
+    end
+  end
+
+  @doc "All accepted friends of `user`, as `%User{}` structs sorted by name."
+  def list_friends(%User{id: id}) do
+    from(u in User,
+      join: f in Friendship,
+      on:
+        (f.requester_id == ^id and f.addressee_id == u.id) or
+          (f.addressee_id == ^id and f.requester_id == u.id),
+      where: f.status == "accepted",
+      order_by: [asc: coalesce(u.display_name, u.username)]
+    )
+    |> Repo.all()
+  end
+
+  @doc "Pending requests addressed to `user`, requester preloaded."
+  def list_incoming_requests(%User{id: id}) do
+    from(f in Friendship,
+      where: f.addressee_id == ^id and f.status == "pending",
+      preload: [:requester],
+      order_by: [desc: f.inserted_at]
+    )
+    |> Repo.all()
+  end
+
+  @doc "Pending requests `user` has sent, addressee preloaded."
+  def list_outgoing_requests(%User{id: id}) do
+    from(f in Friendship,
+      where: f.requester_id == ^id and f.status == "pending",
+      preload: [:addressee],
+      order_by: [desc: f.inserted_at]
+    )
+    |> Repo.all()
+  end
+
+  ## Groups
+
+  def create_group(%User{} = owner, attrs) do
+    %Group{owner_id: owner.id}
+    |> Group.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  def rename_group(%User{} = owner, group_id, attrs) do
+    with %Group{} = group <- get_owned_group(owner, group_id) do
+      group |> Group.changeset(attrs) |> Repo.update()
+    end
+  end
+
+  def delete_group(%User{} = owner, group_id) do
+    with %Group{} = group <- get_owned_group(owner, group_id) do
+      Repo.delete(group)
+    end
+  end
+
+  @doc "Groups owned by `user`, members preloaded."
+  def list_groups(%User{id: id}) do
+    from(g in Group, where: g.owner_id == ^id, order_by: [asc: g.name], preload: [:members])
+    |> Repo.all()
+  end
+
+  def get_owned_group(%User{id: id}, group_id) do
+    Repo.get_by(Group, id: group_id, owner_id: id) || {:error, :not_found}
+  end
+
+  @doc "Adds an accepted friend to one of the owner's groups."
+  def add_group_member(%User{} = owner, group_id, friend_id) do
+    with %Group{} = group <- get_owned_group(owner, group_id),
+         true <- friends?(owner.id, friend_id) || {:error, :not_a_friend} do
+      %GroupMember{group_id: group.id, user_id: friend_id}
+      |> Ecto.Changeset.change()
+      |> Ecto.Changeset.unique_constraint([:group_id, :user_id])
+      |> Repo.insert()
+    end
+  end
+
+  def remove_group_member(%User{} = owner, group_id, friend_id) do
+    with %Group{} = group <- get_owned_group(owner, group_id) do
+      from(gm in GroupMember, where: gm.group_id == ^group.id and gm.user_id == ^friend_id)
+      |> Repo.delete_all()
+
+      :ok
+    end
+  end
+
+  @doc "Members of one of the owner's groups, as `%User{}` structs."
+  def group_members(%User{} = owner, group_id) do
+    with %Group{} = group <- get_owned_group(owner, group_id) do
+      from(u in User,
+        join: gm in GroupMember,
+        on: gm.user_id == u.id,
+        where: gm.group_id == ^group.id,
+        order_by: [asc: coalesce(u.display_name, u.username)]
+      )
+      |> Repo.all()
+    end
+  end
+end

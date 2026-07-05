@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test*)",
+      "Bash(mix compile*)",
+      "Bash(mix test*)"
+    ]
+  }
+}
