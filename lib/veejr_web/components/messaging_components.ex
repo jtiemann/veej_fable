@@ -117,4 +117,40 @@ defmodule VeejrWeb.MessagingComponents do
   def kind_icon("location"), do: "📍"
   def kind_icon("note"), do: "📝"
   def kind_icon(_), do: "✉️"
+
+  @doc """
+  A single message rendered as a chat bubble: your own messages align right
+  in the accent color, others align left with the sender's handle. The bubble
+  body is filled in by the `Decrypt` hook — plaintext never reaches the server.
+  """
+  attr :envelope, Envelope, required: true, doc: "sender preloaded"
+  attr :user, User, required: true
+  attr :mine, :boolean, required: true
+
+  def message_bubble(assigns) do
+    ~H"""
+    <div class={["chat", (@mine && "chat-end") || "chat-start"]}>
+      <div :if={!@mine} class="chat-header text-xs opacity-70 mb-0.5">
+        {Veejr.Social.Address.handle(@envelope.sender)}
+      </div>
+      <div class={["chat-bubble max-w-[85%]", @mine && "chat-bubble-primary"]}>
+        <div
+          id={"env-#{@envelope.public_id}"}
+          phx-hook="Decrypt"
+          phx-update="ignore"
+          data-user-id={@user.id}
+          data-peer-key={Veejr.Messaging.peer_key(@envelope, @user)}
+          data-ciphertext={@envelope.ciphertext}
+          data-nonce={@envelope.nonce}
+          data-kind={@envelope.kind}
+        >
+          <span class="loading loading-dots loading-xs"></span>
+        </div>
+      </div>
+      <div class="chat-footer text-xs opacity-50 mt-0.5">
+        {Calendar.strftime(@envelope.inserted_at, "%H:%M")}
+      </div>
+    </div>
+    """
+  end
 end

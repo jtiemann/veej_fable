@@ -68,33 +68,38 @@ defmodule VeejrWeb.MessagesLive do
           <details
             :for={{conv, index} <- Enum.with_index(@conversations)}
             open={index == 0}
-            class="rounded-lg border border-base-300"
+            class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden"
           >
-            <summary class="flex cursor-pointer items-center justify-between gap-2 p-3">
+            <summary class="flex cursor-pointer items-center justify-between gap-2 p-3 hover:bg-base-200">
               <span class="font-medium truncate">💬 {Enum.join(conv.participants, ", ")}</span>
-              <span class="flex items-center gap-2 whitespace-nowrap text-sm opacity-70">
+              <span class="flex items-center gap-2 whitespace-nowrap text-xs opacity-60">
                 <span class="badge badge-ghost badge-sm">{length(conv.envelopes)}</span>
                 {Calendar.strftime(conv.latest.inserted_at, "%b %d, %H:%M")}
               </span>
             </summary>
-            <div class="border-t border-base-300 p-3">
-              <ul class="space-y-2">
-                <.envelope_item
+            <div class="border-t border-base-300">
+              <div
+                id={"thread-#{conv.key}"}
+                phx-hook="ScrollBottom"
+                class="max-h-[28rem] overflow-y-auto px-3 py-2 bg-base-200/40"
+              >
+                <.message_bubble
                   :for={envelope <- conv.envelopes}
                   envelope={envelope}
                   user={@current_scope.user}
-                  label={item_label(envelope, @current_scope.user)}
+                  mine={envelope.sender_id == @current_scope.user.id}
                 />
-              </ul>
-              <button
-                :if={conv.reply_ids != ""}
-                id={"reply-#{conv.key}"}
-                phx-hook="ReplyTo"
-                data-friend-ids={conv.reply_ids}
-                class="btn btn-ghost btn-sm mt-3"
-              >
-                ↩ Reply to this conversation
-              </button>
+              </div>
+              <div :if={conv.reply_ids != ""} class="border-t border-base-300 p-2">
+                <button
+                  id={"reply-#{conv.key}"}
+                  phx-hook="ReplyTo"
+                  data-friend-ids={conv.reply_ids}
+                  class="btn btn-ghost btn-sm w-full justify-start"
+                >
+                  ↩ Reply to {Enum.join(conv.participants, ", ")}
+                </button>
+              </div>
             </div>
           </details>
         </div>
@@ -214,11 +219,5 @@ defmodule VeejrWeb.MessagesLive do
     else
       [Veejr.Social.Address.handle(envelope.sender)]
     end
-  end
-
-  defp item_label(envelope, user) do
-    if envelope.sender_id == user.id,
-      do: "You",
-      else: Veejr.Social.Address.handle(envelope.sender)
   end
 end

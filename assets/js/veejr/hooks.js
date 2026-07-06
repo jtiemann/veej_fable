@@ -301,6 +301,23 @@ export const InstallApp = {
   },
 }
 
+// Keeps a chat thread scrolled to the newest message at the bottom, the way
+// a messaging app does. Runs on mount and whenever the thread re-renders.
+export const ScrollBottom = {
+  mounted() {
+    this.toBottom()
+  },
+  updated() {
+    this.toBottom()
+  },
+  toBottom() {
+    // let decrypted bubbles paint first
+    requestAnimationFrame(() => {
+      this.el.scrollTop = this.el.scrollHeight
+    })
+  },
+}
+
 // Reply button on a conversation: preselects its participants in the
 // composer and jumps there.
 export const ReplyTo = {
@@ -580,5 +597,6 @@ export default {
   Composer,
   Decrypt,
   ReplyTo,
+  ScrollBottom,
   VeejrMap,
 }
