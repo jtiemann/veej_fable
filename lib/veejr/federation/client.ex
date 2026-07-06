@@ -48,7 +48,11 @@ defmodule Veejr.Federation.Client do
         base_url: base_url(authority),
         retry: false,
         connect_options: [timeout: 4_000],
-        receive_timeout: 8_000
+        receive_timeout: 8_000,
+        # Bypass the ngrok/tunnel browser interstitial so instance-to-instance
+        # calls always get the JSON API, never the HTML warning page. Harmless
+        # for non-tunnel hosts.
+        headers: [{"ngrok-skip-browser-warning", "true"}]
       ] ++ Application.get_env(:veejr, :federation_req_options, [])
 
     Req.new(options)
