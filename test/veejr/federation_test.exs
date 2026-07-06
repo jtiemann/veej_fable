@@ -80,6 +80,28 @@ defmodule Veejr.FederationTest do
                Social.send_remote_friend_request(alice, "carol", @remote_host)
     end
 
+    test "accepts an incoming remote request that mirrors our outgoing pending request" do
+      alice = local_user("alice")
+      stub_remote_instance()
+
+      assert {:ok, outgoing} = Social.send_remote_friend_request(alice, "carol", @remote_host)
+      assert outgoing.status == "pending"
+
+      assert {:ok, accepted} =
+               Federation.handle_friend_request(
+                 %{
+                   "from" => %{"username" => "carol", "authority" => @remote_host},
+                   "to" => "alice"
+                 },
+                 @remote_host
+               )
+
+      assert accepted.id == outgoing.id
+      assert accepted.status == "accepted"
+      assert Social.list_incoming_requests(alice) == []
+      assert Social.friends?(accepted.requester_id, accepted.addressee_id)
+    end
+
     test "leaves nothing behind when the remote instance is down" do
       alice = local_user("alice")
 

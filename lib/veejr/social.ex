@@ -72,6 +72,10 @@ defmodule Veejr.Social do
         %Friendship{status: "accepted"} ->
           {:error, :already_friends}
 
+        %Friendship{status: "pending", addressee_id: addressee_id} = fr
+        when addressee_id == from.id ->
+          accept_friend_request(from, fr.id)
+
         %Friendship{status: "pending"} ->
           {:error, :already_requested}
 
@@ -108,6 +112,20 @@ defmodule Veejr.Social do
           status: "pending"
         })
         |> Repo.insert()
+
+      %Friendship{status: "pending", requester_id: requester_id} = fr
+      when requester_id == local.id ->
+        fr
+        |> Ecto.Changeset.change(status: "accepted")
+        |> Repo.update()
+        |> case do
+          {:ok, fr} ->
+            Veejr.Federation.deliver_friend_response(local, remote, "accepted")
+            {:ok, fr}
+
+          error ->
+            error
+        end
 
       %Friendship{} = fr ->
         {:ok, fr}

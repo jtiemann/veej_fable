@@ -56,6 +56,13 @@ defmodule Veejr.ConversationWindowTest do
     refute Messaging.conversation_active?(bob.id, alice.id)
   end
 
+  test "malformed recipient ids return an error instead of raising", %{alice: alice} do
+    assert {:error, :bad_recipient_id} =
+             Messaging.send_batch(alice, "message", [
+               %{"recipient_id" => "not-an-id", "ciphertext" => "ct", "nonce" => "n"}
+             ])
+  end
+
   test "accepting opens a window; the next message auto-shows without a request",
        %{alice: alice, bob: bob} do
     send_msg(alice, bob, "hello")

@@ -17,6 +17,9 @@ defmodule Veejr.Social.Friendship do
     |> validate_inclusion(:status, ~w(pending accepted))
     |> check_not_self()
     |> unique_constraint([:requester_id, :addressee_id])
+    |> unique_constraint([:requester_id, :addressee_id],
+      name: :friendships_canonical_pair_index
+    )
   end
 
   defp check_not_self(changeset) do

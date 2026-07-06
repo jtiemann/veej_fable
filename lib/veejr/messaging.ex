@@ -92,7 +92,12 @@ defmodule Veejr.Messaging do
     result =
       Repo.transaction(fn ->
         for attrs <- envelopes do
-          recipient_id = parse_id(attrs["recipient_id"] || attrs[:recipient_id])
+          recipient_id =
+            case parse_id(attrs["recipient_id"] || attrs[:recipient_id]) do
+              {:ok, id} -> id
+              :error -> Repo.rollback(:bad_recipient_id)
+            end
+
           recipient = Repo.get(User, recipient_id) || Repo.rollback({:no_such_user, recipient_id})
 
           unless recipient.id == sender.id or Social.friends?(sender.id, recipient.id) do
@@ -170,8 +175,16 @@ defmodule Veejr.Messaging do
     end
   end
 
-  defp parse_id(id) when is_integer(id), do: id
-  defp parse_id(id) when is_binary(id), do: String.to_integer(id)
+  defp parse_id(id) when is_integer(id) and id > 0, do: {:ok, id}
+
+  defp parse_id(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {int, ""} when int > 0 -> {:ok, int}
+      _ -> :error
+    end
+  end
+
+  defp parse_id(_), do: :error
 
   ## Notifications (the pull side)
 

@@ -83,6 +83,8 @@ Add a friend as `carol@her-server.example`, and messages, locations, and
 notes flow between instances with the same pull-based rule: the encrypted
 envelope stays on the sender's server until the recipient explicitly
 requests it. Declined messages never leave home at all.
+If two people request each other at the same time, the friendship converges to
+a single accepted relationship rather than keeping duplicate pending rows.
 
 Instance-to-instance requests are **Ed25519-signed** with per-instance keys
 pinned on first contact, deliveries to unreachable instances are **queued
