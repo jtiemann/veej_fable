@@ -12,8 +12,12 @@ defmodule Veejr.Messaging do
 
   alias Veejr.Repo
   alias Veejr.Accounts.User
-  alias Veejr.Messaging.{Envelope, Notification, Blob}
+  alias Veejr.Messaging.{Envelope, Notification, Blob, ConversationWindow}
   alias Veejr.Social
+
+  # How long an active conversation keeps auto-accepting new messages without
+  # a fresh request. Re-upped on every send or receive.
+  @window_seconds 5 * 60
 
   ## PubSub
 
@@ -28,8 +32,49 @@ defmodule Veejr.Messaging do
       {:veejr_notification, notification}
     )
 
-    # closed-tab devices: content-free Web Push
-    Veejr.Push.notify_async(notification)
+    # Only pending items need a "come request it" push; auto-accepted messages
+    # in an active conversation are already in the chat.
+    if notification.state == "pending", do: Veejr.Push.notify_async(notification)
+    :ok
+  end
+
+  ## Active-conversation windows
+
+  @doc """
+  Is `peer`'s conversation with `user` currently active — i.e. should a new
+  message from `peer` be auto-accepted for `user` rather than held as a
+  request?
+  """
+  def conversation_active?(user_id, peer_id) do
+    now = DateTime.utc_now(:second)
+
+    case Repo.get_by(ConversationWindow, user_id: user_id, peer_id: peer_id) do
+      %ConversationWindow{active_until: until} -> DateTime.compare(until, now) == :gt
+      nil -> false
+    end
+  end
+
+  @doc """
+  Re-ups `user`'s auto-accept window for `peer` to #{@window_seconds} seconds
+  from now. Called on every send to, and accepted receive from, `peer`.
+  """
+  def touch_conversation(user_id, peer_id) do
+    now = DateTime.utc_now(:second)
+    until = DateTime.add(now, @window_seconds, :second)
+
+    Repo.insert!(
+      %ConversationWindow{
+        user_id: user_id,
+        peer_id: peer_id,
+        active_until: until,
+        inserted_at: now,
+        updated_at: now
+      },
+      on_conflict: [set: [active_until: until, updated_at: now]],
+      conflict_target: [:user_id, :peer_id]
+    )
+
+    :ok
   end
 
   ## Sending
@@ -76,16 +121,34 @@ defmodule Veejr.Messaging do
             recipient.id == sender.id ->
               {envelope, nil}
 
-            # Local recipient: notify in-place.
+            # Local recipient: notify in-place. If their conversation with the
+            # sender is active, the message is auto-accepted and just shows up.
             is_nil(recipient.host) ->
+              # sending re-ups the sender's own window for this recipient
+              touch_conversation(sender.id, recipient.id)
+
+              state =
+                if conversation_active?(recipient.id, sender.id) do
+                  touch_conversation(recipient.id, sender.id)
+                  "accepted"
+                else
+                  "pending"
+                end
+
               notification =
-                Repo.insert!(%Notification{envelope_id: envelope.id, user_id: recipient.id})
+                Repo.insert!(%Notification{
+                  envelope_id: envelope.id,
+                  user_id: recipient.id,
+                  state: state
+                })
 
               {envelope, notification}
 
             # Remote recipient: the envelope stays here; their instance gets a
-            # content-free notify after commit.
+            # content-free notify after commit. The auto-accept decision happens
+            # on their instance in receive_remote_notify/4.
             true ->
+              touch_conversation(sender.id, recipient.id)
               {envelope, {:remote, recipient}}
           end
         end
@@ -143,6 +206,8 @@ defmodule Veejr.Messaging do
         envelope = Repo.preload(notification, envelope: [:sender]).envelope
 
         with :ok <- maybe_fetch_remote_content(envelope) do
+          # accepting opens/extends the active-conversation window
+          touch_conversation(user.id, envelope.sender_id)
           notification |> Ecto.Changeset.change(state: "accepted") |> Repo.update()
         end
     end
@@ -199,25 +264,36 @@ defmodule Veejr.Messaging do
         {:ok, :duplicate}
 
       true ->
-        {:ok, {_envelope, notification}} =
-          Repo.transaction(fn ->
-            envelope =
-              Repo.insert!(%Envelope{
-                public_id: public_id,
-                batch_id: public_id,
-                sender_id: remote_sender.id,
-                recipient_id: local_recipient.id,
-                kind: kind,
-                ciphertext: "",
-                nonce: "",
-                sender_public_key: remote_sender.public_key
-              })
+        envelope =
+          Repo.insert!(%Envelope{
+            public_id: public_id,
+            batch_id: public_id,
+            sender_id: remote_sender.id,
+            recipient_id: local_recipient.id,
+            kind: kind,
+            ciphertext: "",
+            nonce: "",
+            sender_public_key: remote_sender.public_key
+          })
 
-            notification =
-              Repo.insert!(%Notification{envelope_id: envelope.id, user_id: local_recipient.id})
+        # Active conversation: fetch the ciphertext now and auto-accept so it
+        # lands straight in the chat. If the fetch fails, fall back to a
+        # pending request the recipient can retry.
+        state =
+          if conversation_active?(local_recipient.id, remote_sender.id) and
+               maybe_fetch_remote_content(Repo.preload(envelope, :sender)) == :ok do
+            touch_conversation(local_recipient.id, remote_sender.id)
+            "accepted"
+          else
+            "pending"
+          end
 
-            {envelope, notification}
-          end)
+        notification =
+          Repo.insert!(%Notification{
+            envelope_id: envelope.id,
+            user_id: local_recipient.id,
+            state: state
+          })
 
         broadcast_notification(Repo.preload(notification, envelope: [:sender]))
         {:ok, :created}

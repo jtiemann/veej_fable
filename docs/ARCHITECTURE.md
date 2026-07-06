@@ -91,6 +91,20 @@ kind, timestamp. States: `pending → accepted | declined`.
 recipient *after* accepting. `Veejr.Messaging.fetch_envelope/2` +
 the history query in `list_history/2` enforce this.
 
+### Active-conversation windows
+
+Requiring a click for *every* message would make a live back-and-forth
+tedious, so accepting a message opens a rolling **5-minute window** for that
+peer (`conversation_windows`, keyed by `(user, peer)`). While the window is
+open, new messages from that peer are auto-accepted — fetched and shown in
+the chat with no fresh request. The window re-ups to 5 minutes on every send
+to, or accepted receive from, that peer, so an ongoing exchange flows freely
+in both directions (each side keeps its own window). Once ~5 minutes pass
+with no traffic the window lapses and the next message is a pending request
+again. The consent gate is unchanged for first contact and dormant threads;
+it just gets out of the way while you are actually talking. Auto-accepted
+messages skip the "come request it" push (they are already on screen).
+
 ## Data model
 
 ```
