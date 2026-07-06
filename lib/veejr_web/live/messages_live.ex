@@ -48,61 +48,118 @@ defmodule VeejrWeb.MessagesLive do
         </ul>
       </section>
 
-      <section class="mt-6">
-        <.composer
-          id="message-composer"
-          user={@current_scope.user}
-          friends={@friends}
-          groups={@groups}
-          kind="message"
-        />
-      </section>
-
-      <section class="mt-8">
-        <h2 class="text-lg font-semibold">Conversations</h2>
-        <p :if={@conversations == []} class="mt-2 text-sm opacity-60">
-          Nothing yet. Messages you send and accept will appear here, decrypted
-          only in your browser.
-        </p>
-        <div class="mt-2 space-y-3">
-          <details
-            :for={{conv, index} <- Enum.with_index(@conversations)}
-            open={index == 0}
-            class="rounded-2xl border border-base-300 bg-base-100 overflow-hidden"
+      <section class="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
+        <main class="min-w-0">
+          <div
+            :if={@selected_conversation}
+            class="overflow-hidden rounded-2xl border border-base-300 bg-base-100"
           >
-            <summary class="flex cursor-pointer items-center justify-between gap-2 p-3 hover:bg-base-200">
-              <span class="font-medium truncate">💬 {Enum.join(conv.participants, ", ")}</span>
-              <span class="flex items-center gap-2 whitespace-nowrap text-xs opacity-60">
-                <span class="badge badge-ghost badge-sm">{length(conv.envelopes)}</span>
-                {Calendar.strftime(conv.latest.inserted_at, "%b %d, %H:%M")}
-              </span>
-            </summary>
-            <div class="border-t border-base-300">
-              <div
-                id={"thread-#{conv.key}"}
-                phx-hook="ScrollBottom"
-                class="max-h-[28rem] overflow-y-auto px-3 py-2 bg-base-200/40"
+            <div class="flex items-center justify-between gap-3 border-b border-base-300 p-3">
+              <div class="min-w-0">
+                <h2 class="truncate text-lg font-semibold">
+                  {Enum.join(@selected_conversation.participants, ", ")}
+                </h2>
+                <p class="text-xs opacity-60">
+                  {length(@selected_conversation.envelopes)} messages
+                </p>
+              </div>
+              <button
+                id="new-message"
+                phx-click="new_message"
+                class="btn btn-ghost btn-sm shrink-0"
               >
-                <.message_bubble
-                  :for={envelope <- conv.envelopes}
-                  envelope={envelope}
-                  user={@current_scope.user}
-                  mine={envelope.sender_id == @current_scope.user.id}
-                />
-              </div>
-              <div :if={conv.reply_ids != ""} class="border-t border-base-300 p-2">
-                <button
-                  id={"reply-#{conv.key}"}
-                  phx-hook="ReplyTo"
-                  data-friend-ids={conv.reply_ids}
-                  class="btn btn-ghost btn-sm w-full justify-start"
-                >
-                  ↩ Reply to {Enum.join(conv.participants, ", ")}
-                </button>
-              </div>
+                New message
+              </button>
             </div>
-          </details>
-        </div>
+            <div
+              id={"thread-#{@selected_conversation.key}"}
+              phx-hook="ScrollBottom"
+              class="max-h-[32rem] overflow-y-auto px-3 py-2 bg-base-200/40"
+            >
+              <.message_bubble
+                :for={envelope <- @selected_conversation.envelopes}
+                envelope={envelope}
+                user={@current_scope.user}
+                mine={envelope.sender_id == @current_scope.user.id}
+              />
+            </div>
+          </div>
+
+          <div
+            :if={!@selected_conversation && @conversations != []}
+            class="rounded-2xl border border-dashed border-base-300 bg-base-100 p-5"
+          >
+            <h2 class="text-lg font-semibold">New message</h2>
+            <p class="mt-1 text-sm opacity-60">
+              Pick friends or groups below, or choose a previous conversation.
+            </p>
+          </div>
+
+          <div
+            :if={!@selected_conversation && @conversations == []}
+            class="rounded-2xl border border-dashed border-base-300 bg-base-100 p-5"
+          >
+            <h2 class="text-lg font-semibold">New message</h2>
+            <p class="mt-1 text-sm opacity-60">
+              Messages you send and accept will appear as conversations.
+            </p>
+          </div>
+
+          <section class="mt-4">
+            <.composer
+              id="message-composer"
+              user={@current_scope.user}
+              friends={@friends}
+              groups={@groups}
+              kind="message"
+              selected_friend_ids={selected_friend_ids(@selected_conversation)}
+              submit_label={composer_submit_label(@selected_conversation)}
+            />
+          </section>
+        </main>
+
+        <aside class="rounded-2xl border border-base-300 bg-base-100 p-3">
+          <div class="flex items-center justify-between gap-2">
+            <h2 class="text-lg font-semibold">Previous</h2>
+            <button
+              id="compose-new"
+              phx-click="new_message"
+              class={[
+                "btn btn-ghost btn-sm",
+                is_nil(@selected_conversation) && "btn-active"
+              ]}
+            >
+              New
+            </button>
+          </div>
+          <p :if={@conversations == []} class="mt-2 text-sm opacity-60">
+            Nothing yet.
+          </p>
+          <div class="mt-3 space-y-2">
+            <button
+              :for={conv <- @conversations}
+              id={"conversation-#{conv.key}"}
+              type="button"
+              phx-click="select_conversation"
+              phx-value-key={conv.key}
+              class={[
+                "block w-full rounded-lg border p-3 text-left transition hover:border-primary/50 hover:bg-base-200",
+                @selected_conversation_key == conv.key &&
+                  "border-primary/60 bg-primary/10",
+                @selected_conversation_key != conv.key &&
+                  "border-base-300 bg-base-100"
+              ]}
+            >
+              <span class="block truncate font-medium">
+                {Enum.join(conv.participants, ", ")}
+              </span>
+              <span class="mt-1 flex items-center justify-between gap-2 text-xs opacity-60">
+                <span class="badge badge-ghost badge-sm">{length(conv.envelopes)}</span>
+                <span>{Calendar.strftime(conv.latest.inserted_at, "%b %d, %H:%M")}</span>
+              </span>
+            </button>
+          </div>
+        </aside>
       </section>
     </Layouts.app>
     """
@@ -110,7 +167,7 @@ defmodule VeejrWeb.MessagesLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, socket |> assign(page_title: "Messages") |> refresh()}
+    {:ok, socket |> assign(page_title: "Messages", selected_conversation_key: nil) |> refresh()}
   end
 
   @impl true
@@ -135,6 +192,14 @@ defmodule VeejrWeb.MessagesLive do
   def handle_event("decline", %{"id" => id}, socket) do
     Messaging.decline_notification(socket.assigns.current_scope.user, id)
     {:noreply, refresh(socket)}
+  end
+
+  def handle_event("select_conversation", %{"key" => key}, socket) do
+    {:noreply, socket |> assign(:selected_conversation_key, key) |> refresh()}
+  end
+
+  def handle_event("new_message", _params, socket) do
+    {:noreply, socket |> assign(:selected_conversation_key, nil) |> refresh()}
   end
 
   def handle_event("resolve_recipients", params, socket) do
@@ -171,15 +236,31 @@ defmodule VeejrWeb.MessagesLive do
     user = socket.assigns.current_scope.user
     pending = Messaging.list_pending_notifications(user)
     friends = Social.list_friends(user)
+    conversations = build_conversations(user, friends)
+    selected_key = socket.assigns[:selected_conversation_key]
+    selected_conversation = Enum.find(conversations, &(&1.key == selected_key))
+    selected_key = if selected_conversation, do: selected_key
 
     assign(socket,
       pending: pending,
       pending_count: length(pending),
       friends: friends,
       groups: Social.list_groups(user),
-      conversations: build_conversations(user, friends)
+      conversations: conversations,
+      selected_conversation: selected_conversation,
+      selected_conversation_key: selected_key
     )
   end
+
+  defp selected_friend_ids(nil), do: []
+
+  defp selected_friend_ids(%{reply_ids: reply_ids}) do
+    reply_ids
+    |> String.split(",", trim: true)
+  end
+
+  defp composer_submit_label(nil), do: "Encrypt & send"
+  defp composer_submit_label(_conversation), do: "Encrypt & reply"
 
   # Groups history by participant set: what you sent to {@alice, @bob} and
   # what @alice sent you form separate threads (a received group message

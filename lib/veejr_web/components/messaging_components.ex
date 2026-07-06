@@ -17,6 +17,7 @@ defmodule VeejrWeb.MessagingComponents do
   attr :groups, :list, required: true
   attr :kind, :string, default: "message"
   attr :payload, :string, default: nil, doc: "JSON merged into the payload (e.g. map coords)"
+  attr :selected_friend_ids, :list, default: []
   attr :show_text, :boolean, default: true
   attr :show_files, :boolean, default: true
 
@@ -46,7 +47,13 @@ defmodule VeejrWeb.MessagingComponents do
         <p class="text-sm font-medium mb-1">To friends:</p>
         <div class="flex flex-wrap gap-3">
           <label :for={friend <- @friends} class="label cursor-pointer gap-1 text-sm">
-            <input type="checkbox" name="friends[]" value={friend.id} class="checkbox checkbox-sm" />
+            <input
+              type="checkbox"
+              name="friends[]"
+              value={friend.id}
+              checked={to_string(friend.id) in @selected_friend_ids}
+              class="checkbox checkbox-sm"
+            />
             {friend.display_name || friend.username}
           </label>
         </div>
