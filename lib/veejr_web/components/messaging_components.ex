@@ -155,9 +155,27 @@ defmodule VeejrWeb.MessagingComponents do
         </div>
       </div>
       <div class="chat-footer text-xs opacity-50 mt-0.5">
-        {Calendar.strftime(@envelope.inserted_at, "%H:%M")}
+        <span>{Calendar.strftime(@envelope.inserted_at, "%H:%M")}</span>
+        <button
+          type="button"
+          phx-click="delete_envelope"
+          phx-value-id={@envelope.public_id}
+          data-confirm={delete_confirm(@mine)}
+          class="link ml-2 align-baseline"
+        >
+          {delete_label(@mine)}
+        </button>
       </div>
     </div>
     """
   end
+
+  defp delete_label(true), do: "delete"
+  defp delete_label(false), do: "hide"
+
+  defp delete_confirm(true),
+    do: "Delete this sent item for every recipient? This cannot be undone."
+
+  defp delete_confirm(false),
+    do: "Hide this item from your history? You can request a future message again."
 end

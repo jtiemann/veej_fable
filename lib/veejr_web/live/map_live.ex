@@ -39,6 +39,9 @@ defmodule VeejrWeb.MapLive do
             data-kind={envelope.kind}
             data-label={map_label(envelope, @current_scope.user)}
             data-time={Calendar.strftime(envelope.inserted_at, "%b %d, %H:%M UTC")}
+            data-public-id={envelope.public_id}
+            data-delete-label={delete_label(envelope, @current_scope.user)}
+            data-delete-confirm={delete_confirm(envelope, @current_scope.user)}
           >
           </li>
         </ul>
@@ -114,6 +117,28 @@ defmodule VeejrWeb.MapLive do
     end
   end
 
+  def handle_event("delete_envelope", %{"id" => public_id}, socket) do
+    case Messaging.delete_envelope(socket.assigns.current_scope.user, public_id) do
+      {:ok, {:deleted, _count}} ->
+        {:reply, %{ok: true, message: "Deleted for every recipient."},
+         socket
+         |> put_flash(:info, "Deleted for every recipient.")
+         |> refresh()}
+
+      {:ok, :hidden} ->
+        {:reply, %{ok: true, message: "Hidden from your map."},
+         socket
+         |> put_flash(:info, "Hidden from your map.")
+         |> refresh()}
+
+      {:error, _} ->
+        {:reply, %{error: "Could not delete that map item."},
+         socket
+         |> put_flash(:error, "Could not delete that map item.")
+         |> refresh()}
+    end
+  end
+
   @impl true
   def handle_info({:veejr_notification, _}, socket), do: {:noreply, socket}
 
@@ -133,4 +158,13 @@ defmodule VeejrWeb.MapLive do
 
   defp map_label(%Envelope{sender_id: uid}, %User{id: uid}), do: "You"
   defp map_label(%Envelope{sender: sender}, _user), do: Veejr.Social.Address.handle(sender)
+
+  defp delete_label(%Envelope{sender_id: uid}, %User{id: uid}), do: "Delete everywhere"
+  defp delete_label(_envelope, _user), do: "Hide from my map"
+
+  defp delete_confirm(%Envelope{sender_id: uid}, %User{id: uid}),
+    do: "Delete this map item for every recipient? This cannot be undone."
+
+  defp delete_confirm(_envelope, _user),
+    do: "Hide this map item from your history?"
 end

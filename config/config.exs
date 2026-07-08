@@ -24,7 +24,8 @@ config :veejr,
   ecto_repos: [Veejr.Repo],
   generators: [timestamp_type: :utc_datetime],
   # :community (open registration) or :personal (single-owner instance)
-  instance_mode: :community
+  instance_mode: :community,
+  mail_from: {"Veejr", "hello@example.invalid"}
 
 # Configure the endpoint
 config :veejr, VeejrWeb.Endpoint,

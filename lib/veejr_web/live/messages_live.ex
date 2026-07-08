@@ -5,6 +5,8 @@ defmodule VeejrWeb.MessagesLive do
 
   alias Veejr.{Messaging, Social}
 
+  @message_page_size 50
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -74,8 +76,22 @@ defmodule VeejrWeb.MessagesLive do
             <div
               id={"thread-#{@selected_conversation.key}"}
               phx-hook="ScrollBottom"
+              data-has-more={@has_more_messages}
               class="max-h-[32rem] overflow-y-auto px-3 py-2 bg-base-200/40"
             >
+              <div class="py-2 text-center">
+                <button
+                  :if={@has_more_messages}
+                  type="button"
+                  data-role="load-more-messages"
+                  class="btn btn-ghost btn-xs"
+                >
+                  Load earlier messages
+                </button>
+                <span :if={!@has_more_messages} class="text-xs opacity-50">
+                  Beginning of loaded history
+                </span>
+              </div>
               <.message_bubble
                 :for={envelope <- @selected_conversation.envelopes}
                 envelope={envelope}
@@ -167,7 +183,14 @@ defmodule VeejrWeb.MessagesLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, socket |> assign(page_title: "Messages", selected_conversation_key: nil) |> refresh()}
+    {:ok,
+     socket
+     |> assign(
+       page_title: "Messages",
+       selected_conversation_key: nil,
+       message_limit: @message_page_size
+     )
+     |> refresh()}
   end
 
   @impl true
@@ -200,6 +223,33 @@ defmodule VeejrWeb.MessagesLive do
 
   def handle_event("new_message", _params, socket) do
     {:noreply, socket |> assign(:selected_conversation_key, nil) |> refresh()}
+  end
+
+  def handle_event("load_more_messages", _params, socket) do
+    limit = socket.assigns.message_limit + @message_page_size
+    {:noreply, socket |> assign(:message_limit, limit) |> refresh()}
+  end
+
+  def handle_event("delete_envelope", %{"id" => public_id}, socket) do
+    case Messaging.delete_envelope(socket.assigns.current_scope.user, public_id) do
+      {:ok, {:deleted, _count}} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Deleted for every recipient.")
+         |> refresh()}
+
+      {:ok, :hidden} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Hidden from your history.")
+         |> refresh()}
+
+      {:error, _} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Could not delete that item.")
+         |> refresh()}
+    end
   end
 
   def handle_event("resolve_recipients", params, socket) do
@@ -236,7 +286,8 @@ defmodule VeejrWeb.MessagesLive do
     user = socket.assigns.current_scope.user
     pending = Messaging.list_pending_notifications(user)
     friends = Social.list_friends(user)
-    conversations = build_conversations(user, friends)
+    message_limit = socket.assigns[:message_limit] || @message_page_size
+    {conversations, has_more_messages} = build_conversations(user, friends, message_limit)
     selected_key = socket.assigns[:selected_conversation_key]
     selected_conversation = Enum.find(conversations, &(&1.key == selected_key))
     selected_key = if selected_conversation, do: selected_key
@@ -247,6 +298,7 @@ defmodule VeejrWeb.MessagesLive do
       friends: friends,
       groups: Social.list_groups(user),
       conversations: conversations,
+      has_more_messages: has_more_messages,
       selected_conversation: selected_conversation,
       selected_conversation_key: selected_key
     )
@@ -266,29 +318,39 @@ defmodule VeejrWeb.MessagesLive do
   # what @alice sent you form separate threads (a received group message
   # lands in the sender's thread — the server can't see its other
   # recipients; the decrypted payload shows them).
-  defp build_conversations(user, friends) do
+  defp build_conversations(user, friends, limit) do
     handle_to_id = Map.new(friends, &{Veejr.Social.Address.handle(&1), &1.id})
 
-    user
-    |> Messaging.list_history(kind: "message", limit: 200)
-    |> Enum.group_by(&participants(user, &1))
-    |> Enum.map(fn {participants, envelopes} ->
-      envelopes = Enum.sort_by(envelopes, & &1.id)
+    envelopes =
+      user
+      |> Messaging.list_history(kind: "message", limit: limit + 1)
 
-      %{
-        key:
-          :crypto.hash(:md5, Enum.join(participants, "|")) |> Base.url_encode64(padding: false),
-        participants: participants,
-        envelopes: envelopes,
-        latest: List.last(envelopes),
-        reply_ids:
-          participants
-          |> Enum.map(&handle_to_id[&1])
-          |> Enum.reject(&is_nil/1)
-          |> Enum.join(",")
-      }
-    end)
-    |> Enum.sort_by(& &1.latest.id, :desc)
+    has_more? = length(envelopes) > limit
+
+    conversations =
+      envelopes
+      |> Enum.take(limit)
+      |> Enum.group_by(&participants(user, &1))
+      |> Enum.map(fn {participants, envelopes} ->
+        envelopes = Enum.sort_by(envelopes, & &1.id)
+
+        %{
+          key:
+            :crypto.hash(:md5, Enum.join(participants, "|"))
+            |> Base.url_encode64(padding: false),
+          participants: participants,
+          envelopes: envelopes,
+          latest: List.last(envelopes),
+          reply_ids:
+            participants
+            |> Enum.map(&handle_to_id[&1])
+            |> Enum.reject(&is_nil/1)
+            |> Enum.join(",")
+        }
+      end)
+      |> Enum.sort_by(& &1.latest.id, :desc)
+
+    {conversations, has_more?}
   end
 
   defp participants(user, envelope) do

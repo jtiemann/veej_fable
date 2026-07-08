@@ -426,6 +426,49 @@ defmodule Veejr.Messaging do
   end
 
   @doc """
+  Removes an envelope from the user's visible history.
+
+  Senders delete the whole batch permanently, including copies that have not
+  yet been fetched by remote recipients. Recipients keep the ciphertext from
+  being displayed again by moving their notification to `declined`.
+  """
+  def delete_envelope(%User{id: user_id}, public_id) when is_binary(public_id) do
+    envelope =
+      from(e in Envelope,
+        where: e.public_id == ^public_id,
+        left_join: n in assoc(e, :notification),
+        preload: [notification: n]
+      )
+      |> Repo.one()
+
+    cond do
+      is_nil(envelope) ->
+        {:error, :not_found}
+
+      envelope.sender_id == user_id ->
+        {count, _} =
+          from(e in Envelope,
+            where: e.sender_id == ^user_id and e.batch_id == ^envelope.batch_id
+          )
+          |> Repo.delete_all()
+
+        {:ok, {:deleted, count}}
+
+      envelope.recipient_id == user_id and not is_nil(envelope.notification) ->
+        envelope.notification
+        |> Ecto.Changeset.change(state: "declined")
+        |> Repo.update()
+        |> case do
+          {:ok, _notification} -> {:ok, :hidden}
+          error -> error
+        end
+
+      true ->
+        {:error, :unauthorized}
+    end
+  end
+
+  @doc """
   For a batch the user sent: who else received it (handles like `@bob` or
   `@carol@other.host`), so the sent view can say who it went to.
   """

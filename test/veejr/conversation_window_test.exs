@@ -56,6 +56,38 @@ defmodule Veejr.ConversationWindowTest do
     refute Messaging.conversation_active?(bob.id, alice.id)
   end
 
+  test "sender deletion removes every envelope copy in the sent batch", %{
+    alice: alice,
+    bob: bob
+  } do
+    {:ok, batch_id, []} =
+      Messaging.send_batch(alice, "message", [
+        %{"recipient_id" => bob.id, "ciphertext" => "ct-bob", "nonce" => "n"},
+        %{"recipient_id" => alice.id, "ciphertext" => "ct-self", "nonce" => "n"}
+      ])
+
+    self_copy = Repo.get_by!(Veejr.Messaging.Envelope, batch_id: batch_id, recipient_id: alice.id)
+
+    assert {:ok, {:deleted, 2}} = Messaging.delete_envelope(alice, self_copy.public_id)
+    assert Repo.all(Veejr.Messaging.Envelope) == []
+    assert Messaging.list_pending_notifications(bob) == []
+  end
+
+  test "recipient deletion hides an accepted message without deleting sender history", %{
+    alice: alice,
+    bob: bob
+  } do
+    send_msg(alice, bob, "hello")
+    [notification] = Messaging.list_pending_notifications(bob)
+    {:ok, _} = Messaging.accept_notification(bob, notification.id)
+
+    [received] = Messaging.list_history(bob)
+    assert {:ok, :hidden} = Messaging.delete_envelope(bob, received.public_id)
+
+    assert Messaging.list_history(bob) == []
+    assert [_self_copy] = Messaging.list_history(alice)
+  end
+
   test "malformed recipient ids return an error instead of raising", %{alice: alice} do
     assert {:error, :bad_recipient_id} =
              Messaging.send_batch(alice, "message", [

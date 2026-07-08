@@ -305,10 +305,44 @@ export const InstallApp = {
 // a messaging app does. Runs on mount and whenever the thread re-renders.
 export const ScrollBottom = {
   mounted() {
+    this.loadingMore = false
+    this.beforeLoadHeight = 0
+    this.loadMore = () => {
+      if (this.loadingMore || this.el.dataset.hasMore !== "true") return
+
+      this.loadingMore = true
+      this.beforeLoadHeight = this.el.scrollHeight
+      this.pushEvent("load_more_messages", {})
+    }
+    this.onScroll = () => {
+      if (this.loadingMore || this.el.dataset.hasMore !== "true") return
+      if (this.el.scrollTop > 48) return
+
+      this.loadMore()
+    }
+    this.onClick = (event) => {
+      if (!event.target.closest("[data-role='load-more-messages']")) return
+      event.preventDefault()
+      this.loadMore()
+    }
+    this.el.addEventListener("scroll", this.onScroll)
+    this.el.addEventListener("click", this.onClick)
     this.toBottom()
   },
   updated() {
-    this.toBottom()
+    if (this.loadingMore) {
+      requestAnimationFrame(() => {
+        const delta = this.el.scrollHeight - this.beforeLoadHeight
+        this.el.scrollTop = this.el.scrollTop + delta
+        this.loadingMore = false
+      })
+    } else {
+      this.toBottom()
+    }
+  },
+  destroyed() {
+    if (this.onScroll) this.el.removeEventListener("scroll", this.onScroll)
+    if (this.onClick) this.el.removeEventListener("click", this.onClick)
   },
   toBottom() {
     // let decrypted bubbles paint first

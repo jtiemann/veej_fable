@@ -25,7 +25,7 @@ function ensureLeaflet() {
   })
 }
 
-function popupContent(entry) {
+function popupContent(entry, onDelete) {
   const div = document.createElement("div")
   const who = document.createElement("p")
   who.style.fontWeight = "600"
@@ -43,6 +43,14 @@ function popupContent(entry) {
   when.style.fontSize = "0.8em"
   when.textContent = entry.time
   div.appendChild(when)
+
+  const button = document.createElement("button")
+  button.type = "button"
+  button.textContent = entry.deleteLabel || "Hide"
+  button.className = "btn btn-xs btn-ghost"
+  button.addEventListener("click", () => onDelete(entry, button))
+  div.appendChild(button)
+
   return div
 }
 
@@ -76,12 +84,13 @@ export const VeejrMap = {
     const points = []
     for (const el of this.el.querySelectorAll("[data-role=map-envelope]")) {
       if (!mySecret) break
-      const {peerKey, ciphertext, nonce, kind, label, time} = el.dataset
+      const {peerKey, ciphertext, nonce, kind, label, time, publicId, deleteLabel, deleteConfirm} = el.dataset
       const payload = openFrom(ciphertext, nonce, peerKey, mySecret)
       if (!payload || typeof payload.lat !== "number" || typeof payload.lng !== "number") continue
-      const entry = {payload, kind, label, time}
+      const entry = {payload, kind, label, time, publicId, deleteLabel, deleteConfirm}
       const marker = L.marker([payload.lat, payload.lng]).addTo(map)
-      marker.bindPopup(popupContent(entry))
+      entry.marker = marker
+      marker.bindPopup(popupContent(entry, (entry, button) => this.deleteEntry(entry, button)))
       points.push([payload.lat, payload.lng])
     }
 
@@ -139,6 +148,26 @@ export const VeejrMap = {
       delete window.veejrPayloadProviders["note-composer"]
     }
     if (this.map) this.map.remove()
+  },
+
+  deleteEntry(entry, button) {
+    if (entry.deleteConfirm && !window.confirm(entry.deleteConfirm)) return
+
+    button.disabled = true
+    const original = button.textContent
+    button.textContent = "Deleting…"
+
+    this.pushEvent("delete_envelope", {id: entry.publicId}, (reply) => {
+      if (reply && reply.ok) {
+        if (entry.marker) entry.marker.remove()
+        return
+      }
+
+      button.disabled = false
+      button.textContent = original
+      const message = (reply && reply.error) || "Could not delete this map item."
+      window.alert(message)
+    })
   },
 }
 
