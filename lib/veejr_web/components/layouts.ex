@@ -35,6 +35,10 @@ defmodule VeejrWeb.Layouts do
     default: nil,
     doc: "number of pending encrypted-item notifications, shown on the Messages link"
 
+  attr :container_class, :string,
+    default: "mx-auto max-w-3xl space-y-4",
+    doc: "classes applied to the inner page container"
+
   slot :inner_block, required: true
 
   def app(assigns) do
@@ -86,7 +90,7 @@ defmodule VeejrWeb.Layouts do
     </header>
 
     <main class="px-4 py-10 sm:px-6 lg:px-8">
-      <div class="mx-auto max-w-3xl space-y-4">
+      <div class={@container_class}>
         {render_slot(@inner_block)}
       </div>
     </main>

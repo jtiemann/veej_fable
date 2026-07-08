@@ -18,6 +18,7 @@ defmodule VeejrWeb.MessagingComponents do
   attr :kind, :string, default: "message"
   attr :payload, :string, default: nil, doc: "JSON merged into the payload (e.g. map coords)"
   attr :selected_friend_ids, :list, default: []
+  attr :surface, :string, default: "card"
   attr :show_text, :boolean, default: true
   attr :show_files, :boolean, default: true
 
@@ -35,24 +36,41 @@ defmodule VeejrWeb.MessagingComponents do
       data-my-key={@user.public_key}
       data-kind={@kind}
       data-payload={@payload}
-      class="rounded-lg border border-base-300 p-4 space-y-3"
+      class={[
+        "space-y-3",
+        @surface == "messages" &&
+          "rounded-[28px] border border-slate-200 bg-white p-3 shadow-sm",
+        @surface != "messages" &&
+          "rounded-lg border border-base-300 p-4"
+      ]}
     >
       <p data-role="error" class="hidden text-error text-sm"></p>
 
-      <div :if={@friends == []} class="text-sm opacity-60">
+      <div :if={@friends == []} class="px-2 text-sm text-slate-500">
         You have no friends to send to yet — add some on the Friends page.
       </div>
 
       <div :if={@friends != []}>
-        <p class="text-sm font-medium mb-1">To friends:</p>
-        <div class="flex flex-wrap gap-3">
-          <label :for={friend <- @friends} class="label cursor-pointer gap-1 text-sm">
+        <p class="mb-2 px-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+          Friends
+        </p>
+        <div class="flex flex-wrap gap-2">
+          <label
+            :for={friend <- @friends}
+            class={[
+              "flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition",
+              to_string(friend.id) in @selected_friend_ids &&
+                "border-blue-200 bg-blue-50 text-blue-800",
+              to_string(friend.id) not in @selected_friend_ids &&
+                "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+            ]}
+          >
             <input
               type="checkbox"
               name="friends[]"
               value={friend.id}
               checked={to_string(friend.id) in @selected_friend_ids}
-              class="checkbox checkbox-sm"
+              class="checkbox checkbox-xs border-slate-300"
             />
             {friend.display_name || friend.username}
           </label>
@@ -60,34 +78,67 @@ defmodule VeejrWeb.MessagingComponents do
       </div>
 
       <div :if={@groups != []}>
-        <p class="text-sm font-medium mb-1">To groups:</p>
-        <div class="flex flex-wrap gap-3">
-          <label :for={group <- @groups} class="label cursor-pointer gap-1 text-sm">
-            <input type="checkbox" name="groups[]" value={group.id} class="checkbox checkbox-sm" />
+        <p class="mb-2 px-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+          Groups
+        </p>
+        <div class="flex flex-wrap gap-2">
+          <label
+            :for={group <- @groups}
+            class="flex cursor-pointer items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700 transition hover:bg-slate-100"
+          >
+            <input
+              type="checkbox"
+              name="groups[]"
+              value={group.id}
+              class="checkbox checkbox-xs border-slate-300"
+            />
             {group.name} ({length(group.members)})
           </label>
         </div>
       </div>
 
-      <textarea
-        :if={@show_text}
-        data-role="text"
-        rows="3"
-        class="textarea w-full"
-        placeholder={@text_placeholder}
-      ></textarea>
+      <div class={[
+        @surface == "messages" && "flex items-end gap-2",
+        @surface != "messages" && "space-y-3"
+      ]}>
+        <textarea
+          :if={@show_text}
+          data-role="text"
+          rows={if(@surface == "messages", do: "1", else: "3")}
+          class={[
+            "textarea w-full resize-none",
+            @surface == "messages" &&
+              "min-h-11 rounded-[22px] border-0 bg-slate-100 px-4 py-3 text-slate-900 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-200",
+            @surface != "messages" && "textarea-bordered"
+          ]}
+          placeholder={@text_placeholder}
+        ></textarea>
 
-      <input
-        :if={@show_files}
-        type="file"
-        data-role="files"
-        multiple
-        class="file-input file-input-sm w-full"
-      />
+        <input
+          :if={@show_files}
+          type="file"
+          data-role="files"
+          multiple
+          class={[
+            "file-input file-input-sm",
+            @surface == "messages" && "max-w-40 rounded-full border-slate-200 bg-slate-50",
+            @surface != "messages" && "w-full"
+          ]}
+        />
 
-      <button type="submit" class="btn btn-primary" disabled={@friends == []}>
-        🔐 {@submit_label}
-      </button>
+        <button
+          type="submit"
+          class={[
+            "btn border-0",
+            @surface == "messages" &&
+              "h-11 min-h-11 rounded-full bg-blue-600 px-5 text-white shadow-none hover:bg-blue-700",
+            @surface != "messages" && "btn-primary"
+          ]}
+          disabled={@friends == []}
+        >
+          {@submit_label}
+        </button>
+      </div>
     </form>
     """
   end
@@ -136,11 +187,15 @@ defmodule VeejrWeb.MessagingComponents do
 
   def message_bubble(assigns) do
     ~H"""
-    <div class={["chat", (@mine && "chat-end") || "chat-start"]}>
-      <div :if={!@mine} class="chat-header text-xs opacity-70 mb-0.5">
+    <div class={["flex flex-col", @mine && "items-end", !@mine && "items-start"]}>
+      <div :if={!@mine} class="mb-1 ml-3 text-xs font-medium text-slate-500">
         {Veejr.Social.Address.handle(@envelope.sender)}
       </div>
-      <div class={["chat-bubble max-w-[85%]", @mine && "chat-bubble-primary"]}>
+      <div class={[
+        "max-w-[78%] rounded-[22px] px-4 py-2 text-[0.95rem] leading-relaxed shadow-sm",
+        @mine && "rounded-br-md bg-blue-600 text-white",
+        !@mine && "rounded-bl-md bg-white text-slate-900 ring-1 ring-slate-200"
+      ]}>
         <div
           id={"env-#{@envelope.public_id}"}
           phx-hook="Decrypt"
@@ -154,14 +209,14 @@ defmodule VeejrWeb.MessagingComponents do
           <span class="loading loading-dots loading-xs"></span>
         </div>
       </div>
-      <div class="chat-footer text-xs opacity-50 mt-0.5">
+      <div class={["mt-1 text-xs text-slate-400", @mine && "mr-3", !@mine && "ml-3"]}>
         <span>{Calendar.strftime(@envelope.inserted_at, "%H:%M")}</span>
         <button
           type="button"
           phx-click="delete_envelope"
           phx-value-id={@envelope.public_id}
           data-confirm={delete_confirm(@mine)}
-          class="link ml-2 align-baseline"
+          class="ml-2 rounded-full px-1.5 py-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
         >
           {delete_label(@mine)}
         </button>
