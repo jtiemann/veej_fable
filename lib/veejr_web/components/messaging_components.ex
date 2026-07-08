@@ -214,6 +214,17 @@ defmodule VeejrWeb.MessagingComponents do
           <input type="file" data-role="files" multiple class="sr-only" />
         </label>
 
+        <button
+          :if={@show_files && @surface == "messages"}
+          type="button"
+          data-role="audio-toggle"
+          title="Record voice message"
+          aria-label="Record voice message"
+          class="flex size-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-700"
+        >
+          <.icon name="hero-microphone" class="size-5" />
+        </button>
+
         <input
           :if={@show_files && @surface != "messages"}
           type="file"
@@ -221,6 +232,15 @@ defmodule VeejrWeb.MessagingComponents do
           multiple
           class="file-input file-input-sm w-full"
         />
+
+        <button
+          :if={@show_files && @surface != "messages"}
+          type="button"
+          data-role="audio-toggle"
+          class="btn btn-outline btn-sm"
+        >
+          <.icon name="hero-microphone" class="size-4" /> Record audio
+        </button>
 
         <button
           type="submit"
@@ -235,6 +255,14 @@ defmodule VeejrWeb.MessagingComponents do
           {@submit_label}
         </button>
       </div>
+
+      <div
+        :if={@show_files}
+        data-role="audio-status"
+        class="hidden px-2 text-xs text-slate-500"
+      >
+      </div>
+      <div :if={@show_files} data-role="audio-preview" class="space-y-2"></div>
     </form>
     """
   end

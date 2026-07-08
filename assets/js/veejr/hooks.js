@@ -32,7 +32,7 @@ const csrfToken = () =>
 
 // Encrypts one file with a fresh symmetric key and uploads the ciphertext.
 // Returns the attachment descriptor that rides inside the envelope payload.
-async function encryptAndUpload(file) {
+async function encryptAndUpload(file, metadata = {}) {
   const bytes = new Uint8Array(await file.arrayBuffer())
   const enc = encryptBlob(bytes)
   const resp = await fetch("/blobs", {
@@ -49,10 +49,38 @@ async function encryptAndUpload(file) {
     origin: window.location.origin,
     key: enc.key,
     nonce: enc.nonce,
-    name: file.name,
-    mime: file.type,
-    size: file.size,
+    name: metadata.name || file.name,
+    mime: metadata.mime || file.type,
+    size: metadata.size || file.size,
+    duration_ms: metadata.durationMs,
   }
+}
+
+async function decryptAttachmentBlob(att) {
+  const urls = [
+    att.origin ? `${att.origin}/api/blobs/${att.id}` : null,
+    `/api/blobs/${att.id}`,
+    `/blobs/${att.id}`,
+  ].filter(Boolean)
+
+  let resp = null
+  let lastError = null
+  for (const url of [...new Set(urls)]) {
+    try {
+      resp = await fetch(url)
+      if (resp.ok) break
+      lastError = new Error(`download failed (${resp.status})`)
+    } catch (err) {
+      lastError = err
+    }
+    resp = null
+  }
+
+  if (!resp || !resp.ok) throw lastError || new Error("download failed")
+  const cipher = new Uint8Array(await resp.arrayBuffer())
+  const plain = decryptBlob(cipher, att.key, att.nonce)
+  if (!plain) throw new Error("attachment failed authentication")
+  return new Blob([plain], {type: att.mime || "application/octet-stream"})
 }
 
 // Downloads an encrypted blob, decrypts it locally, and hands it to the user
@@ -60,13 +88,8 @@ async function encryptAndUpload(file) {
 // and are fetched from that instance's public capability endpoint; legacy
 // attachments (no origin) live on this instance behind the session route.
 async function downloadAttachment(att) {
-  const fetchUrl = att.origin ? `${att.origin}/api/blobs/${att.id}` : `/blobs/${att.id}`
-  const resp = await fetch(fetchUrl)
-  if (!resp.ok) throw new Error(`download failed (${resp.status})`)
-  const cipher = new Uint8Array(await resp.arrayBuffer())
-  const plain = decryptBlob(cipher, att.key, att.nonce)
-  if (!plain) throw new Error("attachment failed authentication")
-  const url = URL.createObjectURL(new Blob([plain], {type: att.mime || "application/octet-stream"}))
+  const blob = await decryptAttachmentBlob(att)
+  const url = URL.createObjectURL(blob)
   const a = document.createElement("a")
   a.href = url
   a.download = att.name || "attachment"
@@ -80,6 +103,93 @@ function showError(el, msg) {
     err.textContent = msg
     err.classList.remove("hidden")
   }
+}
+
+function preferredAudioMime() {
+  const types = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"]
+  return types.find((type) => window.MediaRecorder && MediaRecorder.isTypeSupported(type)) || ""
+}
+
+function attachmentMime(att) {
+  const mime = att.mime || ""
+  const name = (att.name || "").toLowerCase()
+  if (mime.startsWith("image/")) return mime
+  if (mime === "application/pdf" || mime === "application/x-pdf" || name.endsWith(".pdf")) {
+    return "application/pdf"
+  }
+  return mime
+}
+
+function previewableMedia(att) {
+  const mime = attachmentMime(att)
+  return mime.startsWith("image/") || mime === "application/pdf"
+}
+
+function showMediaModal({blob, title, mime}) {
+  const mediaBlob = mime === "application/pdf" && blob.type !== "application/pdf"
+    ? new Blob([blob], {type: "application/pdf"})
+    : blob
+  const url = URL.createObjectURL(mediaBlob)
+  const overlay = document.createElement("div")
+  overlay.className = "fixed inset-0 z-[1100] flex items-center justify-center bg-black/70 p-4"
+  overlay.setAttribute("role", "dialog")
+  overlay.setAttribute("aria-modal", "true")
+
+  const panel = document.createElement("div")
+  panel.className = "flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
+
+  const header = document.createElement("div")
+  header.className = "flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3"
+
+  const h = document.createElement("h3")
+  h.className = "truncate text-sm font-medium text-slate-900"
+  h.textContent = title || "Attachment"
+
+  const close = document.createElement("button")
+  close.type = "button"
+  close.className = "btn btn-ghost btn-sm"
+  close.textContent = "Close"
+
+  const body = document.createElement("div")
+  body.className = "min-h-0 flex-1 overflow-auto bg-slate-950 p-3"
+  body.addEventListener("contextmenu", (event) => event.preventDefault())
+
+  if ((mime || "").startsWith("image/")) {
+    const img = document.createElement("img")
+    img.src = url
+    img.alt = title || "Image attachment"
+    img.draggable = false
+    img.className = "mx-auto max-h-[78vh] max-w-full object-contain"
+    body.appendChild(img)
+  } else {
+    const frame = document.createElement("iframe")
+    frame.src = `${url}#toolbar=0&navpanes=0&scrollbar=1`
+    frame.title = title || "PDF attachment"
+    frame.className = "h-[78vh] w-full rounded bg-white"
+    body.appendChild(frame)
+  }
+
+  const cleanup = () => {
+    URL.revokeObjectURL(url)
+    document.removeEventListener("keydown", onKeydown)
+    overlay.remove()
+  }
+  const onKeydown = (event) => {
+    if (event.key === "Escape") cleanup()
+  }
+
+  close.addEventListener("click", cleanup)
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) cleanup()
+  })
+  document.addEventListener("keydown", onKeydown)
+
+  header.appendChild(h)
+  header.appendChild(close)
+  panel.appendChild(header)
+  panel.appendChild(body)
+  overlay.appendChild(panel)
+  document.body.appendChild(overlay)
 }
 
 // Key setup: generate a keypair, wrap the secret key with the passphrase,
@@ -448,14 +558,30 @@ export const KeyLock = {
 // Dataset: user-id, my-key, kind
 export const Composer = {
   mounted() {
+    this.recordedAudio = []
+
     this.onComposerClick = (e) => {
       const toggle = e.target.closest("[data-role=emoji-toggle]")
-      if (!toggle || !this.el.contains(toggle)) return
+      if (toggle && this.el.contains(toggle)) {
+        e.preventDefault()
+        e.stopPropagation()
+        this.captureEmojiElements()
+        this.setEmojiMenuOpen(this.emojiMenu.classList.contains("hidden"))
+        return
+      }
 
-      e.preventDefault()
-      e.stopPropagation()
-      this.captureEmojiElements()
-      this.setEmojiMenuOpen(this.emojiMenu.classList.contains("hidden"))
+      const audioToggle = e.target.closest("[data-role=audio-toggle]")
+      if (audioToggle && this.el.contains(audioToggle)) {
+        e.preventDefault()
+        this.toggleAudioRecording().catch((err) => showError(this.el, err.message))
+        return
+      }
+
+      const discardAudio = e.target.closest("[data-role=discard-audio]")
+      if (discardAudio && this.el.contains(discardAudio)) {
+        e.preventDefault()
+        this.discardAudio(parseInt(discardAudio.dataset.index))
+      }
     }
 
     this.onDocumentClick = (e) => {
@@ -499,10 +625,12 @@ export const Composer = {
   },
 
   destroyed() {
+    this.stopMediaTracks()
     if (this.onComposerClick) this.el.removeEventListener("click", this.onComposerClick)
     if (this.onDocumentClick) document.removeEventListener("click", this.onDocumentClick)
     if (this.onDocumentKeydown) document.removeEventListener("keydown", this.onDocumentKeydown)
     if (this.emojiMenu && this.emojiMenu.parentElement === document.body) this.emojiMenu.remove()
+    this.recordedAudio.forEach((entry) => URL.revokeObjectURL(entry.url))
   },
 
   setEmojiMenuOpen(open) {
@@ -556,9 +684,114 @@ export const Composer = {
     textEl.focus()
   },
 
+  async toggleAudioRecording() {
+    if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
+      this.mediaRecorder.stop()
+      this.setAudioStatus("Finishing recording...")
+      return
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+      throw new Error("Audio recording is not supported in this browser.")
+    }
+
+    const mimeType = preferredAudioMime()
+    const stream = await navigator.mediaDevices.getUserMedia({audio: true})
+    const recorder = new MediaRecorder(stream, mimeType ? {mimeType} : undefined)
+    const chunks = []
+    const startedAt = Date.now()
+
+    recorder.addEventListener("dataavailable", (event) => {
+      if (event.data && event.data.size > 0) chunks.push(event.data)
+    })
+
+    recorder.addEventListener("stop", () => {
+      this.stopMediaTracks()
+      const type = recorder.mimeType || mimeType || "audio/webm"
+      const blob = new Blob(chunks, {type})
+      if (blob.size === 0) {
+        this.setAudioStatus("Recording was empty.")
+        return
+      }
+
+      const extension = type.includes("mp4") ? "m4a" : type.includes("ogg") ? "ogg" : "webm"
+      const durationMs = Date.now() - startedAt
+      const name = `voice-message-${new Date().toISOString().replace(/[:.]/g, "-")}.${extension}`
+      const file = new File([blob], name, {type})
+      this.recordedAudio.push({file, url: URL.createObjectURL(blob), durationMs})
+      this.renderAudioPreview()
+      this.setAudioStatus("Voice message ready to send.")
+    })
+
+    this.audioStream = stream
+    this.mediaRecorder = recorder
+    recorder.start()
+    this.setAudioStatus("Recording... click the microphone again to stop.")
+  },
+
+  stopMediaTracks() {
+    if (!this.audioStream) return
+    this.audioStream.getTracks().forEach((track) => track.stop())
+    this.audioStream = null
+  },
+
+  setAudioStatus(message) {
+    const status = this.el.querySelector("[data-role=audio-status]")
+    if (!status) return
+    status.textContent = message
+    status.classList.toggle("hidden", !message)
+  },
+
+  renderAudioPreview() {
+    const preview = this.el.querySelector("[data-role=audio-preview]")
+    if (!preview) return
+    preview.textContent = ""
+
+    this.recordedAudio.forEach((entry, index) => {
+      const row = document.createElement("div")
+      row.className = "flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2"
+
+      const audio = document.createElement("audio")
+      audio.controls = true
+      audio.src = entry.url
+      audio.className = "min-w-0 flex-1"
+
+      const btn = document.createElement("button")
+      btn.type = "button"
+      btn.dataset.role = "discard-audio"
+      btn.dataset.index = index.toString()
+      btn.className = "btn btn-ghost btn-xs"
+      btn.textContent = "Remove"
+
+      row.appendChild(audio)
+      row.appendChild(btn)
+      preview.appendChild(row)
+    })
+  },
+
+  discardAudio(index) {
+    const entry = this.recordedAudio[index]
+    if (!entry) return
+    URL.revokeObjectURL(entry.url)
+    this.recordedAudio.splice(index, 1)
+    this.renderAudioPreview()
+    this.setAudioStatus(this.recordedAudio.length > 0 ? "Voice message ready to send." : "")
+  },
+
+  clearAudioRecordings() {
+    this.recordedAudio.forEach((entry) => URL.revokeObjectURL(entry.url))
+    this.recordedAudio = []
+    this.renderAudioPreview()
+    this.setAudioStatus("")
+  },
+
   async send() {
     const form = this.el
     const {userId, myKey, kind} = form.dataset
+    if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
+      throw new Error("Stop recording before sending.")
+    }
+
     const mySecret = getSecretKey(userId)
     if (!mySecret) {
       window.location.assign(`/keys?return_to=${encodeURIComponent(location.pathname)}`)
@@ -591,7 +824,8 @@ export const Composer = {
     const text = textEl ? textEl.value.trim() : ""
     const filesEl = form.querySelector("[data-role=files]")
     const files = filesEl ? [...filesEl.files] : []
-    if (!text && files.length === 0 && Object.keys(extra).length === 0) {
+    const recordedAudio = this.recordedAudio || []
+    if (!text && files.length === 0 && recordedAudio.length === 0 && Object.keys(extra).length === 0) {
       throw new Error("Nothing to send.")
     }
 
@@ -616,6 +850,17 @@ export const Composer = {
         busy(`Encrypting attachment ${i + 1}/${files.length}…`)
         attachments.push(await encryptAndUpload(file))
       }
+      for (const [i, entry] of recordedAudio.entries()) {
+        busy(`Encrypting voice message ${i + 1}/${recordedAudio.length}...`)
+        attachments.push(
+          await encryptAndUpload(entry.file, {
+            name: entry.file.name,
+            mime: entry.file.type,
+            size: entry.file.size,
+            durationMs: entry.durationMs,
+          })
+        )
+      }
 
       // recipient handles ride inside the encrypted payload so group
       // messages can show all participants after decryption
@@ -634,6 +879,7 @@ export const Composer = {
       await this.pushWithReply("send_batch", {kind, envelopes})
 
       form.reset()
+      this.clearAudioRecordings()
       const err = form.querySelector("[data-role=error]")
       if (err) err.classList.add("hidden")
     } finally {
@@ -717,6 +963,16 @@ export const Decrypt = {
     }
 
     for (const att of payload.attachments || []) {
+      if (previewableMedia(att)) {
+        this.renderMediaAttachment(att)
+        continue
+      }
+
+      if ((att.mime || "").startsWith("audio/")) {
+        this.renderAudioAttachment(att)
+        continue
+      }
+
       const btn = document.createElement("button")
       btn.className = "btn btn-outline btn-xs mt-1 mr-1"
       btn.textContent = `📎 ${att.name || "attachment"} (${Math.ceil((att.size || 0) / 1024)} KB)`
@@ -725,6 +981,59 @@ export const Decrypt = {
       )
       this.el.appendChild(btn)
     }
+  },
+
+  renderMediaAttachment(att) {
+    const btn = document.createElement("button")
+    btn.type = "button"
+    btn.className = "btn btn-outline btn-xs mt-1 mr-1"
+    const mime = attachmentMime(att)
+    const kind = mime.startsWith("image/") ? "Image" : "PDF"
+    btn.textContent = `View ${kind}: ${att.name || "attachment"}`
+    btn.addEventListener("click", async () => {
+      btn.disabled = true
+      const original = btn.textContent
+      btn.textContent = `Opening ${kind.toLowerCase()}...`
+      try {
+        const blob = await decryptAttachmentBlob(att)
+        showMediaModal({blob, title: att.name, mime})
+        btn.textContent = original
+      } catch (err) {
+        btn.textContent = `Could not open ${kind.toLowerCase()}: ${err.message}`
+      } finally {
+        btn.disabled = false
+      }
+    })
+    this.el.appendChild(btn)
+  },
+
+  renderAudioAttachment(att) {
+    const wrap = document.createElement("div")
+    wrap.className = "mt-2"
+
+    const btn = document.createElement("button")
+    btn.type = "button"
+    btn.className = "btn btn-outline btn-xs"
+    btn.textContent = `Voice message (${Math.ceil((att.size || 0) / 1024)} KB)`
+    btn.addEventListener("click", async () => {
+      btn.disabled = true
+      btn.textContent = "Loading voice message..."
+      try {
+        const blob = await decryptAttachmentBlob(att)
+        const audio = document.createElement("audio")
+        audio.controls = true
+        audio.src = URL.createObjectURL(blob)
+        audio.className = "mt-1 w-full max-w-xs"
+        wrap.textContent = ""
+        wrap.appendChild(audio)
+      } catch (err) {
+        btn.disabled = false
+        btn.textContent = `Could not load voice message: ${err.message}`
+      }
+    })
+
+    wrap.appendChild(btn)
+    this.el.appendChild(wrap)
   },
 }
 
