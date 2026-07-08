@@ -442,7 +442,7 @@ export const KeyLock = {
 // Expects inside this.el:
 //   [data-role=text]                the message textarea (optional for kinds
 //                                   whose payload comes from data-payload)
-//   input[name="friends[]"]:checked / input[name="groups[]"]:checked
+//   input[name="friends[]"] / input[name="groups[]"] checked or hidden
 //   [data-role=files]               file input (optional)
 //   [data-role=error]               error line
 // Dataset: user-id, my-key, kind
@@ -463,8 +463,17 @@ export const Composer = {
       return
     }
 
-    const friendIds = [...form.querySelectorAll("input[name='friends[]']:checked")].map((el) => el.value)
-    const groupIds = [...form.querySelectorAll("input[name='groups[]']:checked")].map((el) => el.value)
+    const selectedValues = (name) => [
+      ...new Set(
+        [...form.querySelectorAll(`input[name='${name}']`)]
+          .filter((el) => el.type === "hidden" || el.checked)
+          .map((el) => el.value)
+          .filter(Boolean),
+      ),
+    ]
+
+    const friendIds = selectedValues("friends[]")
+    const groupIds = selectedValues("groups[]")
     if (friendIds.length + groupIds.length === 0) throw new Error("Pick at least one friend or group.")
 
     const textEl = form.querySelector("[data-role=text]")

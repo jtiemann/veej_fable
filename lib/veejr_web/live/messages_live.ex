@@ -134,6 +134,72 @@ defmodule VeejrWeb.MessagesLive do
                 </span>
               </button>
             </div>
+
+            <div
+              :if={@available_friends != [] or @available_groups != []}
+              class="mt-5 border-t border-slate-100 pt-4"
+            >
+              <h2 class="mb-2 px-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                Start new
+              </h2>
+              <div :if={@available_friends != []} class="space-y-1">
+                <button
+                  :for={friend <- @available_friends}
+                  id={"start-friend-#{friend.id}"}
+                  type="button"
+                  phx-click="select_friend"
+                  phx-value-id={friend.id}
+                  class={[
+                    "flex w-full items-center gap-3 rounded-[22px] px-3 py-3 text-left transition",
+                    @selected_recipient && @selected_recipient.type == :friend &&
+                      @selected_recipient.id == friend.id && "bg-blue-50 text-blue-950",
+                    (!@selected_recipient || @selected_recipient.id != friend.id ||
+                       @selected_recipient.type != :friend) &&
+                      "text-slate-800 hover:bg-slate-100"
+                  ]}
+                >
+                  <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-slate-600">
+                    {person_initials(friend)}
+                  </span>
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate text-sm font-medium">
+                      {friend.display_name || friend.username}
+                    </span>
+                    <span class="block truncate text-xs text-slate-500">
+                      {Social.Address.handle(friend)}
+                    </span>
+                  </span>
+                </button>
+              </div>
+
+              <div :if={@available_groups != []} class="mt-3 space-y-1">
+                <button
+                  :for={group <- @available_groups}
+                  id={"start-group-#{group.id}"}
+                  type="button"
+                  phx-click="select_group"
+                  phx-value-id={group.id}
+                  class={[
+                    "flex w-full items-center gap-3 rounded-[22px] px-3 py-3 text-left transition",
+                    @selected_recipient && @selected_recipient.type == :group &&
+                      @selected_recipient.id == group.id && "bg-blue-50 text-blue-950",
+                    (!@selected_recipient || @selected_recipient.id != group.id ||
+                       @selected_recipient.type != :group) &&
+                      "text-slate-800 hover:bg-slate-100"
+                  ]}
+                >
+                  <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-slate-600">
+                    {group_initials(group)}
+                  </span>
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate text-sm font-medium">{group.name}</span>
+                    <span class="block truncate text-xs text-slate-500">
+                      {length(group.members)} members
+                    </span>
+                  </span>
+                </button>
+              </div>
+            </div>
           </aside>
 
           <main class="flex min-h-0 min-w-0 flex-col bg-slate-100/80">
@@ -194,6 +260,7 @@ defmodule VeejrWeb.MessagesLive do
                   groups={@groups}
                   kind="message"
                   surface="messages"
+                  show_recipients={false}
                   selected_friend_ids={selected_friend_ids(@selected_conversation)}
                   submit_label={composer_submit_label(@selected_conversation)}
                 />
@@ -206,11 +273,13 @@ defmodule VeejrWeb.MessagesLive do
             >
               <div class="mx-auto max-w-xl px-6 py-12 text-center">
                 <div class="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-blue-100 text-xl font-semibold text-blue-700">
-                  V
+                  {selected_recipient_initials(@selected_recipient)}
                 </div>
-                <h2 class="text-xl font-semibold text-slate-950">New conversation</h2>
+                <h2 class="text-xl font-semibold text-slate-950">
+                  {selected_recipient_title(@selected_recipient)}
+                </h2>
                 <p class="mt-2 text-sm text-slate-500">
-                  Pick friends or groups, write a message, and send it encrypted.
+                  {selected_recipient_subtitle(@selected_recipient)}
                 </p>
               </div>
               <section class="border-t border-slate-200 bg-white/90 p-3 backdrop-blur">
@@ -221,7 +290,9 @@ defmodule VeejrWeb.MessagesLive do
                   groups={@groups}
                   kind="message"
                   surface="messages"
-                  selected_friend_ids={[]}
+                  show_recipients={false}
+                  selected_friend_ids={selected_recipient_friend_ids(@selected_recipient)}
+                  selected_group_ids={selected_recipient_group_ids(@selected_recipient)}
                   submit_label="Send"
                 />
               </section>
@@ -240,6 +311,8 @@ defmodule VeejrWeb.MessagesLive do
      |> assign(
        page_title: "Messages",
        selected_conversation_key: nil,
+       selected_recipient_type: nil,
+       selected_recipient_id: nil,
        message_limit: @message_page_size
      )
      |> refresh()}
@@ -270,11 +343,41 @@ defmodule VeejrWeb.MessagesLive do
   end
 
   def handle_event("select_conversation", %{"key" => key}, socket) do
-    {:noreply, socket |> assign(:selected_conversation_key, key) |> refresh()}
+    {:noreply,
+     socket
+     |> assign(:selected_conversation_key, key)
+     |> clear_selected_recipient()
+     |> refresh()}
   end
 
   def handle_event("new_message", _params, socket) do
-    {:noreply, socket |> assign(:selected_conversation_key, nil) |> refresh()}
+    {:noreply,
+     socket
+     |> assign(:selected_conversation_key, nil)
+     |> clear_selected_recipient()
+     |> refresh()}
+  end
+
+  def handle_event("select_friend", %{"id" => id}, socket) do
+    {:noreply,
+     socket
+     |> assign(
+       selected_conversation_key: nil,
+       selected_recipient_type: :friend,
+       selected_recipient_id: id
+     )
+     |> refresh()}
+  end
+
+  def handle_event("select_group", %{"id" => id}, socket) do
+    {:noreply,
+     socket
+     |> assign(
+       selected_conversation_key: nil,
+       selected_recipient_type: :group,
+       selected_recipient_id: id
+     )
+     |> refresh()}
   end
 
   def handle_event("load_more_messages", _params, socket) do
@@ -338,22 +441,72 @@ defmodule VeejrWeb.MessagesLive do
     user = socket.assigns.current_scope.user
     pending = Messaging.list_pending_notifications(user)
     friends = Social.list_friends(user)
+    groups = Social.list_groups(user)
     message_limit = socket.assigns[:message_limit] || @message_page_size
     {conversations, has_more_messages} = build_conversations(user, friends, message_limit)
     selected_key = socket.assigns[:selected_conversation_key]
     selected_conversation = Enum.find(conversations, &(&1.key == selected_key))
     selected_key = if selected_conversation, do: selected_key
+    selected_recipient = selected_recipient(socket, friends, groups)
 
     assign(socket,
       pending: pending,
       pending_count: length(pending),
       friends: friends,
-      groups: Social.list_groups(user),
+      groups: groups,
+      available_friends: available_friends(friends, conversations),
+      available_groups: available_groups(groups, conversations),
       conversations: conversations,
       has_more_messages: has_more_messages,
       selected_conversation: selected_conversation,
-      selected_conversation_key: selected_key
+      selected_conversation_key: selected_key,
+      selected_recipient: selected_recipient
     )
+  end
+
+  defp clear_selected_recipient(socket) do
+    assign(socket, selected_recipient_type: nil, selected_recipient_id: nil)
+  end
+
+  defp selected_recipient(socket, friends, groups) do
+    id = socket.assigns[:selected_recipient_id]
+
+    case socket.assigns[:selected_recipient_type] do
+      :friend ->
+        with {friend_id, ""} <- Integer.parse(to_string(id)),
+             friend when not is_nil(friend) <- Enum.find(friends, &(&1.id == friend_id)) do
+          %{
+            type: :friend,
+            id: friend.id,
+            title: friend.display_name || friend.username,
+            subtitle: Social.Address.handle(friend),
+            friend_ids: [to_string(friend.id)],
+            group_ids: [],
+            initials: person_initials(friend)
+          }
+        else
+          _ -> nil
+        end
+
+      :group ->
+        with {group_id, ""} <- Integer.parse(to_string(id)),
+             group when not is_nil(group) <- Enum.find(groups, &(&1.id == group_id)) do
+          %{
+            type: :group,
+            id: group.id,
+            title: group.name,
+            subtitle: "#{length(group.members)} members",
+            friend_ids: [],
+            group_ids: [to_string(group.id)],
+            initials: group_initials(group)
+          }
+        else
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
   end
 
   defp selected_friend_ids(%{reply_ids: reply_ids}) do
@@ -361,7 +514,54 @@ defmodule VeejrWeb.MessagesLive do
     |> String.split(",", trim: true)
   end
 
+  defp selected_recipient_friend_ids(%{friend_ids: friend_ids}), do: friend_ids
+  defp selected_recipient_friend_ids(_), do: []
+
+  defp selected_recipient_group_ids(%{group_ids: group_ids}), do: group_ids
+  defp selected_recipient_group_ids(_), do: []
+
+  defp selected_recipient_title(%{title: title}), do: title
+  defp selected_recipient_title(_), do: "Choose a conversation"
+
+  defp selected_recipient_subtitle(%{subtitle: subtitle}), do: subtitle
+  defp selected_recipient_subtitle(_), do: "Pick a conversation, friend, or group from the list."
+
+  defp selected_recipient_initials(%{initials: initials}), do: initials
+  defp selected_recipient_initials(_), do: "V"
+
   defp composer_submit_label(_conversation), do: "Send"
+
+  defp available_friends(friends, conversations) do
+    used_ids =
+      conversations
+      |> Enum.flat_map(&selected_friend_ids/1)
+      |> MapSet.new()
+
+    Enum.reject(friends, &(to_string(&1.id) in used_ids))
+  end
+
+  defp available_groups(groups, conversations) do
+    conversation_participants = MapSet.new(conversations, & &1.participants)
+
+    Enum.reject(groups, fn group ->
+      group
+      |> group_participant_handles()
+      |> then(&MapSet.member?(conversation_participants, &1))
+    end)
+  end
+
+  defp person_initials(user) do
+    user
+    |> display_name()
+    |> initials()
+  end
+
+  defp group_initials(group) do
+    group.name
+    |> initials()
+  end
+
+  defp display_name(user), do: user.display_name || user.username || Social.Address.handle(user)
 
   defp conversation_initials(%{participants: participants}) do
     participants
@@ -375,6 +575,33 @@ defmodule VeejrWeb.MessagesLive do
         initial -> String.upcase(initial)
       end
     end)
+  end
+
+  defp initials(value) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> String.split(~r/\s+/, trim: true)
+    |> Enum.take(2)
+    |> Enum.map_join("", fn word ->
+      word
+      |> String.trim_leading("@")
+      |> String.first()
+      |> case do
+        nil -> "?"
+        initial -> String.upcase(initial)
+      end
+    end)
+    |> case do
+      "" -> "?"
+      result -> result
+    end
+  end
+
+  defp group_participant_handles(group) do
+    group.members
+    |> Enum.map(&Social.Address.handle/1)
+    |> Enum.sort()
   end
 
   # Groups history by participant set: what you sent to {@alice, @bob} and

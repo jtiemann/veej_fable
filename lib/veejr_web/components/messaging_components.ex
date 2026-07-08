@@ -19,6 +19,8 @@ defmodule VeejrWeb.MessagingComponents do
   attr :kind, :string, default: "message"
   attr :payload, :string, default: nil, doc: "JSON merged into the payload (e.g. map coords)"
   attr :selected_friend_ids, :list, default: []
+  attr :selected_group_ids, :list, default: []
+  attr :show_recipients, :boolean, default: true
   attr :surface, :string, default: "card"
   attr :show_text, :boolean, default: true
   attr :show_files, :boolean, default: true
@@ -29,6 +31,17 @@ defmodule VeejrWeb.MessagingComponents do
   attr :submit_label, :string, default: "Encrypt & send"
 
   def composer(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :can_send?,
+        if assigns.show_recipients do
+          assigns.friends != [] or assigns.groups != []
+        else
+          assigns.selected_friend_ids != [] or assigns.selected_group_ids != []
+        end
+      )
+
     ~H"""
     <form
       id={@id}
@@ -47,11 +60,26 @@ defmodule VeejrWeb.MessagingComponents do
     >
       <p data-role="error" class="hidden text-error text-sm"></p>
 
-      <div :if={@friends == []} class="px-2 text-sm text-slate-500">
+      <input
+        :for={id <- @selected_friend_ids}
+        :if={!@show_recipients}
+        type="hidden"
+        name="friends[]"
+        value={id}
+      />
+      <input
+        :for={id <- @selected_group_ids}
+        :if={!@show_recipients}
+        type="hidden"
+        name="groups[]"
+        value={id}
+      />
+
+      <div :if={@show_recipients && @friends == []} class="px-2 text-sm text-slate-500">
         You have no friends to send to yet — add some on the Friends page.
       </div>
 
-      <div :if={@friends != []}>
+      <div :if={@show_recipients && @friends != []}>
         <p class="mb-2 px-2 text-xs font-medium uppercase tracking-wide text-slate-500">
           Friends
         </p>
@@ -78,7 +106,7 @@ defmodule VeejrWeb.MessagingComponents do
         </div>
       </div>
 
-      <div :if={@groups != []}>
+      <div :if={@show_recipients && @groups != []}>
         <p class="mb-2 px-2 text-xs font-medium uppercase tracking-wide text-slate-500">
           Groups
         </p>
@@ -91,6 +119,7 @@ defmodule VeejrWeb.MessagingComponents do
               type="checkbox"
               name="groups[]"
               value={group.id}
+              checked={to_string(group.id) in @selected_group_ids}
               class="checkbox checkbox-xs border-slate-300"
             />
             {group.name} ({length(group.members)})
@@ -141,7 +170,7 @@ defmodule VeejrWeb.MessagingComponents do
               "h-11 min-h-11 rounded-full bg-blue-600 px-5 text-white shadow-none hover:bg-blue-700",
             @surface != "messages" && "btn-primary"
           ]}
-          disabled={@friends == []}
+          disabled={!@can_send?}
         >
           {@submit_label}
         </button>
