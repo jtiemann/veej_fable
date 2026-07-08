@@ -131,18 +131,78 @@ defmodule VeejrWeb.MessagingComponents do
         @surface == "messages" && "flex items-end gap-2",
         @surface != "messages" && "space-y-3"
       ]}>
+        <div :if={@show_text && @surface == "messages"} class="relative min-w-0 flex-1">
+          <textarea
+            data-role="text"
+            rows="1"
+            class="textarea min-h-11 w-full resize-none rounded-[22px] border-0 bg-slate-100 py-3 pl-4 pr-12 text-slate-900 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            placeholder={@text_placeholder}
+          ></textarea>
+
+          <button
+            type="button"
+            data-role="emoji-toggle"
+            title="Add emoji"
+            aria-label="Add emoji"
+            aria-expanded="false"
+            class="absolute bottom-1.5 right-1.5 flex size-8 items-center justify-center rounded-full text-lg transition hover:bg-slate-200"
+          >
+            🙂
+          </button>
+          <div
+            data-role="emoji-menu"
+            class="absolute bottom-11 right-0 z-20 hidden w-56 rounded-lg border border-slate-200 bg-white p-2 shadow-lg"
+          >
+            <div class="grid grid-cols-7 gap-1">
+              <button
+                :for={emoji <- ~w(😀 😄 😂 😊 😍 😎 🤔 😢 😡 👍 👎 🙌 👏 🙏 ❤️ 🔥 🎉 ✨ 👀 💯)}
+                type="button"
+                data-role="emoji-option"
+                data-emoji={emoji}
+                class="flex size-7 items-center justify-center rounded text-base transition hover:bg-slate-100"
+              >
+                {emoji}
+              </button>
+            </div>
+          </div>
+        </div>
+
         <textarea
-          :if={@show_text}
+          :if={@show_text && @surface != "messages"}
           data-role="text"
-          rows={if(@surface == "messages", do: "1", else: "3")}
-          class={[
-            "textarea w-full resize-none",
-            @surface == "messages" &&
-              "min-h-11 rounded-[22px] border-0 bg-slate-100 px-4 py-3 text-slate-900 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-200",
-            @surface != "messages" && "textarea-bordered"
-          ]}
+          rows="3"
+          class="textarea textarea-bordered w-full resize-none"
           placeholder={@text_placeholder}
         ></textarea>
+
+        <div :if={@show_text && @surface != "messages"} class="relative shrink-0">
+          <button
+            type="button"
+            data-role="emoji-toggle"
+            title="Add emoji"
+            aria-label="Add emoji"
+            aria-expanded="false"
+            class="flex size-11 items-center justify-center rounded-full border border-base-300 bg-slate-100 text-lg transition hover:bg-slate-200"
+          >
+            🙂
+          </button>
+          <div
+            data-role="emoji-menu"
+            class="absolute bottom-12 right-0 z-20 hidden w-56 rounded-lg border border-slate-200 bg-white p-2 shadow-lg"
+          >
+            <div class="grid grid-cols-7 gap-1">
+              <button
+                :for={emoji <- ~w(😀 😄 😂 😊 😍 😎 🤔 😢 😡 👍 👎 🙌 👏 🙏 ❤️ 🔥 🎉 ✨ 👀 💯)}
+                type="button"
+                data-role="emoji-option"
+                data-emoji={emoji}
+                class="flex size-7 items-center justify-center rounded text-base transition hover:bg-slate-100"
+              >
+                {emoji}
+              </button>
+            </div>
+          </div>
+        </div>
 
         <label
           :if={@show_files && @surface == "messages"}

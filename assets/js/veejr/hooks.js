@@ -448,10 +448,112 @@ export const KeyLock = {
 // Dataset: user-id, my-key, kind
 export const Composer = {
   mounted() {
+    this.onComposerClick = (e) => {
+      const toggle = e.target.closest("[data-role=emoji-toggle]")
+      if (!toggle || !this.el.contains(toggle)) return
+
+      e.preventDefault()
+      e.stopPropagation()
+      this.captureEmojiElements()
+      this.setEmojiMenuOpen(this.emojiMenu.classList.contains("hidden"))
+    }
+
+    this.onDocumentClick = (e) => {
+      if (this.emojiMenu && this.emojiMenu.contains(e.target)) {
+        const btn = e.target.closest("[data-role=emoji-option]")
+        if (!btn) return
+
+        e.preventDefault()
+        this.insertEmoji(btn.dataset.emoji || "")
+        this.setEmojiMenuOpen(false)
+        return
+      }
+
+      if (this.el.contains(e.target)) return
+      this.setEmojiMenuOpen(false)
+    }
+
+    this.onDocumentKeydown = (e) => {
+      if (e.key === "Escape") this.setEmojiMenuOpen(false)
+    }
+
+    this.el.addEventListener("click", this.onComposerClick)
+    document.addEventListener("click", this.onDocumentClick)
+    document.addEventListener("keydown", this.onDocumentKeydown)
+
     this.el.addEventListener("submit", (e) => {
       e.preventDefault()
       this.send().catch((err) => showError(this.el, err.message))
     })
+  },
+
+  captureEmojiElements() {
+    const previousMenu = this.emojiMenu
+    this.emojiMenu = this.el.querySelector("[data-role=emoji-menu]")
+    this.emojiToggle = this.el.querySelector("[data-role=emoji-toggle]")
+    this.textEl = this.el.querySelector("[data-role=text]")
+    if (this.emojiMenu && this.emojiMenu !== previousMenu) {
+      this.originalEmojiParent = this.emojiMenu.parentElement
+      this.originalEmojiNextSibling = this.emojiMenu.nextSibling
+    }
+  },
+
+  destroyed() {
+    if (this.onComposerClick) this.el.removeEventListener("click", this.onComposerClick)
+    if (this.onDocumentClick) document.removeEventListener("click", this.onDocumentClick)
+    if (this.onDocumentKeydown) document.removeEventListener("keydown", this.onDocumentKeydown)
+    if (this.emojiMenu && this.emojiMenu.parentElement === document.body) this.emojiMenu.remove()
+  },
+
+  setEmojiMenuOpen(open) {
+    if (!this.emojiMenu || !this.emojiToggle) return
+    if (open && this.emojiMenu.parentElement !== document.body) {
+      document.body.appendChild(this.emojiMenu)
+    }
+
+    this.emojiMenu.classList.toggle("hidden", !open)
+    this.emojiToggle.setAttribute("aria-expanded", open ? "true" : "false")
+
+    if (!open) {
+      if (
+        this.originalEmojiParent &&
+        this.originalEmojiParent.isConnected &&
+        this.emojiMenu.parentElement === document.body
+      ) {
+        this.originalEmojiParent.insertBefore(this.emojiMenu, this.originalEmojiNextSibling)
+      }
+      return
+    }
+
+    const rect = this.emojiToggle.getBoundingClientRect()
+    const gap = 8
+    const menuWidth = this.emojiMenu.offsetWidth
+    const menuHeight = this.emojiMenu.offsetHeight
+    const left = Math.min(
+      Math.max(gap, rect.right - menuWidth),
+      Math.max(gap, window.innerWidth - menuWidth - gap)
+    )
+    let top = rect.top - menuHeight - gap
+    if (top < gap) top = Math.min(window.innerHeight - menuHeight - gap, rect.bottom + gap)
+
+    Object.assign(this.emojiMenu.style, {
+      position: "fixed",
+      bottom: "auto",
+      right: "auto",
+      left: `${left}px`,
+      top: `${Math.max(gap, top)}px`,
+      zIndex: "1000",
+    })
+  },
+
+  insertEmoji(emoji) {
+    if (!emoji || !this.textEl) return
+    const textEl = this.textEl
+    const start = textEl.selectionStart ?? textEl.value.length
+    const end = textEl.selectionEnd ?? textEl.value.length
+    textEl.setRangeText(emoji, start, end, "end")
+    textEl.dispatchEvent(new Event("input", {bubbles: true}))
+    textEl.focus()
   },
 
   async send() {
