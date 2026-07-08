@@ -66,6 +66,57 @@ if config_env() == :prod do
     ],
     secret_key_base: secret_key_base
 
+  mail_from_address =
+    System.get_env("MAIL_FROM_ADDRESS") ||
+      raise """
+      environment variable MAIL_FROM_ADDRESS is missing.
+      For example: hello@your-domain.example
+      """
+
+  config :veejr,
+    mail_from: {System.get_env("MAIL_FROM_NAME") || "Veejr", mail_from_address}
+
+  smtp_host =
+    System.get_env("SMTP_HOST") ||
+      raise """
+      environment variable SMTP_HOST is missing.
+      For example: smtp.sendgrid.net
+      """
+
+  smtp_port = String.to_integer(System.get_env("SMTP_PORT") || "587")
+
+  smtp_auth =
+    case System.get_env("SMTP_AUTH") || "always" do
+      "never" -> :never
+      _ -> :always
+    end
+
+  smtp_tls =
+    case System.get_env("SMTP_TLS") || "always" do
+      "never" -> :never
+      "if_available" -> :if_available
+      _ -> :always
+    end
+
+  config :veejr, Veejr.Mailer,
+    adapter: Swoosh.Adapters.SMTP,
+    relay: smtp_host,
+    username: System.get_env("SMTP_USERNAME"),
+    password: System.get_env("SMTP_PASSWORD"),
+    port: smtp_port,
+    ssl: System.get_env("SMTP_SSL") in ["1", "true", "TRUE"],
+    tls: smtp_tls,
+    tls_options: [
+      versions: [:"tlsv1.3", :"tlsv1.2"],
+      verify: :verify_peer,
+      cacertfile: "/etc/ssl/certs/ca-certificates.crt",
+      depth: 4,
+      server_name_indication: String.to_charlist(smtp_host)
+    ],
+    auth: smtp_auth,
+    retries: 2,
+    no_mx_lookups: false
+
   # ## SSL Support
   #
   # To get SSL working, you will need to add the `https` key

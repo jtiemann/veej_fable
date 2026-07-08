@@ -4,6 +4,12 @@ import Config
 # federation, e.g.: PORT=4001 VEEJR_DB=veejr_dev2.db mix phx.server
 port = String.to_integer(System.get_env("PORT") || "4000")
 
+bind_ip =
+  case System.get_env("BIND_ALL") do
+    value when value in ["1", "true", "TRUE"] -> {0, 0, 0, 0}
+    _ -> {127, 0, 0, 1}
+  end
+
 # PHX_HOST, when set (e.g. an ngrok/cloudflare tunnel hostname), makes the app
 # generate absolute URLs (magic links) and its federation authority from that
 # public HTTPS host instead of localhost. Needed to reach a dev instance from a
@@ -31,7 +37,7 @@ config :veejr, Veejr.Repo,
 config :veejr, VeejrWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
-  http: [ip: {127, 0, 0, 1}, port: port],
+  http: [ip: bind_ip, port: port],
   url: [host: url_host, port: url_port, scheme: url_scheme],
   check_origin: false,
   code_reloader: true,

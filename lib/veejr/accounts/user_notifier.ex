@@ -9,7 +9,7 @@ defmodule Veejr.Accounts.UserNotifier do
     email =
       new()
       |> to(recipient)
-      |> from({"Veejr", "contact@example.com"})
+      |> from(Application.fetch_env!(:veejr, :mail_from))
       |> subject(subject)
       |> text_body(body)
 
