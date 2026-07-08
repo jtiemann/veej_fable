@@ -7,6 +7,7 @@ defmodule VeejrWeb.MessagingComponents do
   pushed to the server.
   """
   use Phoenix.Component
+  import VeejrWeb.CoreComponents, only: [icon: 1]
 
   alias Veejr.Accounts.User
   alias Veejr.Messaging.Envelope
@@ -114,16 +115,22 @@ defmodule VeejrWeb.MessagingComponents do
           placeholder={@text_placeholder}
         ></textarea>
 
+        <label
+          :if={@show_files && @surface == "messages"}
+          title="Attach files"
+          class="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-700"
+        >
+          <.icon name="hero-paper-clip" class="size-5" />
+          <span class="sr-only">Attach files</span>
+          <input type="file" data-role="files" multiple class="sr-only" />
+        </label>
+
         <input
-          :if={@show_files}
+          :if={@show_files && @surface != "messages"}
           type="file"
           data-role="files"
           multiple
-          class={[
-            "file-input file-input-sm",
-            @surface == "messages" && "max-w-40 rounded-full border-slate-200 bg-slate-50",
-            @surface != "messages" && "w-full"
-          ]}
+          class="file-input file-input-sm w-full"
         />
 
         <button

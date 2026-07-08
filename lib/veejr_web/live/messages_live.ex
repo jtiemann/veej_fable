@@ -88,8 +88,8 @@ defmodule VeejrWeb.MessagesLive do
           </ul>
         </section>
 
-        <section class="grid min-h-[42rem] lg:grid-cols-[22rem_minmax(0,1fr)]">
-          <aside class="border-b border-slate-200 bg-white p-3 lg:border-b-0 lg:border-r">
+        <section class="grid min-h-[42rem] overflow-hidden lg:h-[calc(100svh-12rem)] lg:min-h-0 lg:grid-cols-[22rem_minmax(0,1fr)]">
+          <aside class="border-b border-slate-200 bg-white p-3 lg:overflow-y-auto lg:border-b-0 lg:border-r">
             <div class="mb-3 flex items-center justify-between px-2">
               <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">
                 Conversations
@@ -136,7 +136,7 @@ defmodule VeejrWeb.MessagesLive do
             </div>
           </aside>
 
-          <main class="flex min-w-0 flex-col bg-slate-100/80">
+          <main class="flex min-h-0 min-w-0 flex-col bg-slate-100/80">
             <div
               :if={@selected_conversation}
               class="flex min-h-0 flex-1 flex-col"
@@ -163,7 +163,7 @@ defmodule VeejrWeb.MessagesLive do
                 id={"thread-#{@selected_conversation.key}"}
                 phx-hook="ScrollBottom"
                 data-has-more={@has_more_messages}
-                class="min-h-[26rem] flex-1 space-y-3 overflow-y-auto px-4 py-4 sm:px-6"
+                class="min-h-[26rem] flex-1 space-y-3 overflow-y-auto px-4 py-4 sm:px-6 lg:min-h-0"
               >
                 <div class="py-2 text-center">
                   <button

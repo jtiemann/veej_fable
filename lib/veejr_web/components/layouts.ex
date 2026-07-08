@@ -43,25 +43,29 @@ defmodule VeejrWeb.Layouts do
 
   def app(assigns) do
     ~H"""
-    <header class="navbar bg-base-100 border-b border-base-300 px-4 sm:px-6 lg:px-8">
-      <div class="flex flex-1 items-center gap-4">
-        <.link navigate={~p"/"} class="text-lg font-bold tracking-tight whitespace-nowrap">
-          🔐 veejr
+    <header class="flex min-h-16 flex-wrap items-center gap-2 border-b border-base-300 bg-base-100 px-4 py-2 sm:flex-nowrap sm:px-6 lg:px-8">
+      <.link
+        navigate={~p"/"}
+        class="order-1 text-lg font-bold tracking-tight whitespace-nowrap"
+      >
+        🔐 veejr
+      </.link>
+      <nav
+        :if={@current_scope}
+        class="order-3 flex w-full min-w-0 items-center gap-1 overflow-x-auto sm:order-2 sm:w-auto sm:flex-1"
+      >
+        <.link navigate={~p"/messages"} class="btn btn-ghost btn-sm">
+          Messages
+          <span :if={@pending_count && @pending_count > 0} class="badge badge-primary badge-sm">
+            {@pending_count}
+          </span>
         </.link>
-        <nav :if={@current_scope} class="flex items-center gap-1 overflow-x-auto">
-          <.link navigate={~p"/messages"} class="btn btn-ghost btn-sm">
-            Messages
-            <span :if={@pending_count && @pending_count > 0} class="badge badge-primary badge-sm">
-              {@pending_count}
-            </span>
-          </.link>
-          <.link navigate={~p"/map"} class="btn btn-ghost btn-sm">Map</.link>
-          <.link navigate={~p"/friends"} class="btn btn-ghost btn-sm">Friends</.link>
-          <.link navigate={~p"/groups"} class="btn btn-ghost btn-sm">Groups</.link>
-          <.link navigate={~p"/history"} class="btn btn-ghost btn-sm">History</.link>
-        </nav>
-      </div>
-      <div class="flex-none">
+        <.link navigate={~p"/map"} class="btn btn-ghost btn-sm">Map</.link>
+        <.link navigate={~p"/friends"} class="btn btn-ghost btn-sm">Friends</.link>
+        <.link navigate={~p"/groups"} class="btn btn-ghost btn-sm">Groups</.link>
+        <.link navigate={~p"/history"} class="btn btn-ghost btn-sm">History</.link>
+      </nav>
+      <div class="order-2 ml-auto shrink-0 sm:order-3">
         <ul class="flex px-1 space-x-2 items-center">
           <li><.theme_toggle /></li>
           <%= if @current_scope do %>
