@@ -407,13 +407,45 @@ defmodule VeejrWeb.MessagesLive do
     end
   end
 
+  def handle_event("message_displayed", %{"id" => public_id}, socket) do
+    expired? =
+      case Messaging.record_display(socket.assigns.current_scope.user, public_id) do
+        {:ok, %{max_displays: max, display_count: count}} when is_integer(max) ->
+          count >= max
+
+        _ ->
+          false
+      end
+
+    {:reply, %{ok: true, expired: expired?}, socket}
+  end
+
+  def handle_event("prepare_edit", %{"id" => public_id}, socket) do
+    case Messaging.editable_batch(socket.assigns.current_scope.user, public_id) do
+      {:ok, batch} -> {:reply, Map.put(batch, :ok, true), socket}
+      {:error, _} -> {:reply, %{error: "That message can no longer be edited."}, socket}
+    end
+  end
+
+  def handle_event("edit_batch", %{"id" => public_id, "envelopes" => envelopes}, socket) do
+    case Messaging.edit_sent_batch(socket.assigns.current_scope.user, public_id, envelopes) do
+      {:ok, _count} ->
+        {:reply, %{ok: true}, socket |> put_flash(:info, "Message updated.") |> refresh()}
+
+      {:error, _} ->
+        {:reply, %{error: "Could not update that message."}, socket}
+    end
+  end
+
   def handle_event("resolve_recipients", params, socket) do
     {:reply, VeejrWeb.RecipientResolver.resolve(socket.assigns.current_scope.user, params),
      socket}
   end
 
-  def handle_event("send_batch", %{"kind" => kind, "envelopes" => envelopes}, socket) do
-    case Messaging.send_batch(socket.assigns.current_scope.user, kind, envelopes) do
+  def handle_event("send_batch", %{"kind" => kind, "envelopes" => envelopes} = params, socket) do
+    opts = Map.take(params, ["expires_at", "max_displays"])
+
+    case Messaging.send_batch(socket.assigns.current_scope.user, kind, envelopes, opts) do
       {:ok, _batch_id, []} ->
         {:reply, %{ok: true}, socket |> put_flash(:info, "Encrypted and sent.") |> refresh()}
 

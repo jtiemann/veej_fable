@@ -18,6 +18,7 @@ defmodule Veejr.Messaging do
   # How long an active conversation keeps auto-accepting new messages without
   # a fresh request. Re-upped on every send or receive.
   @window_seconds 5 * 60
+  @max_expiry_seconds 60 * 60 * 24 * 30
 
   ## PubSub
 
@@ -86,8 +87,10 @@ defmodule Veejr.Messaging do
 
   Every recipient must be the sender or an accepted friend of the sender.
   """
-  def send_batch(%User{} = sender, kind, envelopes) when is_list(envelopes) do
+  def send_batch(%User{} = sender, kind, envelopes, opts \\ []) when is_list(envelopes) do
     batch_id = random_id()
+    expires_at = normalize_expires_at(opt(opts, :expires_at))
+    max_displays = normalize_max_displays(opt(opts, :max_displays))
 
     result =
       Repo.transaction(fn ->
@@ -115,7 +118,9 @@ defmodule Veejr.Messaging do
               recipient_id: recipient.id,
               kind: kind,
               ciphertext: attrs["ciphertext"] || attrs[:ciphertext],
-              nonce: attrs["nonce"] || attrs[:nonce]
+              nonce: attrs["nonce"] || attrs[:nonce],
+              expires_at: expires_at,
+              max_displays: max_displays
             })
             |> case do
               %{valid?: true} = changeset -> Repo.insert!(changeset)
@@ -186,12 +191,63 @@ defmodule Veejr.Messaging do
 
   defp parse_id(_), do: :error
 
+  defp opt(opts, key) when is_list(opts), do: Keyword.get(opts, key)
+
+  defp opt(opts, key) when is_map(opts),
+    do: Map.get(opts, Atom.to_string(key)) || Map.get(opts, key)
+
+  defp opt(_opts, _key), do: nil
+
+  defp normalize_expires_at(nil), do: nil
+  defp normalize_expires_at(""), do: nil
+
+  defp normalize_expires_at(value) when is_binary(value) do
+    with {:ok, datetime, _} <- DateTime.from_iso8601(value) do
+      normalize_expires_at(datetime)
+    else
+      _ -> nil
+    end
+  end
+
+  defp normalize_expires_at(%DateTime{} = datetime) do
+    now = DateTime.utc_now(:second)
+    latest = DateTime.add(now, @max_expiry_seconds, :second)
+    datetime = DateTime.truncate(datetime, :second)
+
+    cond do
+      DateTime.compare(datetime, now) != :gt -> nil
+      DateTime.compare(datetime, latest) == :gt -> latest
+      true -> datetime
+    end
+  end
+
+  defp normalize_expires_at(_), do: nil
+
+  defp normalize_max_displays(nil), do: nil
+  defp normalize_max_displays(""), do: nil
+  defp normalize_max_displays(count) when is_integer(count) and count > 0, do: min(count, 100)
+
+  defp normalize_max_displays(count) when is_binary(count) do
+    case Integer.parse(count) do
+      {int, ""} when int > 0 -> normalize_max_displays(int)
+      _ -> nil
+    end
+  end
+
+  defp normalize_max_displays(_), do: nil
+
   ## Notifications (the pull side)
 
   @doc "Pending notifications for `user`, newest first, sender preloaded."
   def list_pending_notifications(%User{id: id}) do
+    now = DateTime.utc_now(:second)
+
     from(n in Notification,
-      where: n.user_id == ^id and n.state == "pending",
+      join: e in assoc(n, :envelope),
+      where:
+        n.user_id == ^id and n.state == "pending" and
+          (is_nil(e.expires_at) or e.expires_at > ^now) and
+          (is_nil(e.max_displays) or e.display_count < e.max_displays),
       preload: [envelope: [:sender]],
       order_by: [desc: n.id]
     )
@@ -199,7 +255,15 @@ defmodule Veejr.Messaging do
   end
 
   def count_pending_notifications(%User{id: id}) do
-    from(n in Notification, where: n.user_id == ^id and n.state == "pending")
+    now = DateTime.utc_now(:second)
+
+    from(n in Notification,
+      join: e in assoc(n, :envelope),
+      where:
+        n.user_id == ^id and n.state == "pending" and
+          (is_nil(e.expires_at) or e.expires_at > ^now) and
+          (is_nil(e.max_displays) or e.display_count < e.max_displays)
+    )
     |> Repo.aggregate(:count)
   end
 
@@ -218,10 +282,14 @@ defmodule Veejr.Messaging do
       notification ->
         envelope = Repo.preload(notification, envelope: [:sender]).envelope
 
-        with :ok <- maybe_fetch_remote_content(envelope) do
+        with false <- expired?(envelope),
+             :ok <- maybe_fetch_remote_content(envelope) do
           # accepting opens/extends the active-conversation window
           touch_conversation(user.id, envelope.sender_id)
           notification |> Ecto.Changeset.change(state: "accepted") |> Repo.update()
+        else
+          true -> {:error, :not_found}
+          error -> error
         end
     end
   end
@@ -327,9 +395,10 @@ defmodule Veejr.Messaging do
       )
       |> Repo.one()
 
-    case envelope do
-      nil -> {:error, :not_found}
-      envelope -> {:ok, mark_delivered(envelope)}
+    cond do
+      is_nil(envelope) -> {:error, :not_found}
+      expired?(envelope) -> {:error, :not_found}
+      true -> {:ok, mark_delivered(envelope)}
     end
   end
 
@@ -371,6 +440,9 @@ defmodule Veejr.Messaging do
       envelope.recipient_id == user_id and envelope.sender_id == user_id ->
         {:ok, envelope}
 
+      expired?(envelope) ->
+        {:error, :not_found}
+
       envelope.recipient_id == user_id and accepted?(envelope.notification) ->
         {:ok, mark_delivered(envelope)}
 
@@ -400,12 +472,16 @@ defmodule Veejr.Messaging do
   items) and received envelopes they accepted. Filterable by `:kind`.
   """
   def list_history(%User{id: id}, opts \\ []) do
+    now = DateTime.utc_now(:second)
+
     query =
       from(e in Envelope,
         left_join: n in assoc(e, :notification),
         where:
           e.recipient_id == ^id and
-            (e.sender_id == ^id or n.state == "accepted"),
+            (e.sender_id == ^id or n.state == "accepted") and
+            (is_nil(e.expires_at) or e.expires_at > ^now) and
+            (is_nil(e.max_displays) or e.display_count < e.max_displays),
         preload: [:sender],
         order_by: [desc: e.id]
       )
@@ -423,6 +499,119 @@ defmodule Veejr.Messaging do
       end
 
     Repo.all(query)
+  end
+
+  defp expired?(%Envelope{expires_at: %DateTime{} = expires_at}) do
+    DateTime.compare(expires_at, DateTime.utc_now(:second)) != :gt
+  end
+
+  defp expired?(%Envelope{max_displays: max, display_count: count})
+       when is_integer(max) and is_integer(count) do
+    count >= max
+  end
+
+  defp expired?(_), do: false
+
+  @doc """
+  Records a successful client-side display of an envelope visible to `user`.
+  Display-limited messages disappear from that user's history after the
+  configured count is reached.
+  """
+  def record_display(%User{id: user_id}, public_id) when is_binary(public_id) do
+    envelope =
+      from(e in Envelope,
+        where: e.public_id == ^public_id and e.recipient_id == ^user_id,
+        left_join: n in assoc(e, :notification),
+        preload: [notification: n]
+      )
+      |> Repo.one()
+
+    cond do
+      is_nil(envelope) ->
+        {:error, :not_found}
+
+      envelope.sender_id != user_id and not accepted?(envelope.notification) ->
+        {:error, :unauthorized}
+
+      is_nil(envelope.max_displays) ->
+        {:ok, envelope}
+
+      expired?(envelope) ->
+        {:ok, envelope}
+
+      true ->
+        envelope
+        |> Ecto.Changeset.change(display_count: envelope.display_count + 1)
+        |> Repo.update()
+    end
+  end
+
+  @doc """
+  Metadata the browser needs to re-encrypt a sent batch edit.
+  """
+  def editable_batch(%User{id: user_id}, public_id) when is_binary(public_id) do
+    with %Envelope{} = envelope <- Repo.get_by(Envelope, public_id: public_id, sender_id: user_id) do
+      copies =
+        from(e in Envelope,
+          join: r in assoc(e, :recipient),
+          where: e.sender_id == ^user_id and e.batch_id == ^envelope.batch_id,
+          select: %{
+            public_id: e.public_id,
+            recipient_id: r.id,
+            public_key: r.public_key,
+            handle:
+              fragment("CASE WHEN ? IS NULL THEN ? ELSE ? END", r.host, r.username, r.username)
+          },
+          order_by: [asc: e.id]
+        )
+        |> Repo.all()
+
+      {:ok, %{batch_id: envelope.batch_id, copies: copies}}
+    else
+      nil -> {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Replaces every copy in a sent batch with ciphertext produced in the browser.
+  The server validates ownership and copy ids but never sees plaintext.
+  """
+  def edit_sent_batch(%User{id: user_id}, public_id, entries) when is_binary(public_id) do
+    with %Envelope{} = envelope <- Repo.get_by(Envelope, public_id: public_id, sender_id: user_id),
+         true <- is_list(entries) do
+      now = DateTime.utc_now(:second)
+
+      Repo.transaction(fn ->
+        for entry <- entries, reduce: 0 do
+          count ->
+            entry_public_id = entry["public_id"] || entry[:public_id]
+
+            {updated, _} =
+              from(e in Envelope,
+                where:
+                  e.sender_id == ^user_id and e.batch_id == ^envelope.batch_id and
+                    e.public_id == ^entry_public_id
+              )
+              |> Repo.update_all(
+                set: [
+                  ciphertext: entry["ciphertext"] || entry[:ciphertext],
+                  nonce: entry["nonce"] || entry[:nonce],
+                  edited_at: now
+                ]
+              )
+
+            count + updated
+        end
+      end)
+      |> case do
+        {:ok, count} when count > 0 -> {:ok, count}
+        {:ok, _} -> {:error, :not_found}
+        error -> error
+      end
+    else
+      nil -> {:error, :not_found}
+      _ -> {:error, :bad_request}
+    end
   end
 
   @doc """

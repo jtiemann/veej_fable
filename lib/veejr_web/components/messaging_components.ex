@@ -59,6 +59,38 @@ defmodule VeejrWeb.MessagingComponents do
       ]}
     >
       <p data-role="error" class="hidden text-error text-sm"></p>
+      <div
+        data-role="message-options"
+        class="hidden rounded-2xl border border-slate-200 bg-slate-50 p-3"
+      >
+        <div class="grid gap-3 sm:grid-cols-2">
+          <label class="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Available for
+            <select
+              data-role="ttl"
+              class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-800 outline-none transition focus:ring-2 focus:ring-blue-200"
+            >
+              <option value="">No time limit</option>
+              <option value="300">5 minutes</option>
+              <option value="3600">1 hour</option>
+              <option value="86400">1 day</option>
+              <option value="604800">1 week</option>
+            </select>
+          </label>
+          <label class="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Displays
+            <input
+              data-role="max-displays"
+              type="number"
+              min="1"
+              max="100"
+              inputmode="numeric"
+              placeholder="Unlimited"
+              class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-800 outline-none transition placeholder:text-slate-400 focus:ring-2 focus:ring-blue-200"
+            />
+          </label>
+        </div>
+      </div>
 
       <input
         :for={id <- @selected_friend_ids}
@@ -131,6 +163,17 @@ defmodule VeejrWeb.MessagingComponents do
         @surface == "messages" && "flex items-end gap-2",
         @surface != "messages" && "space-y-3"
       ]}>
+        <button
+          :if={@surface == "messages"}
+          type="button"
+          data-role="toggle-options"
+          title="Message options"
+          aria-label="Message options"
+          class="flex size-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-800"
+        >
+          <.icon name="hero-adjustments-horizontal" class="size-5" />
+        </button>
+
         <div :if={@show_text && @surface == "messages"} class="relative min-w-0 flex-1">
           <textarea
             data-role="text"
@@ -311,7 +354,11 @@ defmodule VeejrWeb.MessagingComponents do
 
   def message_bubble(assigns) do
     ~H"""
-    <div class={["flex flex-col", @mine && "items-end", !@mine && "items-start"]}>
+    <div
+      id={"message-shell-#{@envelope.public_id}"}
+      phx-hook={if(@mine, do: "MessageBubble", else: nil)}
+      class={["flex flex-col", @mine && "items-end", !@mine && "items-start"]}
+    >
       <div :if={!@mine} class="mb-1 ml-3 text-xs font-medium text-slate-500">
         {Veejr.Social.Address.handle(@envelope.sender)}
       </div>
@@ -329,20 +376,41 @@ defmodule VeejrWeb.MessagingComponents do
           data-ciphertext={@envelope.ciphertext}
           data-nonce={@envelope.nonce}
           data-kind={@envelope.kind}
+          data-public-id={@envelope.public_id}
         >
           <span class="loading loading-dots loading-xs"></span>
         </div>
       </div>
       <div class={["mt-1 text-xs text-slate-400", @mine && "mr-3", !@mine && "ml-3"]}>
         <span>{Calendar.strftime(@envelope.inserted_at, "%H:%M")}</span>
+        <span :if={@envelope.edited_at} class="ml-1">edited</span>
+        <span :if={@envelope.expires_at} class="ml-1">
+          <.icon name="hero-clock" class="inline size-3.5" />
+        </span>
+        <span :if={@envelope.max_displays} class="ml-1">
+          <.icon name="hero-eye" class="inline size-3.5" /> {@envelope.max_displays -
+            @envelope.display_count}
+        </span>
+        <button
+          :if={@mine}
+          type="button"
+          data-role="edit-message"
+          title="Edit message"
+          aria-label="Edit message"
+          class="ml-2 rounded-full p-1 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"
+        >
+          <.icon name="hero-pencil-square" class="size-3.5" />
+        </button>
         <button
           type="button"
           phx-click="delete_envelope"
           phx-value-id={@envelope.public_id}
           data-confirm={delete_confirm(@mine)}
-          class="ml-2 rounded-full px-1.5 py-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+          title={delete_label(@mine)}
+          aria-label={delete_label(@mine)}
+          class="ml-1 rounded-full p-1 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"
         >
-          {delete_label(@mine)}
+          <.icon name={if(@mine, do: "hero-trash", else: "hero-eye-slash")} class="size-3.5" />
         </button>
       </div>
     </div>

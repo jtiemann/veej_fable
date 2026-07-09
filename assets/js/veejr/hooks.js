@@ -561,6 +561,18 @@ export const Composer = {
     this.recordedAudio = []
 
     this.onComposerClick = (e) => {
+      const optionsToggle = e.target.closest("[data-role=toggle-options]")
+      if (optionsToggle && this.el.contains(optionsToggle)) {
+        e.preventDefault()
+        const options = this.el.querySelector("[data-role=message-options]")
+        if (!options) return
+
+        options.classList.toggle("hidden")
+        optionsToggle.classList.toggle("bg-blue-50")
+        optionsToggle.classList.toggle("text-blue-700")
+        return
+      }
+
       const toggle = e.target.closest("[data-role=emoji-toggle]")
       if (toggle && this.el.contains(toggle)) {
         e.preventDefault()
@@ -866,6 +878,15 @@ export const Composer = {
       // messages can show all participants after decryption
       const to = recipients.map((r) => r.handle || `@${r.username}`)
       const payload = {v: 1, kind, text, attachments, to, sent_at: new Date().toISOString(), ...extra}
+      const ttl = parseInt(form.querySelector("[data-role=ttl]")?.value || "", 10)
+      const maxDisplays = parseInt(form.querySelector("[data-role=max-displays]")?.value || "", 10)
+      const messageOptions = {}
+      if (Number.isInteger(ttl) && ttl > 0) {
+        messageOptions.expires_at = new Date(Date.now() + ttl * 1000).toISOString()
+      }
+      if (Number.isInteger(maxDisplays) && maxDisplays > 0) {
+        messageOptions.max_displays = maxDisplays
+      }
 
       busy("Encrypting…")
       const envelopes = recipients.map((r) => ({
@@ -876,7 +897,7 @@ export const Composer = {
       envelopes.push({recipient_id: parseInt(userId), ...sealFor(myKey, payload, mySecret)})
 
       busy("Sending…")
-      await this.pushWithReply("send_batch", {kind, envelopes})
+      await this.pushWithReply("send_batch", {kind, envelopes, ...messageOptions})
 
       form.reset()
       this.clearAudioRecordings()
@@ -905,6 +926,7 @@ export const Composer = {
 // Dataset: user-id, peer-key, ciphertext, nonce, kind
 export const Decrypt = {
   mounted() {
+    this.displayRecorded = false
     this.render()
   },
 
@@ -931,6 +953,9 @@ export const Decrypt = {
       this.el.appendChild(p)
       return
     }
+
+    this.el.veejrPayload = payload
+    this.recordDisplay()
 
     if (kind === "note" && payload.title) {
       const h = document.createElement("p")
@@ -1035,6 +1060,115 @@ export const Decrypt = {
     wrap.appendChild(btn)
     this.el.appendChild(wrap)
   },
+
+  async recordDisplay() {
+    if (this.displayRecorded || !this.el.dataset.publicId) return
+    this.displayRecorded = true
+
+    try {
+      const reply = await pushWithReply(this, "message_displayed", {id: this.el.dataset.publicId})
+      if (reply && reply.expired) {
+        const shell = this.el.closest("[id^='message-shell-']")
+        if (shell) {
+          shell.classList.add("opacity-0", "scale-95", "transition", "duration-200")
+          setTimeout(() => shell.remove(), 220)
+        }
+      }
+    } catch {
+      // Display accounting should never block reading a message.
+    }
+  },
+}
+
+export const MessageBubble = {
+  mounted() {
+    const edit = this.el.querySelector("[data-role=edit-message]")
+    if (!edit) return
+
+    edit.addEventListener("click", () => {
+      this.openEditor().catch((err) => window.alert(err.message))
+    })
+  },
+
+  async openEditor() {
+    if (this.editor) {
+      this.editor.querySelector("textarea").focus()
+      return
+    }
+
+    const decryptEl = this.el.querySelector("[phx-hook='Decrypt'], [data-peer-key]")
+    const payload = decryptEl && decryptEl.veejrPayload
+    if (!payload) throw new Error("Unlock this message before editing it.")
+    if (payload.attachments && payload.attachments.length > 0) {
+      throw new Error("Messages with attachments cannot be edited yet.")
+    }
+
+    const publicId = decryptEl.dataset.publicId
+    const {copies} = await pushWithReply(this, "prepare_edit", {id: publicId})
+    const textarea = document.createElement("textarea")
+    textarea.className = "mt-2 w-full min-w-64 resize-none rounded-2xl border border-blue-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:ring-2 focus:ring-blue-200"
+    textarea.rows = 3
+    textarea.value = payload.text || ""
+
+    const save = document.createElement("button")
+    save.type = "button"
+    save.className = "rounded-full bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700"
+    save.textContent = "Save"
+
+    const cancel = document.createElement("button")
+    cancel.type = "button"
+    cancel.className = "rounded-full px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-100"
+    cancel.textContent = "Cancel"
+
+    const actions = document.createElement("div")
+    actions.className = "mt-2 flex justify-end gap-2"
+    actions.append(cancel, save)
+
+    const editor = document.createElement("div")
+    editor.className = "max-w-[78%]"
+    editor.append(textarea, actions)
+    this.el.appendChild(editor)
+    this.editor = editor
+    textarea.focus()
+
+    cancel.addEventListener("click", () => this.closeEditor())
+    save.addEventListener("click", async () => {
+      const text = textarea.value.trim()
+      if (!text) return window.alert("Message text cannot be empty.")
+
+      const mySecret = getSecretKey(decryptEl.dataset.userId)
+      if (!mySecret) throw new Error("Unlock your keys before editing.")
+
+      save.disabled = true
+      save.textContent = "Saving..."
+
+      try {
+        const nextPayload = {...payload, text, edited_at: new Date().toISOString()}
+        const envelopes = copies.map((copy) => ({
+          public_id: copy.public_id,
+          ...sealFor(copy.public_key, nextPayload, mySecret),
+        }))
+        await pushWithReply(this, "edit_batch", {id: publicId, envelopes})
+        decryptEl.dataset.ciphertext = envelopes.find((entry) => entry.public_id === publicId)?.ciphertext || decryptEl.dataset.ciphertext
+        decryptEl.dataset.nonce = envelopes.find((entry) => entry.public_id === publicId)?.nonce || decryptEl.dataset.nonce
+        decryptEl.veejrPayload = nextPayload
+        decryptEl.textContent = ""
+        const p = document.createElement("p")
+        p.className = "whitespace-pre-wrap"
+        p.textContent = text
+        decryptEl.appendChild(p)
+        this.closeEditor()
+      } finally {
+        save.disabled = false
+        save.textContent = "Save"
+      }
+    })
+  },
+
+  closeEditor() {
+    if (this.editor) this.editor.remove()
+    this.editor = null
+  },
 }
 
 import VeejrMap from "./map_hook.js"
@@ -1050,6 +1184,7 @@ export default {
   InstallApp,
   Composer,
   Decrypt,
+  MessageBubble,
   ReplyTo,
   ScrollBottom,
   VeejrMap,

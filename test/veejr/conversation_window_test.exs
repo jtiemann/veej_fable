@@ -88,6 +88,84 @@ defmodule Veejr.ConversationWindowTest do
     assert [_self_copy] = Messaging.list_history(alice)
   end
 
+  test "time limited messages disappear from pending and history after expiry", %{
+    alice: alice,
+    bob: bob
+  } do
+    expires_at = DateTime.add(DateTime.utc_now(:second), 60, :second)
+
+    {:ok, batch_id, []} =
+      Messaging.send_batch(
+        alice,
+        "message",
+        [
+          %{"recipient_id" => bob.id, "ciphertext" => "ct-bob", "nonce" => "n"},
+          %{"recipient_id" => alice.id, "ciphertext" => "ct-self", "nonce" => "n"}
+        ],
+        expires_at: expires_at
+      )
+
+    assert [_notification] = Messaging.list_pending_notifications(bob)
+
+    Veejr.Messaging.Envelope
+    |> Repo.get_by!(batch_id: batch_id, recipient_id: bob.id)
+    |> Ecto.Changeset.change(expires_at: DateTime.add(DateTime.utc_now(:second), -1, :second))
+    |> Repo.update!()
+
+    assert Messaging.list_pending_notifications(bob) == []
+  end
+
+  test "display limited messages are hidden after their display budget is used", %{
+    alice: alice,
+    bob: bob
+  } do
+    send_msg(alice, bob, "hello")
+    [notification] = Messaging.list_pending_notifications(bob)
+    {:ok, _} = Messaging.accept_notification(bob, notification.id)
+    [received] = Messaging.list_history(bob)
+
+    received
+    |> Ecto.Changeset.change(max_displays: 1)
+    |> Repo.update!()
+
+    assert {:ok, updated} = Messaging.record_display(bob, received.public_id)
+    assert updated.display_count == 1
+    assert Messaging.list_history(bob) == []
+  end
+
+  test "sender can replace ciphertext for every copy in a sent batch", %{
+    alice: alice,
+    bob: bob
+  } do
+    {:ok, batch_id, []} =
+      Messaging.send_batch(alice, "message", [
+        %{"recipient_id" => bob.id, "ciphertext" => "ct-bob", "nonce" => "n"},
+        %{"recipient_id" => alice.id, "ciphertext" => "ct-self", "nonce" => "n"}
+      ])
+
+    self_copy = Repo.get_by!(Veejr.Messaging.Envelope, batch_id: batch_id, recipient_id: alice.id)
+    bob_copy = Repo.get_by!(Veejr.Messaging.Envelope, batch_id: batch_id, recipient_id: bob.id)
+
+    assert {:ok, %{copies: copies}} = Messaging.editable_batch(alice, self_copy.public_id)
+
+    assert Enum.map(copies, & &1.public_id) |> Enum.sort() ==
+             [bob_copy.public_id, self_copy.public_id] |> Enum.sort()
+
+    assert {:ok, 2} =
+             Messaging.edit_sent_batch(alice, self_copy.public_id, [
+               %{
+                 "public_id" => self_copy.public_id,
+                 "ciphertext" => "ct-self-2",
+                 "nonce" => "n2"
+               },
+               %{"public_id" => bob_copy.public_id, "ciphertext" => "ct-bob-2", "nonce" => "n2"}
+             ])
+
+    assert Repo.reload!(self_copy).ciphertext == "ct-self-2"
+    assert Repo.reload!(bob_copy).ciphertext == "ct-bob-2"
+    assert Repo.reload!(self_copy).edited_at
+  end
+
   test "malformed recipient ids return an error instead of raising", %{alice: alice} do
     assert {:error, :bad_recipient_id} =
              Messaging.send_batch(alice, "message", [
