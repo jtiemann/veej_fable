@@ -408,16 +408,8 @@ defmodule VeejrWeb.MessagesLive do
   end
 
   def handle_event("message_displayed", %{"id" => public_id}, socket) do
-    expired? =
-      case Messaging.record_display(socket.assigns.current_scope.user, public_id) do
-        {:ok, %{max_displays: max, display_count: count}} when is_integer(max) ->
-          count >= max
-
-        _ ->
-          false
-      end
-
-    {:reply, %{ok: true, expired: expired?}, socket}
+    Messaging.record_display(socket.assigns.current_scope.user, public_id)
+    {:reply, %{ok: true}, socket}
   end
 
   def handle_event("prepare_edit", %{"id" => public_id}, socket) do

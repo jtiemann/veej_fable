@@ -115,7 +115,7 @@ defmodule Veejr.ConversationWindowTest do
     assert Messaging.list_pending_notifications(bob) == []
   end
 
-  test "display limited messages are hidden after their display budget is used", %{
+  test "display limited messages are readable once, then hidden on the next history load", %{
     alice: alice,
     bob: bob
   } do
@@ -130,6 +130,7 @@ defmodule Veejr.ConversationWindowTest do
 
     assert {:ok, updated} = Messaging.record_display(bob, received.public_id)
     assert updated.display_count == 1
+    assert updated.ciphertext == received.ciphertext
     assert Messaging.list_history(bob) == []
   end
 

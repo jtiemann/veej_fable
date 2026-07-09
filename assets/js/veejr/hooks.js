@@ -1117,14 +1117,7 @@ export const Decrypt = {
     this.displayRecorded = true
 
     try {
-      const reply = await pushWithReply(this, "message_displayed", {id: this.el.dataset.publicId})
-      if (reply && reply.expired) {
-        const shell = this.el.closest("[id^='message-shell-']")
-        if (shell) {
-          shell.classList.add("opacity-0", "scale-95", "transition", "duration-200")
-          setTimeout(() => shell.remove(), 220)
-        }
-      }
+      await pushWithReply(this, "message_displayed", {id: this.el.dataset.publicId})
     } catch {
       // Display accounting should never block reading a message.
     }
