@@ -1222,6 +1222,19 @@ export const MessageBubble = {
   },
 }
 
+export const AutoDismissFlash = {
+  mounted() {
+    const ms = parseInt(this.el.dataset.autoDismissMs || "1000", 10)
+    this.timer = setTimeout(() => {
+      if (this.el.isConnected) this.el.click()
+    }, Number.isInteger(ms) && ms >= 0 ? ms : 1000)
+  },
+
+  destroyed() {
+    if (this.timer) clearTimeout(this.timer)
+  },
+}
+
 import VeejrMap from "./map_hook.js"
 
 export default {
@@ -1236,6 +1249,7 @@ export default {
   Composer,
   Decrypt,
   MessageBubble,
+  AutoDismissFlash,
   ReplyTo,
   ScrollBottom,
   VeejrMap,
