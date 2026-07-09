@@ -198,26 +198,27 @@ defmodule Veejr.Social do
     case get_friendship_between(user.id, friend_id) do
       %Friendship{status: "accepted"} = fr ->
         Repo.transaction(fn ->
-          from(gm in GroupMember,
-            join: g in Group,
-            on: g.id == gm.group_id,
-            where: g.owner_id == ^user.id and gm.user_id == ^friend_id
-          )
-          |> Repo.delete_all()
-
-          from(gm in GroupMember,
-            join: g in Group,
-            on: g.id == gm.group_id,
-            where: g.owner_id == ^friend_id and gm.user_id == ^user.id
-          )
-          |> Repo.delete_all()
-
+          delete_group_memberships(user.id, friend_id)
+          delete_group_memberships(friend_id, user.id)
           Repo.delete!(fr)
         end)
 
       _ ->
         {:error, :not_found}
     end
+  end
+
+  defp delete_group_memberships(owner_id, member_id) do
+    owned_group_ids =
+      from(g in Group,
+        where: g.owner_id == ^owner_id,
+        select: g.id
+      )
+
+    from(gm in GroupMember,
+      where: gm.user_id == ^member_id and gm.group_id in subquery(owned_group_ids)
+    )
+    |> Repo.delete_all()
   end
 
   @doc """
