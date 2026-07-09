@@ -22,6 +22,7 @@ defmodule VeejrWeb.MessagingComponents do
   attr :selected_group_ids, :list, default: []
   attr :selected_self, :boolean, default: false
   attr :show_recipients, :boolean, default: true
+  attr :recipient_layout, :string, default: "pills"
   attr :surface, :string, default: "card"
   attr :show_text, :boolean, default: true
   attr :show_files, :boolean, default: true
@@ -55,7 +56,7 @@ defmodule VeejrWeb.MessagingComponents do
       class={[
         "space-y-3",
         @surface == "messages" &&
-          "rounded-[28px] border border-slate-200 bg-white p-3 shadow-sm",
+          "rounded-[28px] border border-base-300 bg-base-100 p-3 shadow-sm",
         @surface != "messages" &&
           "rounded-lg border border-base-300 p-4"
       ]}
@@ -63,14 +64,14 @@ defmodule VeejrWeb.MessagingComponents do
       <p data-role="error" class="hidden text-error text-sm"></p>
       <div
         data-role="message-options"
-        class="hidden rounded-2xl border border-slate-200 bg-slate-50 p-3"
+        class="hidden rounded-2xl border border-base-300 bg-base-200 p-3"
       >
         <div class="grid gap-3 sm:grid-cols-2">
-          <label class="text-xs font-medium uppercase tracking-wide text-slate-500">
+          <label class="text-xs font-medium uppercase tracking-wide opacity-70">
             Available for
             <select
               data-role="ttl"
-              class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-800 outline-none transition focus:ring-2 focus:ring-blue-200"
+              class="mt-1 w-full rounded-xl border border-base-300 bg-base-100 px-3 py-2 text-sm font-normal normal-case tracking-normal text-base-content outline-none transition focus:ring-2 focus:ring-primary/30"
             >
               <option value="">No time limit</option>
               <option value="300">5 minutes</option>
@@ -79,7 +80,7 @@ defmodule VeejrWeb.MessagingComponents do
               <option value="604800">1 week</option>
             </select>
           </label>
-          <label class="text-xs font-medium uppercase tracking-wide text-slate-500">
+          <label class="text-xs font-medium uppercase tracking-wide opacity-70">
             Displays
             <input
               data-role="max-displays"
@@ -88,7 +89,7 @@ defmodule VeejrWeb.MessagingComponents do
               max="100"
               inputmode="numeric"
               placeholder="Unlimited"
-              class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-800 outline-none transition placeholder:text-slate-400 focus:ring-2 focus:ring-blue-200"
+              class="mt-1 w-full rounded-xl border border-base-300 bg-base-100 px-3 py-2 text-sm font-normal normal-case tracking-normal text-base-content outline-none transition placeholder:opacity-50 focus:ring-2 focus:ring-primary/30"
             />
           </label>
         </div>
@@ -115,31 +116,109 @@ defmodule VeejrWeb.MessagingComponents do
         value={id}
       />
 
-      <div :if={@show_recipients} class="space-y-2">
-        <p class="px-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+      <div :if={@show_recipients && @recipient_layout == "dropdown"} class="dropdown w-full">
+        <div
+          tabindex="0"
+          role="button"
+          class="btn btn-outline btn-sm flex w-full justify-between sm:w-64"
+        >
+          <span>Recipients</span>
+          <.icon name="hero-chevron-down" class="size-4" />
+        </div>
+        <div
+          tabindex="0"
+          class="dropdown-content z-30 mt-2 max-h-80 w-full overflow-y-auto rounded-box border border-base-300 bg-base-100 p-3 shadow sm:w-80"
+        >
+          <div class="space-y-3">
+            <div>
+              <p class="mb-1 text-xs font-medium uppercase tracking-wide opacity-70">
+                This account
+              </p>
+              <label class="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-base-200">
+                <span>Me</span>
+                <input
+                  type="checkbox"
+                  name="self"
+                  value="true"
+                  checked={@selected_self}
+                  class="checkbox checkbox-sm"
+                />
+              </label>
+            </div>
+
+            <div :if={@friends != []}>
+              <p class="mb-1 text-xs font-medium uppercase tracking-wide opacity-70">
+                Friends
+              </p>
+              <label
+                :for={friend <- @friends}
+                class="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-base-200"
+              >
+                <span>{friend.display_name || friend.username}</span>
+                <input
+                  type="checkbox"
+                  name="friends[]"
+                  value={friend.id}
+                  checked={to_string(friend.id) in @selected_friend_ids}
+                  class="checkbox checkbox-sm"
+                />
+              </label>
+            </div>
+
+            <div :if={@groups != []}>
+              <p class="mb-1 text-xs font-medium uppercase tracking-wide opacity-70">
+                Groups
+              </p>
+              <label
+                :for={group <- @groups}
+                class="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-base-200"
+              >
+                <span>{group.name} ({length(group.members)})</span>
+                <input
+                  type="checkbox"
+                  name="groups[]"
+                  value={group.id}
+                  checked={to_string(group.id) in @selected_group_ids}
+                  class="checkbox checkbox-sm"
+                />
+              </label>
+            </div>
+
+            <p :if={@friends == []} class="px-2 text-sm opacity-70">
+              You can send to yourself. Add friends on the Friends page to send to others.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div :if={@show_recipients && @recipient_layout == "pills"} class="space-y-2">
+        <p class="px-2 text-xs font-medium uppercase tracking-wide opacity-70">
           This account
         </p>
         <label class={[
           "flex w-fit cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition",
-          @selected_self && "border-blue-200 bg-blue-50 text-blue-800",
-          !@selected_self && "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+          @selected_self && "border-primary/20 bg-primary/10 text-base-content",
+          !@selected_self && "border-base-300 bg-base-200 text-base-content hover:bg-base-300"
         ]}>
           <input
             type="checkbox"
             name="self"
             value="true"
             checked={@selected_self}
-            class="checkbox checkbox-xs border-slate-300"
+            class="checkbox checkbox-xs border-base-300"
           /> Me
         </label>
       </div>
 
-      <div :if={@show_recipients && @friends == []} class="px-2 text-sm text-slate-500">
+      <div
+        :if={@show_recipients && @recipient_layout == "pills" && @friends == []}
+        class="px-2 text-sm opacity-70"
+      >
         You can send to yourself. Add friends on the Friends page to send to others.
       </div>
 
-      <div :if={@show_recipients && @friends != []}>
-        <p class="mb-2 px-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+      <div :if={@show_recipients && @recipient_layout == "pills" && @friends != []}>
+        <p class="mb-2 px-2 text-xs font-medium uppercase tracking-wide opacity-70">
           Friends
         </p>
         <div class="flex flex-wrap gap-2">
@@ -148,9 +227,9 @@ defmodule VeejrWeb.MessagingComponents do
             class={[
               "flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition",
               to_string(friend.id) in @selected_friend_ids &&
-                "border-blue-200 bg-blue-50 text-blue-800",
+                "border-primary/20 bg-primary/10 text-base-content",
               to_string(friend.id) not in @selected_friend_ids &&
-                "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                "border-base-300 bg-base-200 text-base-content hover:bg-base-300"
             ]}
           >
             <input
@@ -158,28 +237,28 @@ defmodule VeejrWeb.MessagingComponents do
               name="friends[]"
               value={friend.id}
               checked={to_string(friend.id) in @selected_friend_ids}
-              class="checkbox checkbox-xs border-slate-300"
+              class="checkbox checkbox-xs border-base-300"
             />
             {friend.display_name || friend.username}
           </label>
         </div>
       </div>
 
-      <div :if={@show_recipients && @groups != []}>
-        <p class="mb-2 px-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+      <div :if={@show_recipients && @recipient_layout == "pills" && @groups != []}>
+        <p class="mb-2 px-2 text-xs font-medium uppercase tracking-wide opacity-70">
           Groups
         </p>
         <div class="flex flex-wrap gap-2">
           <label
             :for={group <- @groups}
-            class="flex cursor-pointer items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700 transition hover:bg-slate-100"
+            class="flex cursor-pointer items-center gap-2 rounded-full border border-base-300 bg-base-200 px-3 py-1.5 text-sm text-base-content transition hover:bg-base-300"
           >
             <input
               type="checkbox"
               name="groups[]"
               value={group.id}
               checked={to_string(group.id) in @selected_group_ids}
-              class="checkbox checkbox-xs border-slate-300"
+              class="checkbox checkbox-xs border-base-300"
             />
             {group.name} ({length(group.members)})
           </label>
@@ -196,7 +275,7 @@ defmodule VeejrWeb.MessagingComponents do
           data-role="toggle-options"
           title="Message options"
           aria-label="Message options"
-          class="order-1 flex size-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-800 sm:order-none"
+          class="order-1 flex size-11 shrink-0 items-center justify-center rounded-full bg-base-200 opacity-70 transition hover:bg-base-300 hover:opacity-100 sm:order-none"
         >
           <.icon name="hero-adjustments-horizontal" class="size-5" />
         </button>
@@ -208,7 +287,7 @@ defmodule VeejrWeb.MessagingComponents do
           <textarea
             data-role="text"
             rows="1"
-            class="textarea min-h-11 w-full resize-none rounded-[22px] border-0 bg-slate-100 py-3 pl-4 pr-12 text-slate-900 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            class="textarea min-h-11 w-full resize-none rounded-[22px] border-0 bg-base-200 py-3 pl-4 pr-12 text-base-content placeholder:opacity-50 focus:outline-none focus:ring-2 focus:ring-primary/30"
             placeholder={@text_placeholder}
           ></textarea>
 
@@ -218,13 +297,13 @@ defmodule VeejrWeb.MessagingComponents do
             title="Add emoji"
             aria-label="Add emoji"
             aria-expanded="false"
-            class="absolute bottom-1.5 right-1.5 flex size-8 items-center justify-center rounded-full text-lg transition hover:bg-slate-200"
+            class="absolute bottom-1.5 right-1.5 flex size-8 items-center justify-center rounded-full text-lg transition hover:bg-base-300"
           >
             🙂
           </button>
           <div
             data-role="emoji-menu"
-            class="absolute bottom-11 right-0 z-20 hidden w-56 rounded-lg border border-slate-200 bg-white p-2 shadow-lg"
+            class="absolute bottom-11 right-0 z-20 hidden w-56 rounded-lg border border-base-300 bg-base-100 p-2 shadow-lg"
           >
             <div class="grid grid-cols-7 gap-1">
               <button
@@ -232,7 +311,7 @@ defmodule VeejrWeb.MessagingComponents do
                 type="button"
                 data-role="emoji-option"
                 data-emoji={emoji}
-                class="flex size-7 items-center justify-center rounded text-base transition hover:bg-slate-100"
+                class="flex size-7 items-center justify-center rounded text-base transition hover:bg-base-200"
               >
                 {emoji}
               </button>
@@ -255,13 +334,13 @@ defmodule VeejrWeb.MessagingComponents do
             title="Add emoji"
             aria-label="Add emoji"
             aria-expanded="false"
-            class="flex size-11 items-center justify-center rounded-full border border-base-300 bg-slate-100 text-lg transition hover:bg-slate-200"
+            class="flex size-11 items-center justify-center rounded-full border border-base-300 bg-base-200 text-lg transition hover:bg-base-300"
           >
             🙂
           </button>
           <div
             data-role="emoji-menu"
-            class="absolute bottom-12 right-0 z-20 hidden w-56 rounded-lg border border-slate-200 bg-white p-2 shadow-lg"
+            class="absolute bottom-12 right-0 z-20 hidden w-56 rounded-lg border border-base-300 bg-base-100 p-2 shadow-lg"
           >
             <div class="grid grid-cols-7 gap-1">
               <button
@@ -269,7 +348,7 @@ defmodule VeejrWeb.MessagingComponents do
                 type="button"
                 data-role="emoji-option"
                 data-emoji={emoji}
-                class="flex size-7 items-center justify-center rounded text-base transition hover:bg-slate-100"
+                class="flex size-7 items-center justify-center rounded text-base transition hover:bg-base-200"
               >
                 {emoji}
               </button>
@@ -280,7 +359,7 @@ defmodule VeejrWeb.MessagingComponents do
         <label
           :if={@show_files && @surface == "messages"}
           title="Attach files"
-          class="order-1 flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-700 sm:order-none"
+          class="order-1 flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full bg-base-200 opacity-70 transition hover:bg-base-300 hover:opacity-100 sm:order-none"
         >
           <.icon name="hero-paper-clip" class="size-5" />
           <span class="sr-only">Attach files</span>
@@ -293,7 +372,7 @@ defmodule VeejrWeb.MessagingComponents do
           data-role="audio-toggle"
           title="Record voice message"
           aria-label="Record voice message"
-          class="order-1 flex size-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-700 sm:order-none"
+          class="order-1 flex size-11 shrink-0 items-center justify-center rounded-full bg-base-200 opacity-70 transition hover:bg-base-300 hover:opacity-100 sm:order-none"
         >
           <.icon name="hero-microphone" class="size-5" />
         </button>
@@ -320,7 +399,7 @@ defmodule VeejrWeb.MessagingComponents do
           class={[
             "btn border-0",
             @surface == "messages" &&
-              "order-1 h-11 min-h-11 rounded-full bg-blue-600 px-5 text-white shadow-none hover:bg-blue-700 sm:order-none",
+              "order-1 h-11 min-h-11 rounded-full bg-primary px-5 text-primary-content shadow-none hover:bg-primary/90 sm:order-none",
             @surface != "messages" && "btn-primary"
           ]}
           disabled={!@can_send?}
@@ -332,7 +411,7 @@ defmodule VeejrWeb.MessagingComponents do
       <div
         :if={@show_files}
         data-role="audio-status"
-        class="hidden px-2 text-xs text-slate-500"
+        class="hidden px-2 text-xs opacity-70"
       >
       </div>
       <div :if={@show_files} data-role="audio-preview" class="space-y-2"></div>
@@ -389,13 +468,13 @@ defmodule VeejrWeb.MessagingComponents do
       phx-hook={if(@mine, do: "MessageBubble", else: nil)}
       class={["flex flex-col", @mine && "items-end", !@mine && "items-start"]}
     >
-      <div :if={!@mine} class="mb-1 ml-3 text-xs font-medium text-slate-500">
+      <div :if={!@mine} class="mb-1 ml-3 text-xs font-medium opacity-70">
         {Veejr.Social.Address.handle(@envelope.sender)}
       </div>
       <div class={[
         "max-w-[78%] rounded-[22px] px-4 py-2 text-[0.95rem] leading-relaxed shadow-sm",
-        @mine && "rounded-br-md bg-blue-600 text-white",
-        !@mine && "rounded-bl-md bg-white text-slate-900 ring-1 ring-slate-200"
+        @mine && "rounded-br-md bg-primary text-primary-content",
+        !@mine && "rounded-bl-md bg-base-100 text-base-content ring-1 ring-base-300"
       ]}>
         <div
           id={"env-#{@envelope.public_id}"}
@@ -411,7 +490,7 @@ defmodule VeejrWeb.MessagingComponents do
           <span class="loading loading-dots loading-xs"></span>
         </div>
       </div>
-      <div class={["mt-1 text-xs text-slate-400", @mine && "mr-3", !@mine && "ml-3"]}>
+      <div class={["mt-1 text-xs opacity-60", @mine && "mr-3", !@mine && "ml-3"]}>
         <span>{Calendar.strftime(@envelope.inserted_at, "%H:%M")}</span>
         <span :if={@envelope.edited_at} class="ml-1">edited</span>
         <span :if={@envelope.expires_at} class="ml-1">
@@ -427,7 +506,7 @@ defmodule VeejrWeb.MessagingComponents do
           data-role="edit-message"
           title="Edit message"
           aria-label="Edit message"
-          class="ml-2 rounded-full p-1 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"
+          class="ml-2 rounded-full p-1 transition hover:bg-base-300 hover:opacity-100"
         >
           <.icon name="hero-pencil-square" class="size-3.5" />
         </button>
@@ -438,7 +517,7 @@ defmodule VeejrWeb.MessagingComponents do
           data-confirm={delete_confirm(@mine)}
           title={delete_label(@mine)}
           aria-label={delete_label(@mine)}
-          class="ml-1 rounded-full p-1 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"
+          class="ml-1 rounded-full p-1 transition hover:bg-base-300 hover:opacity-100"
         >
           <.icon name={if(@mine, do: "hero-trash", else: "hero-eye-slash")} class="size-3.5" />
         </button>

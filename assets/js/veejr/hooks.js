@@ -136,13 +136,13 @@ function showMediaModal({blob, title, mime}) {
   overlay.setAttribute("aria-modal", "true")
 
   const panel = document.createElement("div")
-  panel.className = "flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
+  panel.className = "flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-base-100 text-base-content shadow-2xl"
 
   const header = document.createElement("div")
-  header.className = "flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3"
+  header.className = "flex items-center justify-between gap-3 border-b border-base-300 px-4 py-3"
 
   const h = document.createElement("h3")
-  h.className = "truncate text-sm font-medium text-slate-900"
+  h.className = "truncate text-sm font-medium text-base-content"
   h.textContent = title || "Attachment"
 
   const close = document.createElement("button")
@@ -165,7 +165,7 @@ function showMediaModal({blob, title, mime}) {
     const frame = document.createElement("iframe")
     frame.src = `${url}#toolbar=0&navpanes=0&scrollbar=1`
     frame.title = title || "PDF attachment"
-    frame.className = "h-[78vh] w-full rounded bg-white"
+    frame.className = "h-[78vh] w-full rounded bg-base-100"
     body.appendChild(frame)
   }
 
@@ -568,8 +568,8 @@ export const Composer = {
         if (!options) return
 
         options.classList.toggle("hidden")
-        optionsToggle.classList.toggle("bg-blue-50")
-        optionsToggle.classList.toggle("text-blue-700")
+        optionsToggle.classList.toggle("bg-primary/10")
+        optionsToggle.classList.toggle("text-primary")
         return
       }
 
@@ -761,7 +761,7 @@ export const Composer = {
 
     this.recordedAudio.forEach((entry, index) => {
       const row = document.createElement("div")
-      row.className = "flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2"
+      row.className = "flex items-center gap-2 rounded-lg bg-base-200 px-3 py-2"
 
       const audio = document.createElement("audio")
       audio.controls = true
@@ -1156,18 +1156,18 @@ export const MessageBubble = {
     const publicId = decryptEl.dataset.publicId
     const {copies} = await pushWithReply(this, "prepare_edit", {id: publicId})
     const textarea = document.createElement("textarea")
-    textarea.className = "mt-2 w-full min-w-64 resize-none rounded-2xl border border-blue-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:ring-2 focus:ring-blue-200"
+    textarea.className = "mt-2 w-full min-w-64 resize-none rounded-2xl border border-base-300 bg-base-100 px-3 py-2 text-sm text-base-content shadow-sm outline-none focus:ring-2 focus:ring-primary/30"
     textarea.rows = 3
     textarea.value = payload.text || ""
 
     const save = document.createElement("button")
     save.type = "button"
-    save.className = "rounded-full bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700"
+    save.className = "rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-content transition hover:bg-primary/90"
     save.textContent = "Save"
 
     const cancel = document.createElement("button")
     cancel.type = "button"
-    cancel.className = "rounded-full px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-100"
+    cancel.className = "rounded-full px-3 py-1.5 text-xs font-medium opacity-70 transition hover:bg-base-200 hover:opacity-100"
     cancel.textContent = "Cancel"
 
     const actions = document.createElement("div")

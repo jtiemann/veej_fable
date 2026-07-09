@@ -16,14 +16,14 @@ defmodule VeejrWeb.MessagesLive do
       pending_count={@pending_count}
       container_class="mx-auto max-w-7xl"
     >
-      <div class="overflow-hidden rounded-[32px] border border-slate-200 bg-slate-50 shadow-sm">
-        <div class="flex flex-col gap-3 border-b border-slate-200 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div class="overflow-hidden rounded-[32px] border border-base-300 bg-base-200 shadow-sm">
+        <div class="flex flex-col gap-3 border-b border-base-300 bg-base-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 class="text-2xl font-semibold tracking-tight text-slate-950">Messages</h1>
-            <p class="text-sm text-slate-500">End-to-end encrypted conversations</p>
+            <h1 class="text-2xl font-semibold tracking-tight text-base-content">Messages</h1>
+            <p class="text-sm opacity-70">End-to-end encrypted conversations</p>
           </div>
           <div class="flex items-center gap-2">
-            <div class="hidden min-w-64 items-center rounded-full bg-slate-100 px-4 py-2 text-sm text-slate-500 sm:flex">
+            <div class="hidden min-w-64 items-center rounded-full bg-base-200 px-4 py-2 text-sm opacity-70 sm:flex">
               Search messages
             </div>
             <button
@@ -32,9 +32,9 @@ defmodule VeejrWeb.MessagesLive do
               class={[
                 "rounded-full px-4 py-2 text-sm font-medium transition",
                 is_nil(@selected_conversation) &&
-                  "bg-blue-600 text-white shadow-sm hover:bg-blue-700",
+                  "bg-primary text-primary-content shadow-sm hover:bg-primary/90",
                 @selected_conversation &&
-                  "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  "bg-base-200 text-base-content hover:bg-base-300"
               ]}
             >
               New chat
@@ -42,29 +42,29 @@ defmodule VeejrWeb.MessagesLive do
           </div>
         </div>
 
-        <section :if={@pending != []} class="border-b border-blue-100 bg-blue-50 px-4 py-3">
+        <section :if={@pending != []} class="border-b border-primary/20 bg-primary/10 px-4 py-3">
           <div class="mb-2 flex items-center justify-between">
-            <h2 class="text-sm font-semibold text-blue-950">
+            <h2 class="text-sm font-semibold text-base-content">
               Waiting for you
-              <span class="ml-1 rounded-full bg-blue-600 px-2 py-0.5 text-xs text-white">
+              <span class="ml-1 rounded-full bg-primary px-2 py-0.5 text-xs text-primary-content">
                 {length(@pending)}
               </span>
             </h2>
-            <p class="hidden text-xs text-blue-700 sm:block">
+            <p class="hidden text-xs opacity-70 sm:block">
               Nothing is downloaded until you request it.
             </p>
           </div>
           <ul class="grid gap-2 lg:grid-cols-2">
             <li
               :for={notif <- @pending}
-              class="flex items-center justify-between gap-3 rounded-2xl border border-blue-100 bg-white px-3 py-2"
+              class="flex items-center justify-between gap-3 rounded-2xl border border-primary/20 bg-base-100 px-3 py-2"
             >
-              <span class="min-w-0 text-sm text-slate-700">
-                <span class="font-medium text-slate-950">
+              <span class="min-w-0 text-sm text-base-content">
+                <span class="font-medium">
                   {Veejr.Social.Address.handle(notif.envelope.sender)}
                 </span>
                 sent an encrypted {notif.envelope.kind}
-                <span class="text-xs text-slate-500">
+                <span class="text-xs opacity-70">
                   · {Calendar.strftime(notif.inserted_at, "%b %d, %H:%M")} UTC
                 </span>
               </span>
@@ -72,14 +72,14 @@ defmodule VeejrWeb.MessagesLive do
                 <button
                   phx-click="request"
                   phx-value-id={notif.id}
-                  class="rounded-full bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                  class="rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-content hover:bg-primary/90"
                 >
                   Request
                 </button>
                 <button
                   phx-click="decline"
                   phx-value-id={notif.id}
-                  class="rounded-full px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100"
+                  class="rounded-full px-3 py-1.5 text-xs font-medium opacity-70 hover:bg-base-200 hover:opacity-100"
                 >
                   Decline
                 </button>
@@ -89,20 +89,20 @@ defmodule VeejrWeb.MessagesLive do
         </section>
 
         <section class="grid min-h-[42rem] overflow-hidden lg:h-[calc(100svh-12rem)] lg:min-h-0 lg:grid-cols-[22rem_minmax(0,1fr)]">
-          <aside class="border-b border-slate-200 bg-white p-3 lg:overflow-y-auto lg:border-b-0 lg:border-r">
+          <aside class="border-b border-base-300 bg-base-100 p-3 lg:overflow-y-auto lg:border-b-0 lg:border-r">
             <div class="mb-3 flex items-center justify-between px-2">
-              <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              <h2 class="text-sm font-semibold uppercase tracking-wide opacity-70">
                 Conversations
               </h2>
               <button
                 id="compose-new-rail"
                 phx-click="new_message"
-                class="rounded-full px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50"
+                class="rounded-full px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
               >
                 New
               </button>
             </div>
-            <p :if={@conversations == []} class="px-2 py-6 text-sm text-slate-500">
+            <p :if={@conversations == []} class="px-2 py-6 text-sm opacity-70">
               No conversations yet.
             </p>
             <div class="space-y-1">
@@ -115,19 +115,19 @@ defmodule VeejrWeb.MessagesLive do
                 class={[
                   "flex w-full items-center gap-3 rounded-[22px] px-3 py-3 text-left transition",
                   @selected_conversation_key == conv.key &&
-                    "bg-blue-50 text-blue-950",
+                    "bg-primary/10 text-base-content",
                   @selected_conversation_key != conv.key &&
-                    "text-slate-800 hover:bg-slate-100"
+                    "text-base-content hover:bg-base-200"
                 ]}
               >
-                <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-sm font-semibold text-blue-700">
+                <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
                   {conversation_initials(conv)}
                 </span>
                 <span class="min-w-0 flex-1">
                   <span class="block truncate text-sm font-medium">
                     {Enum.join(conv.participants, ", ")}
                   </span>
-                  <span class="mt-0.5 flex items-center justify-between gap-2 text-xs text-slate-500">
+                  <span class="mt-0.5 flex items-center justify-between gap-2 text-xs opacity-70">
                     <span>{length(conv.envelopes)} messages</span>
                     <span>{Calendar.strftime(conv.latest.inserted_at, "%b %d")}</span>
                   </span>
@@ -137,9 +137,9 @@ defmodule VeejrWeb.MessagesLive do
 
             <div
               :if={@available_friends != [] or @available_groups != []}
-              class="mt-5 border-t border-slate-100 pt-4"
+              class="mt-5 border-t border-base-300 pt-4"
             >
-              <h2 class="mb-2 px-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+              <h2 class="mb-2 px-2 text-sm font-semibold uppercase tracking-wide opacity-70">
                 Start new
               </h2>
               <div :if={@available_friends != []} class="space-y-1">
@@ -152,20 +152,20 @@ defmodule VeejrWeb.MessagesLive do
                   class={[
                     "flex w-full items-center gap-3 rounded-[22px] px-3 py-3 text-left transition",
                     @selected_recipient && @selected_recipient.type == :friend &&
-                      @selected_recipient.id == friend.id && "bg-blue-50 text-blue-950",
+                      @selected_recipient.id == friend.id && "bg-primary/10 text-base-content",
                     (!@selected_recipient || @selected_recipient.id != friend.id ||
                        @selected_recipient.type != :friend) &&
-                      "text-slate-800 hover:bg-slate-100"
+                      "text-base-content hover:bg-base-200"
                   ]}
                 >
-                  <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-slate-600">
+                  <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-base-200 text-sm font-semibold opacity-80">
                     {person_initials(friend)}
                   </span>
                   <span class="min-w-0 flex-1">
                     <span class="block truncate text-sm font-medium">
                       {friend.display_name || friend.username}
                     </span>
-                    <span class="block truncate text-xs text-slate-500">
+                    <span class="block truncate text-xs opacity-70">
                       {Social.Address.handle(friend)}
                     </span>
                   </span>
@@ -182,18 +182,18 @@ defmodule VeejrWeb.MessagesLive do
                   class={[
                     "flex w-full items-center gap-3 rounded-[22px] px-3 py-3 text-left transition",
                     @selected_recipient && @selected_recipient.type == :group &&
-                      @selected_recipient.id == group.id && "bg-blue-50 text-blue-950",
+                      @selected_recipient.id == group.id && "bg-primary/10 text-base-content",
                     (!@selected_recipient || @selected_recipient.id != group.id ||
                        @selected_recipient.type != :group) &&
-                      "text-slate-800 hover:bg-slate-100"
+                      "text-base-content hover:bg-base-200"
                   ]}
                 >
-                  <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-slate-600">
+                  <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-base-200 text-sm font-semibold opacity-80">
                     {group_initials(group)}
                   </span>
                   <span class="min-w-0 flex-1">
                     <span class="block truncate text-sm font-medium">{group.name}</span>
-                    <span class="block truncate text-xs text-slate-500">
+                    <span class="block truncate text-xs opacity-70">
                       {length(group.members)} members
                     </span>
                   </span>
@@ -202,24 +202,24 @@ defmodule VeejrWeb.MessagesLive do
             </div>
           </aside>
 
-          <main class="flex min-h-0 min-w-0 flex-col bg-slate-100/80">
+          <main class="flex min-h-0 min-w-0 flex-col bg-base-200/80">
             <div
               :if={@selected_conversation}
               class="flex min-h-0 flex-1 flex-col"
             >
-              <div class="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-4">
+              <div class="flex items-center justify-between gap-3 border-b border-base-300 bg-base-100 px-5 py-4">
                 <div class="min-w-0">
-                  <h2 class="truncate text-lg font-semibold text-slate-950">
+                  <h2 class="truncate text-lg font-semibold text-base-content">
                     {Enum.join(@selected_conversation.participants, ", ")}
                   </h2>
-                  <p class="text-xs text-slate-500">
+                  <p class="text-xs opacity-70">
                     {length(@selected_conversation.envelopes)} messages
                   </p>
                 </div>
                 <button
                   id="new-message"
                   phx-click="new_message"
-                  class="rounded-full px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+                  class="rounded-full px-3 py-1.5 text-sm font-medium opacity-80 hover:bg-base-200 hover:opacity-100"
                 >
                   New chat
                 </button>
@@ -236,7 +236,7 @@ defmodule VeejrWeb.MessagesLive do
                     :if={@has_more_messages}
                     type="button"
                     data-role="load-more-messages"
-                    class="rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-500 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50"
+                    class="rounded-full bg-base-100 px-3 py-1.5 text-xs font-medium opacity-70 shadow-sm ring-1 ring-base-300 hover:bg-base-200 hover:opacity-100"
                   >
                     Load earlier messages
                   </button>
@@ -252,7 +252,7 @@ defmodule VeejrWeb.MessagesLive do
                 />
               </div>
 
-              <section class="border-t border-slate-200 bg-white/90 p-3 backdrop-blur">
+              <section class="border-t border-base-300 bg-base-100/90 p-3 backdrop-blur">
                 <.composer
                   id="message-composer"
                   user={@current_scope.user}
@@ -273,17 +273,17 @@ defmodule VeejrWeb.MessagesLive do
               class="flex flex-1 flex-col justify-end"
             >
               <div class="mx-auto max-w-xl px-6 py-12 text-center">
-                <div class="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-blue-100 text-xl font-semibold text-blue-700">
+                <div class="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-primary/15 text-xl font-semibold text-primary">
                   {selected_recipient_initials(@selected_recipient)}
                 </div>
-                <h2 class="text-xl font-semibold text-slate-950">
+                <h2 class="text-xl font-semibold text-base-content">
                   {selected_recipient_title(@selected_recipient)}
                 </h2>
-                <p class="mt-2 text-sm text-slate-500">
+                <p class="mt-2 text-sm opacity-70">
                   {selected_recipient_subtitle(@selected_recipient)}
                 </p>
               </div>
-              <section class="border-t border-slate-200 bg-white/90 p-3 backdrop-blur">
+              <section class="border-t border-base-300 bg-base-100/90 p-3 backdrop-blur">
                 <.composer
                   id="message-composer"
                   user={@current_scope.user}

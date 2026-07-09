@@ -58,6 +58,7 @@ defmodule VeejrWeb.MapLive do
               friends={@friends}
               groups={@groups}
               kind="location"
+              recipient_layout="dropdown"
               show_files={false}
               text_placeholder="Optional label, e.g. “at the cabin until Sunday”"
               submit_label="Share location"
@@ -75,6 +76,7 @@ defmodule VeejrWeb.MapLive do
               friends={@friends}
               groups={@groups}
               kind="note"
+              recipient_layout="dropdown"
               show_files={false}
               text_placeholder="What's here? The note is encrypted end-to-end."
               submit_label="Pin note"
