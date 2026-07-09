@@ -187,7 +187,7 @@ defmodule VeejrWeb.MessagingComponents do
       </div>
 
       <div class={[
-        @surface == "messages" && "flex items-end gap-2",
+        @surface == "messages" && "flex flex-wrap items-end gap-2 sm:flex-nowrap",
         @surface != "messages" && "space-y-3"
       ]}>
         <button
@@ -196,12 +196,15 @@ defmodule VeejrWeb.MessagingComponents do
           data-role="toggle-options"
           title="Message options"
           aria-label="Message options"
-          class="flex size-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-800"
+          class="order-1 flex size-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-800 sm:order-none"
         >
           <.icon name="hero-adjustments-horizontal" class="size-5" />
         </button>
 
-        <div :if={@show_text && @surface == "messages"} class="relative min-w-0 flex-1">
+        <div
+          :if={@show_text && @surface == "messages"}
+          class="relative order-2 min-w-0 basis-full sm:order-none sm:flex-1 sm:basis-auto"
+        >
           <textarea
             data-role="text"
             rows="1"
@@ -277,7 +280,7 @@ defmodule VeejrWeb.MessagingComponents do
         <label
           :if={@show_files && @surface == "messages"}
           title="Attach files"
-          class="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-700"
+          class="order-1 flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-700 sm:order-none"
         >
           <.icon name="hero-paper-clip" class="size-5" />
           <span class="sr-only">Attach files</span>
@@ -290,7 +293,7 @@ defmodule VeejrWeb.MessagingComponents do
           data-role="audio-toggle"
           title="Record voice message"
           aria-label="Record voice message"
-          class="flex size-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-700"
+          class="order-1 flex size-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-700 sm:order-none"
         >
           <.icon name="hero-microphone" class="size-5" />
         </button>
@@ -317,7 +320,7 @@ defmodule VeejrWeb.MessagingComponents do
           class={[
             "btn border-0",
             @surface == "messages" &&
-              "h-11 min-h-11 rounded-full bg-blue-600 px-5 text-white shadow-none hover:bg-blue-700",
+              "order-1 h-11 min-h-11 rounded-full bg-blue-600 px-5 text-white shadow-none hover:bg-blue-700 sm:order-none",
             @surface != "messages" && "btn-primary"
           ]}
           disabled={!@can_send?}
