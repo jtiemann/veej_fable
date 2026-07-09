@@ -20,6 +20,7 @@ defmodule VeejrWeb.MessagingComponents do
   attr :payload, :string, default: nil, doc: "JSON merged into the payload (e.g. map coords)"
   attr :selected_friend_ids, :list, default: []
   attr :selected_group_ids, :list, default: []
+  attr :selected_self, :boolean, default: false
   attr :show_recipients, :boolean, default: true
   attr :surface, :string, default: "card"
   attr :show_text, :boolean, default: true
@@ -36,9 +37,10 @@ defmodule VeejrWeb.MessagingComponents do
         assigns,
         :can_send?,
         if assigns.show_recipients do
-          assigns.friends != [] or assigns.groups != []
+          true
         else
-          assigns.selected_friend_ids != [] or assigns.selected_group_ids != []
+          assigns.selected_self or assigns.selected_friend_ids != [] or
+            assigns.selected_group_ids != []
         end
       )
 
@@ -93,6 +95,12 @@ defmodule VeejrWeb.MessagingComponents do
       </div>
 
       <input
+        :if={!@show_recipients && @selected_self}
+        type="hidden"
+        name="self"
+        value="true"
+      />
+      <input
         :for={id <- @selected_friend_ids}
         :if={!@show_recipients}
         type="hidden"
@@ -107,8 +115,27 @@ defmodule VeejrWeb.MessagingComponents do
         value={id}
       />
 
+      <div :if={@show_recipients} class="space-y-2">
+        <p class="px-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+          This account
+        </p>
+        <label class={[
+          "flex w-fit cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition",
+          @selected_self && "border-blue-200 bg-blue-50 text-blue-800",
+          !@selected_self && "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+        ]}>
+          <input
+            type="checkbox"
+            name="self"
+            value="true"
+            checked={@selected_self}
+            class="checkbox checkbox-xs border-slate-300"
+          /> Me
+        </label>
+      </div>
+
       <div :if={@show_recipients && @friends == []} class="px-2 text-sm text-slate-500">
-        You have no friends to send to yet — add some on the Friends page.
+        You can send to yourself. Add friends on the Friends page to send to others.
       </div>
 
       <div :if={@show_recipients && @friends != []}>

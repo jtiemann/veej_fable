@@ -262,6 +262,7 @@ defmodule VeejrWeb.MessagesLive do
                   surface="messages"
                   show_recipients={false}
                   selected_friend_ids={selected_friend_ids(@selected_conversation)}
+                  selected_self={selected_self?(@selected_conversation)}
                   submit_label={composer_submit_label(@selected_conversation)}
                 />
               </section>
@@ -291,6 +292,7 @@ defmodule VeejrWeb.MessagesLive do
                   kind="message"
                   surface="messages"
                   show_recipients={false}
+                  selected_self={selected_recipient_self?(@selected_recipient)}
                   selected_friend_ids={selected_recipient_friend_ids(@selected_recipient)}
                   selected_group_ids={selected_recipient_group_ids(@selected_recipient)}
                   submit_label="Send"
@@ -538,6 +540,12 @@ defmodule VeejrWeb.MessagesLive do
     |> String.split(",", trim: true)
   end
 
+  defp selected_self?(%{participants: ["notes to yourself"]}), do: true
+  defp selected_self?(_), do: false
+
+  defp selected_recipient_self?(nil), do: true
+  defp selected_recipient_self?(_), do: false
+
   defp selected_recipient_friend_ids(%{friend_ids: friend_ids}), do: friend_ids
   defp selected_recipient_friend_ids(_), do: []
 
@@ -545,13 +553,13 @@ defmodule VeejrWeb.MessagesLive do
   defp selected_recipient_group_ids(_), do: []
 
   defp selected_recipient_title(%{title: title}), do: title
-  defp selected_recipient_title(_), do: "Choose a conversation"
+  defp selected_recipient_title(_), do: "Notes to yourself"
 
   defp selected_recipient_subtitle(%{subtitle: subtitle}), do: subtitle
-  defp selected_recipient_subtitle(_), do: "Pick a conversation, friend, or group from the list."
+  defp selected_recipient_subtitle(_), do: "Send an encrypted message to this account."
 
   defp selected_recipient_initials(%{initials: initials}), do: initials
-  defp selected_recipient_initials(_), do: "V"
+  defp selected_recipient_initials(_), do: "ME"
 
   defp composer_submit_label(_conversation), do: "Send"
 

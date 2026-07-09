@@ -3,8 +3,9 @@ defmodule VeejrWeb.RecipientResolver do
   Expands a composer's friend/group selection into concrete recipients with
   public keys, so the browser can encrypt to each of them.
 
-  Only the caller's accepted friends (directly or via their own groups) can
-  ever be resolved; group ids belonging to other users simply don't match.
+  Only the caller and their accepted friends (directly or via their own
+  groups) can ever be resolved; group ids belonging to other users simply
+  don't match.
   """
 
   alias Veejr.Social
@@ -12,6 +13,7 @@ defmodule VeejrWeb.RecipientResolver do
   def resolve(user, params) do
     friend_ids = Map.get(params, "friend_ids", [])
     group_ids = Map.get(params, "group_ids", [])
+    include_self? = truthy?(Map.get(params, "include_self"))
 
     friend_map = Map.new(Social.list_friends(user), &{to_string(&1.id), &1})
     chosen = friend_ids |> Enum.map(&friend_map[&1]) |> Enum.reject(&is_nil/1)
@@ -24,10 +26,11 @@ defmodule VeejrWeb.RecipientResolver do
         end
       end)
 
+    self = if include_self?, do: [user], else: []
+
     all =
-      (chosen ++ from_groups)
+      (self ++ chosen ++ from_groups)
       |> Enum.uniq_by(& &1.id)
-      |> Enum.reject(&(&1.id == user.id))
 
     {with_keys, without_keys} = Enum.split_with(all, & &1.public_key)
 
@@ -45,4 +48,6 @@ defmodule VeejrWeb.RecipientResolver do
       missing_keys: Enum.map(without_keys, & &1.username)
     }
   end
+
+  defp truthy?(value), do: value in [true, "true", "1", 1, "on"]
 end

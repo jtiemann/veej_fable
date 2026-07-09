@@ -821,7 +821,10 @@ export const Composer = {
 
     const friendIds = selectedValues("friends[]")
     const groupIds = selectedValues("groups[]")
-    if (friendIds.length + groupIds.length === 0) throw new Error("Pick at least one friend or group.")
+    const includeSelf = !!form.querySelector("input[name='self']:checked, input[name='self'][type='hidden']")
+    if (friendIds.length + groupIds.length === 0 && !includeSelf) {
+      throw new Error("Pick at least one recipient.")
+    }
 
     const textEl = form.querySelector("[data-role=text]")
     // Payload providers let other hooks (the map) contribute client-side-only
@@ -851,6 +854,7 @@ export const Composer = {
       const {recipients, missing_keys} = await this.pushWithReply("resolve_recipients", {
         friend_ids: friendIds,
         group_ids: groupIds,
+        include_self: includeSelf,
       })
       if (missing_keys.length > 0) {
         throw new Error(`No encryption keys yet: ${missing_keys.join(", ")}. They must finish key setup first.`)
@@ -894,7 +898,9 @@ export const Composer = {
         ...sealFor(r.public_key, payload, mySecret),
       }))
       // Self-copy so our own history stays readable.
-      envelopes.push({recipient_id: parseInt(userId), ...sealFor(myKey, payload, mySecret)})
+      if (!recipients.some((r) => r.id === parseInt(userId))) {
+        envelopes.push({recipient_id: parseInt(userId), ...sealFor(myKey, payload, mySecret)})
+      }
 
       busy("Sending…")
       await this.pushWithReply("send_batch", {kind, envelopes, ...messageOptions})
