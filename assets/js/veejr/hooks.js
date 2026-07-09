@@ -1034,31 +1034,82 @@ export const Decrypt = {
 
   renderAudioAttachment(att) {
     const wrap = document.createElement("div")
-    wrap.className = "mt-2"
+    wrap.className = "mt-2 rounded-2xl bg-black/5 p-2"
 
+    const label = document.createElement("p")
+    label.className = "mb-1 text-xs opacity-70"
+    label.textContent = `Voice message (${Math.ceil((att.size || 0) / 1024)} KB)`
+
+    const status = document.createElement("p")
+    status.className = "text-xs opacity-70"
+    status.textContent = "Loading voice message..."
+
+    wrap.append(label, status)
+    this.el.appendChild(wrap)
+
+    this.loadAudioAttachment(att, wrap, status).catch((err) => {
+      status.className = "text-xs text-error"
+      status.textContent = `Could not load voice message: ${err.message}`
+      wrap.appendChild(this.audioDownloadButton(att))
+    })
+  },
+
+  async loadAudioAttachment(att, wrap, status) {
+    const blob = await decryptAttachmentBlob(att)
+    const url = URL.createObjectURL(blob)
+    const mime = attachmentMime(att) || blob.type || "audio/webm"
+
+    const audio = document.createElement("audio")
+    audio.controls = true
+    audio.preload = "metadata"
+    audio.className = "w-full max-w-xs"
+
+    const source = document.createElement("source")
+    source.src = url
+    source.type = mime
+    audio.appendChild(source)
+
+    const fallback = document.createElement("a")
+    fallback.href = url
+    fallback.download = att.name || "voice-message"
+    fallback.className = "link text-xs"
+    fallback.textContent = "Download voice message"
+    audio.appendChild(fallback)
+
+    audio.addEventListener(
+      "error",
+      () => {
+        status.className = "text-xs text-error"
+        status.textContent = "This browser cannot play this voice format."
+        if (!status.isConnected) wrap.appendChild(status)
+        wrap.appendChild(fallback.cloneNode(true))
+      },
+      {once: true}
+    )
+
+    status.remove()
+    wrap.appendChild(audio)
+
+    this.el.addEventListener(
+      "phx:remove",
+      () => {
+        URL.revokeObjectURL(url)
+      },
+      {once: true}
+    )
+  },
+
+  audioDownloadButton(att) {
     const btn = document.createElement("button")
     btn.type = "button"
-    btn.className = "btn btn-outline btn-xs"
-    btn.textContent = `Voice message (${Math.ceil((att.size || 0) / 1024)} KB)`
-    btn.addEventListener("click", async () => {
-      btn.disabled = true
-      btn.textContent = "Loading voice message..."
-      try {
-        const blob = await decryptAttachmentBlob(att)
-        const audio = document.createElement("audio")
-        audio.controls = true
-        audio.src = URL.createObjectURL(blob)
-        audio.className = "mt-1 w-full max-w-xs"
-        wrap.textContent = ""
-        wrap.appendChild(audio)
-      } catch (err) {
-        btn.disabled = false
-        btn.textContent = `Could not load voice message: ${err.message}`
-      }
-    })
-
-    wrap.appendChild(btn)
-    this.el.appendChild(wrap)
+    btn.className = "btn btn-outline btn-xs mt-2"
+    btn.textContent = "Download voice message"
+    btn.addEventListener("click", () =>
+      downloadAttachment(att).catch((err) => {
+        btn.textContent = `Could not download: ${err.message}`
+      })
+    )
+    return btn
   },
 
   async recordDisplay() {
