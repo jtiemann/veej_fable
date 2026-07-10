@@ -23,9 +23,7 @@ defmodule VeejrWeb.MessagesLive do
             <p class="text-sm opacity-70">End-to-end encrypted conversations</p>
           </div>
           <div class="flex items-center gap-2">
-            <div class="hidden min-w-64 items-center rounded-full bg-base-200 px-4 py-2 text-sm opacity-70 sm:flex">
-              Search messages
-            </div>
+            <.link navigate={~p"/contacts"} class="btn btn-outline btn-sm">Contacts</.link>
             <button
               id="compose-new"
               phx-click="new_message"
@@ -88,8 +86,8 @@ defmodule VeejrWeb.MessagesLive do
           </ul>
         </section>
 
-        <section class="grid min-h-[42rem] overflow-hidden lg:h-[calc(100svh-12rem)] lg:min-h-0 lg:grid-cols-[22rem_minmax(0,1fr)]">
-          <aside class="border-b border-base-300 bg-base-100 p-3 lg:overflow-y-auto lg:border-b-0 lg:border-r">
+        <section class="min-h-[42rem] overflow-hidden lg:h-[calc(100svh-12rem)] lg:min-h-0">
+          <aside class="hidden border-b border-base-300 bg-base-100 p-3 lg:overflow-y-auto lg:border-b-0 lg:border-r">
             <div class="mb-3 flex items-center justify-between px-2">
               <h2 class="text-sm font-semibold uppercase tracking-wide opacity-70">
                 Conversations
@@ -202,7 +200,7 @@ defmodule VeejrWeb.MessagesLive do
             </div>
           </aside>
 
-          <main class="flex min-h-0 min-w-0 flex-col bg-base-200/80">
+          <main class="flex h-full min-h-0 min-w-0 flex-col bg-base-200/80">
             <div
               :if={@selected_conversation}
               class="flex min-h-0 flex-1 flex-col"
@@ -318,6 +316,11 @@ defmodule VeejrWeb.MessagesLive do
        message_limit: @message_page_size
      )
      |> refresh()}
+  end
+
+  @impl true
+  def handle_params(params, _url, socket) do
+    {:noreply, params |> apply_message_params(socket) |> refresh()}
   end
 
   @impl true
@@ -492,6 +495,34 @@ defmodule VeejrWeb.MessagesLive do
 
   defp clear_selected_recipient(socket) do
     assign(socket, selected_recipient_type: nil, selected_recipient_id: nil)
+  end
+
+  defp apply_message_params(%{"conversation" => key}, socket) when is_binary(key) do
+    socket
+    |> assign(:selected_conversation_key, key)
+    |> clear_selected_recipient()
+  end
+
+  defp apply_message_params(%{"friend_id" => id}, socket) do
+    assign(socket,
+      selected_conversation_key: nil,
+      selected_recipient_type: :friend,
+      selected_recipient_id: id
+    )
+  end
+
+  defp apply_message_params(%{"group_id" => id}, socket) do
+    assign(socket,
+      selected_conversation_key: nil,
+      selected_recipient_type: :group,
+      selected_recipient_id: id
+    )
+  end
+
+  defp apply_message_params(_params, socket) do
+    socket
+    |> assign(:selected_conversation_key, nil)
+    |> clear_selected_recipient()
   end
 
   defp selected_recipient(socket, friends, groups) do

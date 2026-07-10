@@ -13,7 +13,7 @@ defmodule Veejr.Social do
 
   alias Veejr.Repo
   alias Veejr.Accounts.User
-  alias Veejr.Social.{Friendship, Group, GroupMember}
+  alias Veejr.Social.{ContactNote, Friendship, Group, GroupMember, GroupNote}
 
   ## Friendships
 
@@ -288,6 +288,46 @@ defmodule Veejr.Social do
     |> Repo.all()
   end
 
+  @doc "Personal notes the owner has written about accepted friends, keyed by contact id."
+  def list_contact_notes(%User{} = owner) do
+    friend_ids =
+      owner
+      |> list_friends()
+      |> Enum.map(& &1.id)
+
+    from(n in ContactNote,
+      where: n.owner_id == ^owner.id and n.contact_id in ^friend_ids
+    )
+    |> Repo.all()
+    |> Map.new(&{&1.contact_id, &1.body})
+  end
+
+  @doc "Creates or updates the owner's private note for an accepted friend."
+  def upsert_contact_note(%User{} = owner, contact_id, body) do
+    with {contact_id, ""} <- Integer.parse(to_string(contact_id)),
+         %Friendship{status: "accepted"} <- get_friendship_between(owner.id, contact_id) do
+      body = body |> to_string() |> String.trim()
+
+      case Repo.get_by(ContactNote, owner_id: owner.id, contact_id: contact_id) do
+        nil ->
+          %ContactNote{}
+          |> ContactNote.changeset(%{
+            owner_id: owner.id,
+            contact_id: contact_id,
+            body: body
+          })
+          |> Repo.insert()
+
+        note ->
+          note
+          |> ContactNote.changeset(%{body: body})
+          |> Repo.update()
+      end
+    else
+      _ -> {:error, :not_a_friend}
+    end
+  end
+
   ## Groups
 
   def create_group(%User{} = owner, attrs) do
@@ -316,6 +356,46 @@ defmodule Veejr.Social do
 
   def get_owned_group(%User{id: id}, group_id) do
     Repo.get_by(Group, id: group_id, owner_id: id) || {:error, :not_found}
+  end
+
+  @doc "Personal notes the owner has written about their own groups, keyed by group id."
+  def list_group_notes(%User{} = owner) do
+    group_ids =
+      owner
+      |> list_groups()
+      |> Enum.map(& &1.id)
+
+    from(n in GroupNote,
+      where: n.owner_id == ^owner.id and n.group_id in ^group_ids
+    )
+    |> Repo.all()
+    |> Map.new(&{&1.group_id, &1.body})
+  end
+
+  @doc "Creates or updates the owner's private note for one of their groups."
+  def upsert_group_note(%User{} = owner, group_id, body) do
+    with {group_id, ""} <- Integer.parse(to_string(group_id)),
+         %Group{} <- get_owned_group(owner, group_id) do
+      body = body |> to_string() |> String.trim()
+
+      case Repo.get_by(GroupNote, owner_id: owner.id, group_id: group_id) do
+        nil ->
+          %GroupNote{}
+          |> GroupNote.changeset(%{
+            owner_id: owner.id,
+            group_id: group_id,
+            body: body
+          })
+          |> Repo.insert()
+
+        note ->
+          note
+          |> GroupNote.changeset(%{body: body})
+          |> Repo.update()
+      end
+    else
+      _ -> {:error, :not_found}
+    end
   end
 
   @doc "Adds an accepted friend to one of the owner's groups."

@@ -96,6 +96,7 @@ defmodule VeejrWeb.Router do
       ] do
       live "/friends", FriendsLive
       live "/groups", GroupsLive
+      live "/contacts", ContactsLive
       live "/messages", MessagesLive
       live "/map", MapLive
       live "/history", HistoryLive
