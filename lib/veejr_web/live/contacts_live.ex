@@ -182,9 +182,9 @@ defmodule VeejrWeb.ContactsLive do
                 </span>
               </div>
 
-              <details class="collapse-arrow mt-3 rounded-lg bg-base-200">
+              <details class="collapse collapse-arrow mt-3 rounded-lg border border-base-300 bg-base-200">
                 <summary class="collapse-title min-h-0 px-3 py-2 text-sm font-medium">
-                  Personal info
+                  Personal info & notes
                 </summary>
                 <div class="collapse-content px-3 pb-3">
                   <form phx-submit="save_note">
@@ -268,9 +268,9 @@ defmodule VeejrWeb.ContactsLive do
                 <span :if={group.members == []} class="text-sm opacity-60">No members yet.</span>
               </div>
 
-              <details class="collapse-arrow mt-3 rounded-lg bg-base-200">
+              <details class="collapse collapse-arrow mt-3 rounded-lg border border-base-300 bg-base-200">
                 <summary class="collapse-title min-h-0 px-3 py-2 text-sm font-medium">
-                  Personal info
+                  Personal info & notes
                 </summary>
                 <div class="collapse-content px-3 pb-3">
                   <form phx-submit="save_group_note">
