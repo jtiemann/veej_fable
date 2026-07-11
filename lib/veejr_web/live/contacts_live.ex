@@ -25,6 +25,53 @@ defmodule VeejrWeb.ContactsLive do
         </:actions>
       </.header>
 
+      <section :if={@pending != []} class="rounded-lg border border-primary/20 bg-primary/10 p-4">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <h2 class="text-sm font-semibold text-base-content">
+              Waiting for you
+              <span class="ml-1 rounded-full bg-primary px-2 py-0.5 text-xs text-primary-content">
+                {length(@pending)}
+              </span>
+            </h2>
+            <p class="text-xs opacity-70">Encrypted items need your approval.</p>
+          </div>
+          <.link navigate={~p"/messages"} class="btn btn-outline btn-sm">Messages</.link>
+        </div>
+        <ul class="mt-3 grid gap-2 lg:grid-cols-2">
+          <li
+            :for={notif <- @pending}
+            class="flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-base-100 px-3 py-2"
+          >
+            <span class="min-w-0 text-sm text-base-content">
+              <span class="font-medium">
+                {Veejr.Social.Address.handle(notif.envelope.sender)}
+              </span>
+              sent an encrypted {notif.envelope.kind}
+              <span class="text-xs opacity-70">
+                - {Calendar.strftime(notif.inserted_at, "%b %d, %H:%M")} UTC
+              </span>
+            </span>
+            <span class="flex shrink-0 gap-2">
+              <button
+                phx-click="request_notification"
+                phx-value-id={notif.id}
+                class="btn btn-primary btn-xs"
+              >
+                Request
+              </button>
+              <button
+                phx-click="decline_notification"
+                phx-value-id={notif.id}
+                class="btn btn-ghost btn-xs"
+              >
+                Decline
+              </button>
+            </span>
+          </li>
+        </ul>
+      </section>
+
       <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,0.85fr)]">
         <section class="rounded-lg border border-base-300 bg-base-100 p-4">
           <div class="flex items-center justify-between gap-3">
@@ -40,26 +87,23 @@ defmodule VeejrWeb.ContactsLive do
           </p>
 
           <ul class="mt-4 divide-y divide-base-300">
-            <li
-              :for={conversation <- @conversations}
-              class="flex items-center justify-between gap-3 py-3"
-            >
-              <div class="min-w-0">
-                <p class="truncate font-medium">
-                  {Enum.join(conversation.participants, ", ")}
-                </p>
-                <p class="text-xs opacity-70">
-                  {length(conversation.envelopes)} messages · latest {Calendar.strftime(
-                    conversation.latest.inserted_at,
-                    "%b %d, %H:%M"
-                  )} UTC
-                </p>
-              </div>
+            <li :for={conversation <- @conversations}>
               <.link
                 navigate={~p"/messages?conversation=#{conversation.key}"}
-                class="btn btn-ghost btn-sm"
+                class="flex items-center justify-between gap-3 rounded-lg px-2 py-3 transition hover:bg-base-200"
               >
-                Open
+                <div class="min-w-0">
+                  <p class="truncate font-medium">
+                    {Enum.join(conversation.participants, ", ")}
+                  </p>
+                  <p class="text-xs opacity-70">
+                    {length(conversation.envelopes)} messages · latest {Calendar.strftime(
+                      conversation.latest.inserted_at,
+                      "%b %d, %H:%M"
+                    )} UTC
+                  </p>
+                </div>
+                <span class="shrink-0 text-sm font-medium text-primary">Open</span>
               </.link>
             </li>
           </ul>
@@ -386,6 +430,29 @@ defmodule VeejrWeb.ContactsLive do
     {:noreply, refresh(socket)}
   end
 
+  def handle_event("request_notification", %{"id" => id}, socket) do
+    case Messaging.accept_notification(socket.assigns.current_scope.user, id) do
+      {:ok, _} ->
+        {:noreply, refresh(socket)}
+
+      {:error, :origin_unreachable} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "The sender's instance is unreachable right now - try again later."
+         )}
+
+      {:error, _} ->
+        {:noreply, socket |> put_flash(:error, "Notification not found.") |> refresh()}
+    end
+  end
+
+  def handle_event("decline_notification", %{"id" => id}, socket) do
+    Messaging.decline_notification(socket.assigns.current_scope.user, id)
+    {:noreply, refresh(socket)}
+  end
+
   def handle_event("remove", %{"id" => id}, socket) do
     Social.remove_friend(socket.assigns.current_scope.user, String.to_integer(id))
     {:noreply, socket |> put_flash(:info, "Friend removed.") |> refresh()}
@@ -498,11 +565,13 @@ defmodule VeejrWeb.ContactsLive do
 
   defp refresh(socket) do
     user = socket.assigns.current_scope.user
+    pending = Messaging.list_pending_notifications(user)
     friends = Social.list_friends(user)
     groups = Social.list_groups(user)
 
     assign(socket,
-      pending_count: length(Messaging.list_pending_notifications(user)),
+      pending: pending,
+      pending_count: length(pending),
       friends: friends,
       groups: groups,
       contact_notes: Social.list_contact_notes(user),
