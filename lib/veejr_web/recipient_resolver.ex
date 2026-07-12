@@ -39,7 +39,7 @@ defmodule VeejrWeb.RecipientResolver do
         Enum.map(
           with_keys,
           &%{
-            id: &1.id,
+            id: to_string(&1.id),
             username: &1.username,
             handle: Veejr.Social.Address.handle(&1),
             public_key: &1.public_key

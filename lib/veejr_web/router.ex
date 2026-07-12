@@ -62,6 +62,9 @@ defmodule VeejrWeb.Router do
     get "/notifications", NotificationController, :index
     post "/notifications/:id/accept", NotificationController, :accept
     post "/notifications/:id/decline", NotificationController, :decline
+    get "/contacts", RecipientController, :index
+    post "/recipients/resolve", RecipientController, :resolve
+    post "/message-batches", MessageBatchController, :create
   end
 
   # Public attachment capability. No pipeline: serves opaque octet-stream

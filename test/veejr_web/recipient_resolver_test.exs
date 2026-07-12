@@ -26,7 +26,7 @@ defmodule VeejrWeb.RecipientResolverTest do
     assert %{recipients: [recipient], missing_keys: []} =
              RecipientResolver.resolve(alice, %{"include_self" => true})
 
-    assert recipient.id == alice.id
+    assert recipient.id == to_string(alice.id)
     assert recipient.username == "alice"
     assert recipient.public_key == alice.public_key
   end

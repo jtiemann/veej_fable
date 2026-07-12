@@ -191,6 +191,14 @@ defmodule Veejr.Messaging do
 
   defp parse_id(_), do: :error
 
+  def list_batch_copies(%User{id: sender_id}, batch_id) do
+    from(e in Envelope,
+      where: e.sender_id == ^sender_id and e.batch_id == ^batch_id,
+      select: %{recipient_id: e.recipient_id, public_id: e.public_id}
+    )
+    |> Repo.all()
+  end
+
   defp opt(opts, key) when is_list(opts), do: Keyword.get(opts, key)
 
   defp opt(opts, key) when is_map(opts),
