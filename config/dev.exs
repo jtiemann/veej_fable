@@ -6,8 +6,8 @@ port = String.to_integer(System.get_env("PORT") || "4000")
 
 bind_ip =
   case System.get_env("BIND_ALL") do
-    value when value in ["1", "true", "TRUE"] -> {0, 0, 0, 0}
-    _ -> {127, 0, 0, 1}
+    value when value in ["0", "false", "FALSE"] -> {127, 0, 0, 1}
+    _ -> {0, 0, 0, 0}
   end
 
 # PHX_HOST, when set (e.g. an ngrok/cloudflare tunnel hostname), makes the app
@@ -35,8 +35,8 @@ config :veejr, Veejr.Repo,
 # watchers to your application. For example, we can use it
 # to bundle .js and .css sources.
 config :veejr, VeejrWeb.Endpoint,
-  # Binding to loopback ipv4 address prevents access from other machines.
-  # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
+  # Development listens on all IPv4 interfaces for LAN testing. Set
+  # BIND_ALL=false to restrict it to this machine.
   http: [ip: bind_ip, port: port],
   url: [host: url_host, port: url_port, scheme: url_scheme],
   check_origin: false,

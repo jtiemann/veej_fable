@@ -48,6 +48,14 @@ mix phx.server
 Open <http://localhost:4000>. Development email is available at
 <http://localhost:4000/dev/mailbox>.
 
+The development server listens on all IPv4 interfaces by default, so another
+device on the same LAN can open `http://<computer-lan-ip>:4000`. Set
+`BIND_ALL=false` to restrict it to this computer. Windows Firewall must also
+allow inbound TCP port 4000 on private networks. Browser features that require
+a secure context, including WebCrypto, service workers, and push, may not work
+over a plain LAN-IP HTTP URL; use HTTPS (for example through a trusted local
+certificate or tunnel) when testing those features.
+
 First-time flow:
 
 1. Register with an email address and username.
@@ -78,8 +86,8 @@ PORT=4001 VEEJR_DB=veejr_dev2.db mix ecto.setup
 PORT=4001 VEEJR_DB=veejr_dev2.db mix phx.server
 ```
 
-Add `someone@localhost:4001` from the first instance. Set `BIND_ALL=true` if a
-development server must listen beyond loopback.
+Add `someone@localhost:4001` from the first instance. Set `BIND_ALL=false` when
+a development server should listen only on loopback.
 
 ## Instance modes
 
@@ -112,6 +120,56 @@ Common optional variables are `PORT` (default `4000`), `POOL_SIZE` (default
 Terminate TLS at a reverse proxy or configure HTTPS before exposing an
 instance. Back up both `DATABASE_PATH` and `VEEJR_BLOB_DIR`; the database also
 contains instance federation-signing and VAPID credentials.
+
+### Current Docker deployment
+
+The currently operated instance uses three Docker containers on the Windows
+host at `192.168.0.251`:
+
+| Container | Role | Published ports |
+| --- | --- | --- |
+| `veej_fable` | Phoenix application (`MIX_ENV=prod`) | TCP 4000 |
+| `veej_caddy` | TLS termination and reverse proxy | TCP/UDP 443 |
+| `veej_postfix` | SMTP relay used for authentication email | Internal TCP 587 |
+
+Caddy serves `https://veejr.dyndns-server.com` and proxies requests to
+`host.docker.internal:4000`. The router forwards public HTTPS to this host;
+Windows Firewall allows Caddy on TCP/UDP 443 and the Phoenix listener on TCP
+4000. Production forces HTTPS, so a request to a raw HTTP address such as
+`http://192.168.0.251:4000` redirects to the public hostname.
+
+The router does not provide NAT loopback. For the production URL to work from
+inside the LAN, configure split DNS (also called a local DNS override or host
+record):
+
+```text
+veejr.dyndns-server.com -> 192.168.0.251
+```
+
+LAN and WAN clients should then use the same URL:
+<https://veejr.dyndns-server.com>. A per-device hosts-file entry is a fallback
+when the router cannot provide split DNS:
+
+```text
+192.168.0.251 veejr.dyndns-server.com
+```
+
+Useful operational commands:
+
+```sh
+docker ps
+docker restart veej_fable veej_caddy veej_postfix
+docker logs --tail 100 veej_fable
+docker logs --tail 100 veej_caddy
+docker logs --tail 100 veej_postfix
+```
+
+The containers currently bind-mount the project and start the application with
+`mix phx.server`; this is operationally convenient but is not an immutable
+release deployment. Their Docker restart policy is currently `no`, so they do
+not automatically return after a Docker daemon or host restart. A future
+deployment should use a built release/image, persistent database/blob/Caddy
+volumes, and an `unless-stopped` restart policy.
 
 ## Account portability
 
