@@ -58,6 +58,7 @@ defmodule VeejrWeb.Router do
 
     delete "/auth/session", AuthController, :logout
     get "/me", MeController, :show
+    put "/keys", KeysController, :create
   end
 
   # Public attachment capability. No pipeline: serves opaque octet-stream

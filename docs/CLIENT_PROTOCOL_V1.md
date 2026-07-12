@@ -352,6 +352,26 @@ local Keystore wrapper.
 - `POST /api/v1/keys/reset` atomically purges user-addressed envelope copies and
   installs a new key.
 
+Initial setup accepts the portable wrapper representation returned by
+`GET /api/v1/me`:
+
+```json
+{
+  "public_key": "base64",
+  "wrapped_key": {
+    "ciphertext": "base64",
+    "salt": "base64",
+    "nonce": "base64",
+    "kdf": {"name": "PBKDF2-SHA256", "iterations": 310000},
+    "wrap": "XSalsa20-Poly1305"
+  }
+}
+```
+
+Success returns `201` with the updated `Account` representation. Initial setup
+is create-only; an account that already has keys receives `409
+keys_already_configured`.
+
 All supplied key fields are standard padded Base64. Rotation/reset require
 recent authentication. The server MUST validate lengths and ownership but MUST
 NOT attempt to decrypt key material.
