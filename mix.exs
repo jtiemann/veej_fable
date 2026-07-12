@@ -90,7 +90,14 @@ defmodule Veejr.MixProject do
         "esbuild veejr --minify",
         "phx.digest"
       ],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+      "protocol.verify": ["cmd node scripts/protocol_fixtures.mjs verify"],
+      precommit: [
+        "compile --warnings-as-errors",
+        "deps.unlock --unused",
+        "format",
+        "protocol.verify",
+        "test"
+      ]
     ]
   end
 end

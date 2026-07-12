@@ -790,6 +790,11 @@ Required interoperability directions:
 
 Fixture generation MUST NOT rely on production secrets.
 
+The canonical v1 fixture is `protocol-fixtures/v1.json`. Regenerate it with
+`node scripts/protocol_fixtures.mjs generate` and verify it with
+`mix protocol.verify`. The fixture intentionally contains fixed test-only
+private keys and MUST never be reused for an account or production content.
+
 ## 18. Synchronization and idempotency
 
 v1 uses server-authoritative metadata and a client ciphertext cache.
