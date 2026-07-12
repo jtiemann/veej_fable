@@ -6,7 +6,14 @@ defmodule Veejr.Accounts do
   import Ecto.Query, warn: false
   alias Veejr.Repo
 
-  alias Veejr.Accounts.{User, UserToken, UserNotifier}
+  alias Veejr.Accounts.{
+    ApiDeviceSession,
+    ApiRefreshTokenHistory,
+    Scope,
+    User,
+    UserNotifier,
+    UserToken
+  }
 
   ## Database getters
 
@@ -375,6 +382,104 @@ defmodule Veejr.Accounts do
   def delete_user_session_token(token) do
     Repo.delete_all(from(UserToken, where: [token: ^token, context: "session"]))
     :ok
+  end
+
+  ## Native API device sessions
+
+  def create_api_device_session(%User{} = user, attrs) when is_map(attrs) do
+    {changeset, tokens} = ApiDeviceSession.create_changeset(%ApiDeviceSession{}, user, attrs)
+
+    case Repo.insert(changeset) do
+      {:ok, session} -> {:ok, session, Map.put(tokens, :device_session_id, to_string(session.id))}
+      {:error, changeset} -> {:error, changeset}
+    end
+  end
+
+  def get_user_and_api_session_by_access_token(token) when is_binary(token) do
+    with {:ok, token_hash} <- ApiDeviceSession.hash_token(token) do
+      now = DateTime.utc_now(:second)
+
+      from(session in ApiDeviceSession,
+        join: user in assoc(session, :user),
+        where: session.access_token_hash == ^token_hash,
+        where: session.access_expires_at > ^now,
+        select: {%{user | authenticated_at: session.authenticated_at}, session}
+      )
+      |> Repo.one()
+    else
+      :error -> nil
+    end
+  end
+
+  def rotate_api_device_session(refresh_token) when is_binary(refresh_token) do
+    with {:ok, token_hash} <- ApiDeviceSession.hash_token(refresh_token) do
+      Repo.transaction(
+        fn ->
+          now = DateTime.utc_now(:second)
+
+          session =
+            Repo.one(
+              from session in ApiDeviceSession,
+                where: session.refresh_token_hash == ^token_hash,
+                where: session.refresh_expires_at > ^now
+            )
+
+          case session do
+            %ApiDeviceSession{} = session ->
+              %ApiRefreshTokenHistory{}
+              |> ApiRefreshTokenHistory.changeset(session, session.refresh_token_hash)
+              |> Repo.insert!()
+
+              {changeset, tokens} = ApiDeviceSession.rotate_changeset(session, now)
+
+              case Repo.update(changeset) do
+                {:ok, session} ->
+                  {:rotated, session, Map.put(tokens, :device_session_id, to_string(session.id))}
+
+                {:error, changeset} ->
+                  Repo.rollback(changeset)
+              end
+
+            nil ->
+              case revoke_reused_refresh_token(token_hash) do
+                1 -> :reused
+                0 -> Repo.rollback(:invalid_refresh_token)
+              end
+          end
+        end,
+        mode: :immediate
+      )
+      |> case do
+        {:ok, {:rotated, session, tokens}} -> {:ok, {session, tokens}}
+        {:ok, :reused} -> {:error, :invalid_refresh_token}
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      :error -> {:error, :invalid_refresh_token}
+    end
+  end
+
+  def delete_api_device_session(%Scope{user: %User{id: user_id}}, session_id) do
+    {count, _} =
+      from(session in ApiDeviceSession,
+        where: session.id == ^session_id and session.user_id == ^user_id
+      )
+      |> Repo.delete_all()
+
+    if count == 1, do: :ok, else: {:error, :not_found}
+  end
+
+  defp revoke_reused_refresh_token(token_hash) do
+    case Repo.get_by(ApiRefreshTokenHistory, token_hash: token_hash) do
+      %ApiRefreshTokenHistory{api_device_session_id: session_id} ->
+        {count, _} =
+          Repo.delete_all(from(session in ApiDeviceSession, where: session.id == ^session_id))
+
+        count
+
+      nil ->
+        0
+    end
   end
 
   ## Token helper

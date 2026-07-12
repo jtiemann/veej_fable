@@ -17,6 +17,10 @@ defmodule VeejrWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :require_api_user do
+    plug VeejrWeb.ApiAuth
+  end
+
   pipeline :federation do
     plug :accepts, ["json"]
     plug VeejrWeb.FederationAuth
@@ -39,6 +43,21 @@ defmodule VeejrWeb.Router do
     # Capability URL: the unguessable id (delivered only to the recipient's
     # instance) is the credential, and the content is E2E ciphertext.
     get "/envelopes/:public_id", FederationController, :envelope
+  end
+
+  scope "/api/v1", VeejrWeb.Api.V1 do
+    pipe_through :api
+
+    get "/capabilities", CapabilitiesController, :show
+    post "/auth/login", AuthController, :login
+    post "/auth/refresh", AuthController, :refresh
+  end
+
+  scope "/api/v1", VeejrWeb.Api.V1 do
+    pipe_through [:api, :require_api_user]
+
+    delete "/auth/session", AuthController, :logout
+    get "/me", MeController, :show
   end
 
   # Public attachment capability. No pipeline: serves opaque octet-stream
