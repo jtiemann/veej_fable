@@ -72,42 +72,285 @@ defmodule VeejrWeb.ContactsLive do
         </ul>
       </section>
 
-      <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,0.85fr)]">
-        <section class="rounded-lg border border-base-300 bg-base-100 p-4">
-          <div class="flex items-center justify-between gap-3">
-            <div>
-              <h2 class="text-lg font-semibold">Conversations</h2>
-              <p class="text-sm opacity-70">Pick a thread to continue it in Messages.</p>
+      <div class="space-y-4">
+        <details open class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-100">
+          <summary class="collapse-title">
+            <div class="flex items-center justify-between gap-3 pr-6">
+              <div>
+                <h2 class="text-lg font-semibold">Conversations</h2>
+                <p class="text-sm opacity-70">Pick a thread to continue it in Messages.</p>
+              </div>
+              <span class="badge badge-outline">{length(@conversations)}</span>
             </div>
-            <.link navigate={~p"/messages"} class="btn btn-outline btn-sm">Compose</.link>
+          </summary>
+          <div class="collapse-content">
+            <div class="flex justify-end">
+              <.link navigate={~p"/messages"} class="btn btn-outline btn-sm">Compose</.link>
+            </div>
+
+            <p :if={@conversations == []} class="mt-4 text-sm opacity-60">
+              No conversations yet.
+            </p>
+
+            <ul class="mt-4 divide-y divide-base-300">
+              <li :for={conversation <- @conversations}>
+                <.link
+                  navigate={~p"/messages?conversation=#{conversation.key}"}
+                  class="flex items-center justify-between gap-3 rounded-lg px-2 py-3 transition hover:bg-base-200"
+                >
+                  <div class="min-w-0">
+                    <p class="truncate font-medium">
+                      {Enum.join(conversation.participants, ", ")}
+                    </p>
+                    <p class="text-xs opacity-70">
+                      {length(conversation.envelopes)} messages · latest {Calendar.strftime(
+                        conversation.latest.inserted_at,
+                        "%b %d, %H:%M"
+                      )} UTC
+                    </p>
+                  </div>
+                  <span class="shrink-0 text-sm font-medium text-primary">Open</span>
+                </.link>
+              </li>
+            </ul>
           </div>
+        </details>
 
-          <p :if={@conversations == []} class="mt-4 text-sm opacity-60">
-            No conversations yet.
-          </p>
+        <details open class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-100">
+          <summary class="collapse-title">
+            <div class="flex items-center justify-between gap-3 pr-6">
+              <h2 class="text-lg font-semibold">Friends</h2>
+              <span class="badge badge-outline">{length(@friends)}</span>
+            </div>
+          </summary>
+          <div class="collapse-content">
+            <section :if={@key_changes != []} class="rounded-lg border border-warning/50 p-3">
+              <h3 class="font-semibold text-warning">Key changes need confirmation</h3>
+              <ul class="mt-2 space-y-2">
+                <li
+                  :for={friend <- @key_changes}
+                  class="flex items-center justify-between gap-3 text-sm"
+                >
+                  <span class="min-w-0">
+                    <span class="font-medium">{friend.display_name || friend.username}</span>
+                    <span class="opacity-60">{Social.Address.handle(friend)}</span>
+                  </span>
+                  <button
+                    phx-click="confirm_key"
+                    phx-value-id={friend.id}
+                    data-confirm="Accept this friend's new encryption key? Messages you send will be encrypted to it."
+                    class="btn btn-warning btn-xs"
+                  >
+                    Accept key
+                  </button>
+                </li>
+              </ul>
+            </section>
 
-          <ul class="mt-4 divide-y divide-base-300">
-            <li :for={conversation <- @conversations}>
-              <.link
-                navigate={~p"/messages?conversation=#{conversation.key}"}
-                class="flex items-center justify-between gap-3 rounded-lg px-2 py-3 transition hover:bg-base-200"
+            <section :if={@incoming != []} class="mt-4">
+              <h3 class="text-sm font-semibold uppercase tracking-wide opacity-70">
+                Incoming requests
+              </h3>
+              <ul class="mt-2 space-y-2">
+                <li
+                  :for={req <- @incoming}
+                  class="flex items-center justify-between gap-3 rounded-lg border border-base-300 p-3"
+                >
+                  <span class="min-w-0">
+                    <span class="font-medium">{req.requester.display_name || req.requester.username}</span>
+                    <span class="opacity-60">{Social.Address.handle(req.requester)}</span>
+                  </span>
+                  <span class="flex gap-2">
+                    <button phx-click="accept" phx-value-id={req.id} class="btn btn-primary btn-xs">
+                      Accept
+                    </button>
+                    <button phx-click="decline" phx-value-id={req.id} class="btn btn-ghost btn-xs">
+                      Decline
+                    </button>
+                  </span>
+                </li>
+              </ul>
+            </section>
+
+            <section :if={@outgoing != []} class="mt-4">
+              <h3 class="text-sm font-semibold uppercase tracking-wide opacity-70">Waiting on</h3>
+              <ul class="mt-2 space-y-1">
+                <li :for={req <- @outgoing} class="text-sm opacity-70">
+                  {Social.Address.handle(req.addressee)} - request sent
+                </li>
+              </ul>
+            </section>
+
+            <p :if={@friends == []} class="mt-4 text-sm opacity-60">
+              No friends yet. Add someone below to start sharing.
+            </p>
+
+            <ul class="mt-4 space-y-2">
+              <li
+                :for={friend <- @friends}
+                class="rounded-lg border border-base-300 p-3"
               >
-                <div class="min-w-0">
-                  <p class="truncate font-medium">
-                    {Enum.join(conversation.participants, ", ")}
-                  </p>
-                  <p class="text-xs opacity-70">
-                    {length(conversation.envelopes)} messages · latest {Calendar.strftime(
-                      conversation.latest.inserted_at,
-                      "%b %d, %H:%M"
-                    )} UTC
-                  </p>
+                <div class="flex items-start justify-between gap-3">
+                  <span class="min-w-0">
+                    <span class="block truncate font-medium">{friend.display_name || friend.username}</span>
+                    <span class="text-sm opacity-60">{Social.Address.handle(friend)}</span>
+                    <span :if={friend.host} class="badge badge-info badge-sm ml-2">remote</span>
+                    <span :if={!friend.public_key} class="badge badge-warning badge-sm ml-2">
+                      no keys yet
+                    </span>
+                  </span>
+                  <span class="flex shrink-0 gap-2">
+                    <.link
+                      navigate={~p"/messages?friend_id=#{friend.id}"}
+                      class="btn btn-primary btn-sm"
+                    >
+                      Message
+                    </.link>
+                    <button
+                      phx-click="remove"
+                      phx-value-id={friend.id}
+                      data-confirm="Remove this friend? They will also be removed from your groups."
+                      class="btn btn-ghost btn-sm"
+                    >
+                      Remove
+                    </button>
+                  </span>
                 </div>
-                <span class="shrink-0 text-sm font-medium text-primary">Open</span>
-              </.link>
-            </li>
-          </ul>
-        </section>
+
+                <details class="collapse collapse-arrow mt-3 rounded-lg border border-base-300 bg-base-200">
+                  <summary class="collapse-title min-h-0 px-3 py-2 text-sm font-medium">
+                    Personal info & notes
+                  </summary>
+                  <div class="collapse-content px-3 pb-3">
+                    <form phx-submit="save_note">
+                      <input type="hidden" name="contact_id" value={friend.id} />
+                      <label class="text-xs font-semibold uppercase tracking-wide opacity-60">
+                        Personal notes
+                      </label>
+                      <textarea
+                        name="body"
+                        rows="3"
+                        maxlength="4000"
+                        class="textarea textarea-bordered mt-1 w-full resize-y text-sm"
+                        placeholder="Private notes about this contact"
+                      >{Map.get(@contact_notes, friend.id, "")}</textarea>
+                      <div class="mt-2 flex justify-end">
+                        <button type="submit" class="btn btn-sm">Save note</button>
+                      </div>
+                    </form>
+                  </div>
+                </details>
+              </li>
+            </ul>
+          </div>
+        </details>
+
+        <details open class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-100">
+          <summary class="collapse-title">
+            <div class="flex items-center justify-between gap-3 pr-6">
+              <h2 class="text-lg font-semibold">Groups</h2>
+              <span class="badge badge-outline">{length(@groups)}</span>
+            </div>
+          </summary>
+          <div class="collapse-content">
+            <form phx-submit="create_group" class="flex flex-col gap-2 sm:flex-row">
+              <input
+                type="text"
+                name="name"
+                placeholder="new group name"
+                class="input flex-1"
+                autocomplete="off"
+                required
+              />
+              <button type="submit" class="btn btn-primary">Create</button>
+            </form>
+
+            <p :if={@groups == []} class="mt-4 text-sm opacity-60">
+              No groups yet.
+            </p>
+
+            <div class="mt-4 space-y-4">
+              <section :for={group <- @groups} class="rounded-lg border border-base-300 p-3">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="min-w-0">
+                    <h3 class="truncate font-semibold">{group.name}</h3>
+                    <p class="text-sm opacity-60">{length(group.members)} members</p>
+                  </div>
+                  <span class="flex shrink-0 gap-2">
+                    <.link
+                      navigate={~p"/messages?group_id=#{group.id}"}
+                      class="btn btn-primary btn-sm"
+                    >
+                      Message
+                    </.link>
+                    <button
+                      phx-click="delete_group"
+                      phx-value-id={group.id}
+                      data-confirm={"Delete group \"#{group.name}\"? Friends stay friends."}
+                      class="btn btn-ghost btn-sm"
+                    >
+                      Delete
+                    </button>
+                  </span>
+                </div>
+
+                <div class="mt-3 flex flex-wrap gap-2">
+                  <span :for={member <- group.members} class="badge badge-outline gap-1">
+                    {member.display_name || member.username}
+                    <button
+                      phx-click="remove_member"
+                      phx-value-group={group.id}
+                      phx-value-user={member.id}
+                      class="ml-1 opacity-60 hover:opacity-100"
+                      aria-label="remove from group"
+                    >
+                      x
+                    </button>
+                  </span>
+                  <span :if={group.members == []} class="text-sm opacity-60">No members yet.</span>
+                </div>
+
+                <details class="collapse collapse-arrow mt-3 rounded-lg border border-base-300 bg-base-200">
+                  <summary class="collapse-title min-h-0 px-3 py-2 text-sm font-medium">
+                    Personal info & notes
+                  </summary>
+                  <div class="collapse-content px-3 pb-3">
+                    <form phx-submit="save_group_note">
+                      <input type="hidden" name="group_id" value={group.id} />
+                      <label class="text-xs font-semibold uppercase tracking-wide opacity-60">
+                        Personal notes
+                      </label>
+                      <textarea
+                        name="body"
+                        rows="3"
+                        maxlength="4000"
+                        class="textarea textarea-bordered mt-1 w-full resize-y text-sm"
+                        placeholder="Private notes about this group"
+                      >{Map.get(@group_notes, group.id, "")}</textarea>
+                      <div class="mt-2 flex justify-end">
+                        <button type="submit" class="btn btn-sm">Save note</button>
+                      </div>
+                    </form>
+                  </div>
+                </details>
+
+                <form
+                  :if={addable_friends(@friends, group) != []}
+                  phx-submit="add_member"
+                  class="mt-3 flex gap-2"
+                >
+                  <input type="hidden" name="group" value={group.id} />
+                  <select name="user" class="select select-sm flex-1">
+                    <option :for={friend <- addable_friends(@friends, group)} value={friend.id}>
+                      {friend.display_name || friend.username} (@{friend.username})
+                    </option>
+                  </select>
+                  <button type="submit" class="btn btn-sm">Add</button>
+                </form>
+              </section>
+            </div>
+          </div>
+        </details>
 
         <section class="rounded-lg border border-base-300 bg-base-100 p-4">
           <h2 class="text-lg font-semibold">Add Friend</h2>
@@ -123,234 +366,6 @@ defmodule VeejrWeb.ContactsLive do
             />
             <button type="submit" class="btn btn-primary">Send request</button>
           </form>
-        </section>
-      </div>
-
-      <div class="grid gap-6 xl:grid-cols-2">
-        <section class="rounded-lg border border-base-300 bg-base-100 p-4">
-          <div class="flex items-center justify-between gap-3">
-            <h2 class="text-lg font-semibold">Friends</h2>
-            <span class="badge badge-outline">{length(@friends)}</span>
-          </div>
-
-          <section :if={@key_changes != []} class="mt-4 rounded-lg border border-warning/50 p-3">
-            <h3 class="font-semibold text-warning">Key changes need confirmation</h3>
-            <ul class="mt-2 space-y-2">
-              <li
-                :for={friend <- @key_changes}
-                class="flex items-center justify-between gap-3 text-sm"
-              >
-                <span class="min-w-0">
-                  <span class="font-medium">{friend.display_name || friend.username}</span>
-                  <span class="opacity-60">{Social.Address.handle(friend)}</span>
-                </span>
-                <button
-                  phx-click="confirm_key"
-                  phx-value-id={friend.id}
-                  data-confirm="Accept this friend's new encryption key? Messages you send will be encrypted to it."
-                  class="btn btn-warning btn-xs"
-                >
-                  Accept key
-                </button>
-              </li>
-            </ul>
-          </section>
-
-          <section :if={@incoming != []} class="mt-4">
-            <h3 class="text-sm font-semibold uppercase tracking-wide opacity-70">
-              Incoming requests
-            </h3>
-            <ul class="mt-2 space-y-2">
-              <li
-                :for={req <- @incoming}
-                class="flex items-center justify-between gap-3 rounded-lg border border-base-300 p-3"
-              >
-                <span class="min-w-0">
-                  <span class="font-medium">{req.requester.display_name || req.requester.username}</span>
-                  <span class="opacity-60">{Social.Address.handle(req.requester)}</span>
-                </span>
-                <span class="flex gap-2">
-                  <button phx-click="accept" phx-value-id={req.id} class="btn btn-primary btn-xs">
-                    Accept
-                  </button>
-                  <button phx-click="decline" phx-value-id={req.id} class="btn btn-ghost btn-xs">
-                    Decline
-                  </button>
-                </span>
-              </li>
-            </ul>
-          </section>
-
-          <section :if={@outgoing != []} class="mt-4">
-            <h3 class="text-sm font-semibold uppercase tracking-wide opacity-70">Waiting on</h3>
-            <ul class="mt-2 space-y-1">
-              <li :for={req <- @outgoing} class="text-sm opacity-70">
-                {Social.Address.handle(req.addressee)} - request sent
-              </li>
-            </ul>
-          </section>
-
-          <p :if={@friends == []} class="mt-4 text-sm opacity-60">
-            No friends yet. Send a request above to start sharing.
-          </p>
-
-          <ul class="mt-4 space-y-2">
-            <li
-              :for={friend <- @friends}
-              class="rounded-lg border border-base-300 p-3"
-            >
-              <div class="flex items-start justify-between gap-3">
-                <span class="min-w-0">
-                  <span class="block truncate font-medium">{friend.display_name || friend.username}</span>
-                  <span class="text-sm opacity-60">{Social.Address.handle(friend)}</span>
-                  <span :if={friend.host} class="badge badge-info badge-sm ml-2">remote</span>
-                  <span :if={!friend.public_key} class="badge badge-warning badge-sm ml-2">
-                    no keys yet
-                  </span>
-                </span>
-                <span class="flex shrink-0 gap-2">
-                  <.link
-                    navigate={~p"/messages?friend_id=#{friend.id}"}
-                    class="btn btn-primary btn-sm"
-                  >
-                    Message
-                  </.link>
-                  <button
-                    phx-click="remove"
-                    phx-value-id={friend.id}
-                    data-confirm="Remove this friend? They will also be removed from your groups."
-                    class="btn btn-ghost btn-sm"
-                  >
-                    Remove
-                  </button>
-                </span>
-              </div>
-
-              <details class="collapse collapse-arrow mt-3 rounded-lg border border-base-300 bg-base-200">
-                <summary class="collapse-title min-h-0 px-3 py-2 text-sm font-medium">
-                  Personal info & notes
-                </summary>
-                <div class="collapse-content px-3 pb-3">
-                  <form phx-submit="save_note">
-                    <input type="hidden" name="contact_id" value={friend.id} />
-                    <label class="text-xs font-semibold uppercase tracking-wide opacity-60">
-                      Personal notes
-                    </label>
-                    <textarea
-                      name="body"
-                      rows="3"
-                      maxlength="4000"
-                      class="textarea textarea-bordered mt-1 w-full resize-y text-sm"
-                      placeholder="Private notes about this contact"
-                    >{Map.get(@contact_notes, friend.id, "")}</textarea>
-                    <div class="mt-2 flex justify-end">
-                      <button type="submit" class="btn btn-sm">Save note</button>
-                    </div>
-                  </form>
-                </div>
-              </details>
-            </li>
-          </ul>
-        </section>
-
-        <section class="rounded-lg border border-base-300 bg-base-100 p-4">
-          <div class="flex items-center justify-between gap-3">
-            <h2 class="text-lg font-semibold">Groups</h2>
-            <span class="badge badge-outline">{length(@groups)}</span>
-          </div>
-          <form phx-submit="create_group" class="mt-4 flex flex-col gap-2 sm:flex-row">
-            <input
-              type="text"
-              name="name"
-              placeholder="new group name"
-              class="input flex-1"
-              autocomplete="off"
-              required
-            />
-            <button type="submit" class="btn btn-primary">Create</button>
-          </form>
-
-          <p :if={@groups == []} class="mt-4 text-sm opacity-60">
-            No groups yet.
-          </p>
-
-          <div class="mt-4 space-y-4">
-            <section :for={group <- @groups} class="rounded-lg border border-base-300 p-3">
-              <div class="flex items-center justify-between gap-3">
-                <div class="min-w-0">
-                  <h3 class="truncate font-semibold">{group.name}</h3>
-                  <p class="text-sm opacity-60">{length(group.members)} members</p>
-                </div>
-                <span class="flex shrink-0 gap-2">
-                  <.link navigate={~p"/messages?group_id=#{group.id}"} class="btn btn-primary btn-sm">
-                    Message
-                  </.link>
-                  <button
-                    phx-click="delete_group"
-                    phx-value-id={group.id}
-                    data-confirm={"Delete group \"#{group.name}\"? Friends stay friends."}
-                    class="btn btn-ghost btn-sm"
-                  >
-                    Delete
-                  </button>
-                </span>
-              </div>
-
-              <div class="mt-3 flex flex-wrap gap-2">
-                <span :for={member <- group.members} class="badge badge-outline gap-1">
-                  {member.display_name || member.username}
-                  <button
-                    phx-click="remove_member"
-                    phx-value-group={group.id}
-                    phx-value-user={member.id}
-                    class="ml-1 opacity-60 hover:opacity-100"
-                    aria-label="remove from group"
-                  >
-                    x
-                  </button>
-                </span>
-                <span :if={group.members == []} class="text-sm opacity-60">No members yet.</span>
-              </div>
-
-              <details class="collapse collapse-arrow mt-3 rounded-lg border border-base-300 bg-base-200">
-                <summary class="collapse-title min-h-0 px-3 py-2 text-sm font-medium">
-                  Personal info & notes
-                </summary>
-                <div class="collapse-content px-3 pb-3">
-                  <form phx-submit="save_group_note">
-                    <input type="hidden" name="group_id" value={group.id} />
-                    <label class="text-xs font-semibold uppercase tracking-wide opacity-60">
-                      Personal notes
-                    </label>
-                    <textarea
-                      name="body"
-                      rows="3"
-                      maxlength="4000"
-                      class="textarea textarea-bordered mt-1 w-full resize-y text-sm"
-                      placeholder="Private notes about this group"
-                    >{Map.get(@group_notes, group.id, "")}</textarea>
-                    <div class="mt-2 flex justify-end">
-                      <button type="submit" class="btn btn-sm">Save note</button>
-                    </div>
-                  </form>
-                </div>
-              </details>
-
-              <form
-                :if={addable_friends(@friends, group) != []}
-                phx-submit="add_member"
-                class="mt-3 flex gap-2"
-              >
-                <input type="hidden" name="group" value={group.id} />
-                <select name="user" class="select select-sm flex-1">
-                  <option :for={friend <- addable_friends(@friends, group)} value={friend.id}>
-                    {friend.display_name || friend.username} (@{friend.username})
-                  </option>
-                </select>
-                <button type="submit" class="btn btn-sm">Add</button>
-              </form>
-            </section>
-          </div>
         </section>
       </div>
     </Layouts.app>
