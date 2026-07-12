@@ -1,132 +1,146 @@
-# 🔐 veejr
+# veejr
 
-Private sharing with the people you choose. veejr lets you send end-to-end
-encrypted messages (with attachments), share your location, and pin notes to a
-map — visible only to the friends and groups you pick. Built for security and
-ownership of your data.
+veejr is a self-hostable Phoenix application for sharing end-to-end encrypted
+messages, attachments, locations, and map notes with selected friends and
+groups. Encryption and decryption happen in the browser; the server stores and
+federates ciphertext while enforcing identity, friendship, and consent rules.
 
-## What makes it different
+> **Project status:** veejr is an early-stage application. Review the security
+> model and deployment configuration before relying on it for sensitive data.
 
-- **Your keys, your data.** Encryption keys are generated in your browser.
-  The server stores only your public key and ciphertext; your secret key is
-  wrapped with a passphrase-derived key before it ever leaves your device.
-- **Pull-based delivery.** Recipients are notified that something awaits and
-  nothing is transferred until they explicitly request it.
-- **Personal instances.** Run veejr on your own machine (`VEEJR_MODE=personal`)
-  and all your account data lives locally in a single SQLite file. The
-  community server exists for people who don't have their own instance yet.
+## Highlights
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full security model
-and data flows.
+- Browser-generated X25519 identity keys, with the secret key wrapped by a
+  passphrase-derived key before it is stored on the server.
+- Pull-based delivery: a recipient normally accepts or declines a notification
+  before the ciphertext is fetched. An accepted conversation opens a rolling
+  five-minute auto-accept window for that peer.
+- Local and federated friends addressed as `username@authority`.
+- Encrypted attachments, expiring/view-limited messages, sender-side edits and
+  deletion, conversations, location sharing, and geo-notes.
+- Personal contact and group notes. These notes are server-side plaintext and
+  are not part of the end-to-end encrypted message system.
+- Account export/import, key rewrap/rotation/reset, installable PWA support,
+  browser notifications, and encrypted Web Push.
+- Community and personal instance modes backed by SQLite.
 
-## Stack
+For protocol details, trust boundaries, and data flows, see
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-Elixir / Phoenix LiveView, SQLite (via `ecto_sqlite3`), TweetNaCl in the
-browser (X25519 + XSalsa20-Poly1305), Leaflet + OpenStreetMap for maps,
-Phoenix PubSub + the browser Notification API for real-time notifications.
+## Technology
 
-## Running it
+- Elixir 1.15+ and Phoenix 1.8 / LiveView 1.2
+- SQLite through `ecto_sqlite3`
+- TweetNaCl in the browser (`nacl.box` and `nacl.secretbox`)
+- Leaflet with OpenStreetMap tiles
+- Phoenix PubSub, the Notifications API, and Web Push
 
-Requires Elixir 1.15+ / OTP 26+.
+## Local development
+
+Prerequisites: Elixir 1.15+ with OTP 26+ and the build tools required by
+`bcrypt_elixir`.
 
 ```sh
-mix setup          # deps, database, assets
-mix phx.server     # http://localhost:4000
+mix setup
+mix phx.server
 ```
 
-In development, login links (magic links) land in the local mailbox at
-[`/dev/mailbox`](http://localhost:4000/dev/mailbox).
+Open <http://localhost:4000>. Development email is available at
+<http://localhost:4000/dev/mailbox>.
 
-### First steps
+First-time flow:
 
-1. Register at `/users/register` (email + username), then follow the login
-   link from the mailbox.
-2. Create your encryption keys at `/keys` — pick a passphrase and write it
-   down. Losing it means losing access to your encrypted history; that's the
-   point.
-3. Add friends by username on the **Friends** page; organize them into
-   **Groups** (a friend can be in many groups).
-4. Send encrypted messages (attachments welcome) from **Messages**, share your
-   location or drop geo-notes from **Map**, and browse everything in
-   **History**.
+1. Register with an email address and username.
+2. Confirm or log in using the link in the development mailbox (a password can
+   also be configured).
+3. Visit `/keys`, create an encryption passphrase, and keep it safe. Losing it
+   means received encrypted history cannot be recovered.
+4. Add a friend on `/contacts`, then send from `/messages` or `/map`.
 
-### Instance modes
+Useful commands:
 
-| Mode | Behavior |
-|------|----------|
-| `community` (default) | Open registration; hosts accounts for people without their own instance. |
-| `personal` | Registration closes after the first account; your data stays on your machine. |
+```sh
+mix test
+mix precommit
+mix ecto.reset
+```
 
-In production set `VEEJR_MODE=personal` (and optionally `VEEJR_BLOB_DIR` for
-attachment storage). In dev, change `instance_mode` in `config/config.exs`.
+### Test federation locally
 
-### Moving to your own instance
+Run two instances with separate SQLite databases:
 
-Data ownership is the point, so leaving the community server is a first-class
-flow:
+```sh
+# terminal 1
+mix phx.server
 
-1. **Export** — Settings → "Export my account" downloads a zip: profile,
-   wrapped key material, friends (with public keys), groups, your full
-   still-encrypted history, and your uploaded attachments.
-2. **Import** — on your fresh personal instance:
-   `mix veejr.import veejr-you-export.zip`, then log in with your email and
-   unlock with the same passphrase. Your history decrypts exactly as before;
-   senders of old messages are restored as *ghost contacts* (public keys
-   only) so everything stays readable.
-3. **Delete** — Settings → danger zone removes your community-server account
-   and withdraws every message you ever sent. Sender owns the data.
+# terminal 2 (first run)
+PORT=4001 VEEJR_DB=veejr_dev2.db mix ecto.setup
+PORT=4001 VEEJR_DB=veejr_dev2.db mix phx.server
+```
 
-### Federation
+Add `someone@localhost:4001` from the first instance. Set `BIND_ALL=true` if a
+development server must listen beyond loopback.
 
-Instances talk to each other — the community server is just another peer.
-Add a friend as `carol@her-server.example`, and messages, locations, and
-notes flow between instances with the same pull-based rule: the encrypted
-envelope stays on the sender's server until the recipient explicitly
-requests it. Declined messages never leave home at all.
-If two people request each other at the same time, the friendship converges to
-a single accepted relationship rather than keeping duplicate pending rows.
+## Instance modes
 
-Instance-to-instance requests are **Ed25519-signed** with per-instance keys
-pinned on first contact, deliveries to unreachable instances are **queued
-and retried automatically** with backoff, and **Web Push** (RFC 8291/8292,
-implemented on OTP crypto) notifies closed browsers with content-free
+| Mode | Registration behavior |
+| --- | --- |
+| `community` (default) | Registration is open. |
+| `personal` | The first account can register; further users need a seven-day invite link generated by an existing user. |
+
+Development mode is configured in `config/config.exs`. In production, set
+`VEEJR_MODE=personal` for a private instance.
+
+## Production configuration
+
+The release runs database migrations automatically at startup. Set
+`PHX_SERVER=true` when starting a release and provide these required variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_PATH` | Absolute path to the SQLite database. |
+| `SECRET_KEY_BASE` | Phoenix cookie/session secret; generate with `mix phx.gen.secret`. |
+| `PHX_HOST` | Public host used in URLs and federated addresses. |
+| `MAIL_FROM_ADDRESS` | Sender address for authentication email. |
+| `SMTP_HOST` | SMTP relay hostname. |
+
+Common optional variables are `PORT` (default `4000`), `POOL_SIZE` (default
+`5`), `VEEJR_MODE`, `VEEJR_BLOB_DIR` (default `/var/lib/veejr/uploads`),
+`MAIL_FROM_NAME`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_AUTH`,
+`SMTP_TLS`, `SMTP_SSL`, and `DNS_CLUSTER_QUERY`.
+
+Terminate TLS at a reverse proxy or configure HTTPS before exposing an
+instance. Back up both `DATABASE_PATH` and `VEEJR_BLOB_DIR`; the database also
+contains instance federation-signing and VAPID credentials.
+
+## Account portability
+
+Settings can export a zip containing the profile, wrapped key material,
+friends, groups, encrypted envelope history, and blobs uploaded by the user.
+The export remains encrypted at the content level but exposes social metadata,
+so treat it as private.
+
+Import it into a fresh instance with:
+
+```sh
+mix veejr.import path/to/veejr-export.zip
+```
+
+The import restores the account, history, sender key snapshots, and owned
+blobs, then attempts to reconnect exported friendships. Received attachments
+are not included because their blob identifiers exist only inside encrypted
 payloads.
 
-### Key lifecycle, conversations, PWA
+## Security summary
 
-- **Change your passphrase** any time (client-side re-wrap; keypair
-  unchanged), **rotate your keys** after a suspected compromise (history is
-  re-encrypted in your browser; remote friends confirm your new key before
-  it's trusted), or **reset** after a lost passphrase (received history is
-  gone — that's E2E working as intended). Envelopes remember the sender key
-  they were sealed with, so nobody's history breaks when someone rotates.
-- Messages are grouped into **conversations** by participants, with one-click
-  reply.
-- veejr is an installable **PWA**: web app manifest + service worker, install
-  button in Settings, push notifications with the app closed.
+Messages, locations, geo-notes, and attachment descriptors are encrypted once
+per recipient with NaCl `box`; the sender also creates a self-copy for history.
+Attachments are encrypted once with a random `secretbox` key carried inside the
+encrypted envelope. The server can observe metadata such as accounts,
+friendships, sender/recipient pairs, item kinds, timestamps, and blob sizes, but
+not encrypted content or coordinates.
 
-A personal instance can host several people (family, a group): generate an
-invite link from Settings to admit someone despite closed registration.
-
-Try it locally with two instances:
-
-```sh
-mix phx.server                                        # instance A on :4000
-PORT=4001 VEEJR_DB=veejr_dev2.db mix ecto.setup       # one-time DB for B
-PORT=4001 VEEJR_DB=veejr_dev2.db mix phx.server       # instance B on :4001
-```
-
-Register on both, then friend `someone@localhost:4001` from instance A. See
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the protocol and trust
-model.
-
-## Security model in one paragraph
-
-Every message, location share, and geo-note is encrypted in the sender's
-browser once per recipient (NaCl `box`: X25519 + XSalsa20-Poly1305), plus a
-self-copy so your own history stays readable. Attachments are encrypted once
-with a random symmetric key that travels inside the envelopes. The server
-authenticates users, stores ciphertext, enforces the friend graph, and relays
-notifications — it can see who talks to whom and when (metadata), but never
-what is said, nor where you are: coordinates only exist decrypted in the
-browser.
+The web delivery model still trusts the server to serve honest JavaScript. A
+compromised server can replace the client code and capture plaintext or keys.
+This is a fundamental limitation of browser-delivered end-to-end encryption,
+not something veejr currently eliminates.
