@@ -507,6 +507,24 @@ MUST revalidate every recipient atomically when storing a batch.
 `GET /api/v1/notifications?state=pending` returns non-expired pending
 notifications newest first.
 
+```json
+{
+  "notifications": [
+    {
+      "id": "17",
+      "kind": "message",
+      "sender": {"id": "7", "handle": "@bob@other.example"},
+      "created_at": "2026-07-12T14:00:00Z",
+      "expires_at": null,
+      "max_displays": null
+    }
+  ]
+}
+```
+
+This representation intentionally excludes envelope IDs, ciphertext, nonces,
+and keys. Those fields are released only after acceptance.
+
 ### 12.2 Accept
 
 `POST /api/v1/notifications/{id}/accept`
@@ -519,10 +537,14 @@ point. If the origin cannot be reached, the server returns 502
 On success the response SHOULD include the accepted `Envelope`, avoiding a
 second round trip. No ciphertext may be returned before acceptance.
 
+The v1 response is `{"envelope": Envelope}` using the representation in
+section 9.3.
+
 ### 12.3 Decline
 
 `POST /api/v1/notifications/{id}/decline` changes only a caller-owned pending
 notification. Declined remote content is never fetched for that recipient.
+Success returns `204 No Content`.
 
 ### 12.4 Fetch
 

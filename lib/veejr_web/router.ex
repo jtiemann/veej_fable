@@ -59,6 +59,9 @@ defmodule VeejrWeb.Router do
     delete "/auth/session", AuthController, :logout
     get "/me", MeController, :show
     put "/keys", KeysController, :create
+    get "/notifications", NotificationController, :index
+    post "/notifications/:id/accept", NotificationController, :accept
+    post "/notifications/:id/decline", NotificationController, :decline
   end
 
   # Public attachment capability. No pipeline: serves opaque octet-stream

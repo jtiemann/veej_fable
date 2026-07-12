@@ -286,7 +286,11 @@ defmodule Veejr.Messaging do
              :ok <- maybe_fetch_remote_content(envelope) do
           # accepting opens/extends the active-conversation window
           touch_conversation(user.id, envelope.sender_id)
-          notification |> Ecto.Changeset.change(state: "accepted") |> Repo.update()
+
+          case notification |> Ecto.Changeset.change(state: "accepted") |> Repo.update() do
+            {:ok, updated} -> {:ok, Repo.preload(updated, [envelope: [:sender]], force: true)}
+            error -> error
+          end
         else
           true -> {:error, :not_found}
           error -> error
