@@ -132,7 +132,7 @@ defmodule VeejrWeb.Api.V1.MessageBatchController do
   defp validate_envelopes(envelopes, user_id) do
     ids = Enum.map(envelopes, &to_string(&1["recipient_id"]))
 
-    if length(envelopes) >= 2 and Enum.count(ids, &(&1 == to_string(user_id))) == 1 and
+    if envelopes != [] and Enum.count(ids, &(&1 == to_string(user_id))) == 1 and
          length(Enum.uniq(ids)) == length(ids) do
       :ok
     else

@@ -69,6 +69,33 @@ defmodule VeejrWeb.Api.V1.MessageBatchControllerTest do
     assert length(Messaging.list_pending_notifications(bob)) == 1
   end
 
+  test "creates a single encrypted notes-to-self copy", %{
+    conn: conn,
+    alice: alice,
+    tokens: tokens
+  } do
+    response =
+      conn
+      |> authorize(tokens["access_token"])
+      |> put_req_header("idempotency-key", String.duplicate("s", 22))
+      |> post("/api/v1/message-batches", %{
+        "kind" => "message",
+        "envelopes" => [
+          %{
+            "recipient_id" => to_string(alice.id),
+            "ciphertext" => "for-alice",
+            "nonce" => "nonce"
+          }
+        ]
+      })
+      |> json_response(201)
+
+    assert [%{"recipient_id" => recipient_id}] = response["copies"]
+    assert recipient_id == to_string(alice.id)
+    assert [%{batch_id: batch_id}] = Messaging.list_history(alice, limit: 1)
+    assert batch_id == response["batch_id"]
+  end
+
   test "rejects reuse with another request and batches without a self-copy", %{
     conn: conn,
     alice: alice,
