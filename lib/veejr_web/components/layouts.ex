@@ -33,7 +33,7 @@ defmodule VeejrWeb.Layouts do
 
   attr :pending_count, :integer,
     default: nil,
-    doc: "number of pending encrypted-item notifications, shown on the Messages link"
+    doc: "number of pending encrypted-item notifications, shown on the Contacts link"
 
   attr :container_class, :string,
     default: "mx-auto max-w-3xl space-y-4",
@@ -56,14 +56,13 @@ defmodule VeejrWeb.Layouts do
         </summary>
         <ul class="menu dropdown-content z-50 mt-2 w-48 rounded-box bg-base-100 p-2 shadow">
           <li>
-            <.link navigate={~p"/messages"}>
-              Messages
+            <.link navigate={~p"/contacts"}>
+              Contacts
               <span :if={@pending_count && @pending_count > 0} class="badge badge-primary badge-sm">
                 {@pending_count}
               </span>
             </.link>
           </li>
-          <li><.link navigate={~p"/contacts"}>Contacts</.link></li>
           <li><.link navigate={~p"/map"}>Map</.link></li>
           <li><.link navigate={~p"/history"}>History</.link></li>
         </ul>
@@ -72,13 +71,12 @@ defmodule VeejrWeb.Layouts do
         :if={@current_scope}
         class="order-3 hidden w-full min-w-0 items-center gap-1 overflow-x-auto md:order-2 md:flex md:w-auto md:flex-1"
       >
-        <.link navigate={~p"/messages"} class="btn btn-ghost btn-sm">
-          Messages
+        <.link navigate={~p"/contacts"} class="btn btn-ghost btn-sm">
+          Contacts
           <span :if={@pending_count && @pending_count > 0} class="badge badge-primary badge-sm">
             {@pending_count}
           </span>
         </.link>
-        <.link navigate={~p"/contacts"} class="btn btn-ghost btn-sm">Contacts</.link>
         <.link navigate={~p"/map"} class="btn btn-ghost btn-sm">Map</.link>
         <.link navigate={~p"/history"} class="btn btn-ghost btn-sm">History</.link>
       </nav>

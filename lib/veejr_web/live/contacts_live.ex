@@ -93,10 +93,13 @@ defmodule VeejrWeb.ContactsLive do
             </p>
 
             <ul class="mt-4 divide-y divide-base-300">
-              <li :for={conversation <- @conversations}>
+              <li
+                :for={conversation <- @conversations}
+                class="flex items-center gap-2 rounded-lg px-2 py-2 transition hover:bg-base-200"
+              >
                 <.link
                   navigate={~p"/messages?conversation=#{conversation.key}"}
-                  class="flex items-center justify-between gap-3 rounded-lg px-2 py-3 transition hover:bg-base-200"
+                  class="flex min-w-0 flex-1 items-center justify-between gap-3 py-1"
                 >
                   <div class="min-w-0">
                     <p class="truncate font-medium">
@@ -111,6 +114,13 @@ defmodule VeejrWeb.ContactsLive do
                   </div>
                   <span class="shrink-0 text-sm font-medium text-primary">Open</span>
                 </.link>
+                <.auto_open_control
+                  :if={conversation.policy_id}
+                  subject_type="conversation"
+                  subject_id={conversation.policy_id}
+                  policies={@delivery_policies}
+                  compact
+                />
               </li>
             </ul>
           </div>
@@ -222,6 +232,19 @@ defmodule VeejrWeb.ContactsLive do
                     Personal info & notes
                   </summary>
                   <div class="collapse-content px-3 pb-3">
+                    <div class="mb-4 flex items-center justify-between gap-3 rounded-lg border border-base-300 bg-base-100 p-3">
+                      <div>
+                        <p class="text-sm font-medium">Automatically open messages</p>
+                        <p class="text-xs opacity-60">
+                          Default to skipping the approval step for this contact.
+                        </p>
+                      </div>
+                      <.auto_open_control
+                        subject_type="contact"
+                        subject_id={friend.id}
+                        policies={@delivery_policies}
+                      />
+                    </div>
                     <form phx-submit="save_note">
                       <input type="hidden" name="contact_id" value={friend.id} />
                       <label class="text-xs font-semibold uppercase tracking-wide opacity-60">
@@ -315,6 +338,19 @@ defmodule VeejrWeb.ContactsLive do
                     Personal info & notes
                   </summary>
                   <div class="collapse-content px-3 pb-3">
+                    <div class="mb-4 flex items-center justify-between gap-3 rounded-lg border border-base-300 bg-base-100 p-3">
+                      <div>
+                        <p class="text-sm font-medium">Automatically open messages</p>
+                        <p class="text-xs opacity-60">
+                          Let members skip approval unless a stricter setting overrides it.
+                        </p>
+                      </div>
+                      <.auto_open_control
+                        subject_type="group"
+                        subject_id={group.id}
+                        policies={@delivery_policies}
+                      />
+                    </div>
                     <form phx-submit="save_group_note">
                       <input type="hidden" name="group_id" value={group.id} />
                       <label class="text-xs font-semibold uppercase tracking-wide opacity-60">
@@ -468,6 +504,33 @@ defmodule VeejrWeb.ContactsLive do
     {:noreply, refresh(socket)}
   end
 
+  def handle_event(
+        "toggle_auto_open",
+        %{"subject_type" => subject_type, "subject_id" => subject_id},
+        socket
+      ) do
+    user = socket.assigns.current_scope.user
+    policy = Map.get(socket.assigns.delivery_policies, {subject_type, subject_id})
+    acceptance = if policy && policy.acceptance == "automatic", do: "ask", else: "automatic"
+    notification = if policy, do: policy.notification, else: "normal"
+
+    case Messaging.put_delivery_policy(user, subject_type, subject_id, %{
+           "acceptance" => acceptance,
+           "notification" => notification
+         }) do
+      {:ok, _policy} ->
+        message =
+          if acceptance == "automatic",
+            do: "Automatic message opening enabled.",
+            else: "Automatic message opening disabled."
+
+        {:noreply, socket |> put_flash(:info, message) |> refresh()}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Could not update that message setting.")}
+    end
+  end
+
   def handle_event("remove", %{"id" => id}, socket) do
     Social.remove_friend(socket.assigns.current_scope.user, String.to_integer(id))
     {:noreply, socket |> put_flash(:info, "Friend removed.") |> refresh()}
@@ -584,6 +647,11 @@ defmodule VeejrWeb.ContactsLive do
     friends = Social.list_friends(user)
     groups = Social.list_groups(user)
 
+    delivery_policies =
+      user
+      |> Messaging.list_delivery_policies()
+      |> Map.new(&{{&1.subject_type, to_string(&1.subject_id)}, &1})
+
     assign(socket,
       pending: pending,
       pending_count: length(pending),
@@ -591,6 +659,7 @@ defmodule VeejrWeb.ContactsLive do
       groups: groups,
       contact_notes: Social.list_contact_notes(user),
       group_notes: Social.list_group_notes(user),
+      delivery_policies: delivery_policies,
       key_changes:
         Enum.filter(friends, &(&1.pending_public_key && &1.pending_public_key != &1.public_key)),
       incoming: Social.list_incoming_requests(user),
@@ -613,16 +682,18 @@ defmodule VeejrWeb.ContactsLive do
     |> Enum.map(fn {participants, envelopes} ->
       envelopes = Enum.sort_by(envelopes, & &1.id)
 
+      reply_ids =
+        participants
+        |> Enum.map(&handle_to_id[&1])
+        |> Enum.reject(&is_nil/1)
+
       %{
         key: conversation_key(participants),
         participants: participants,
         envelopes: envelopes,
         latest: List.last(envelopes),
-        reply_ids:
-          participants
-          |> Enum.map(&handle_to_id[&1])
-          |> Enum.reject(&is_nil/1)
-          |> Enum.join(",")
+        reply_ids: Enum.join(reply_ids, ","),
+        policy_id: if(length(reply_ids) == 1, do: List.first(reply_ids))
       }
     end)
     |> Enum.sort_by(& &1.latest.id, :desc)
@@ -646,4 +717,53 @@ defmodule VeejrWeb.ContactsLive do
 
   defp error_from(%Ecto.Changeset{errors: [{_field, {msg, _}} | _]}), do: msg
   defp error_from(_), do: "Something went wrong."
+
+  attr :subject_type, :string, required: true
+  attr :subject_id, :any, required: true
+  attr :policies, :map, required: true
+  attr :compact, :boolean, default: false
+
+  defp auto_open_control(assigns) do
+    subject_id = to_string(assigns.subject_id)
+    policy = Map.get(assigns.policies, {assigns.subject_type, subject_id})
+
+    assigns =
+      assigns
+      |> assign(:subject_id_string, subject_id)
+      |> assign(:enabled, not is_nil(policy) and policy.acceptance == "automatic")
+
+    ~H"""
+    <button
+      id={"auto-open-#{@subject_type}-#{@subject_id_string}"}
+      type="button"
+      role="switch"
+      aria-checked={to_string(@enabled)}
+      aria-label={
+        if(@enabled,
+          do: "Disable automatic message opening",
+          else: "Enable automatic message opening"
+        )
+      }
+      title={if(@enabled, do: "Automatic opening is on", else: "Automatic opening is off")}
+      phx-click="toggle_auto_open"
+      phx-value-subject_type={@subject_type}
+      phx-value-subject_id={@subject_id_string}
+      class={[
+        "group inline-flex h-6 w-11 shrink-0 items-center rounded-full border p-0.5 transition duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+        @enabled && "border-primary bg-primary",
+        !@enabled && "border-base-300 bg-base-300",
+        @compact && "ml-1"
+      ]}
+    >
+      <span class={[
+        "flex size-5 items-center justify-center rounded-full bg-white text-[10px] shadow-sm transition duration-200",
+        @enabled && "translate-x-5 text-primary",
+        !@enabled && "translate-x-0 text-base-content/50"
+      ]}>
+        <.icon name={if(@enabled, do: "hero-lock-open", else: "hero-lock-closed")} class="size-3" />
+      </span>
+      <span class="sr-only">Automatic message opening</span>
+    </button>
+    """
+  end
 end
