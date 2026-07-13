@@ -68,6 +68,7 @@ defmodule VeejrWeb.Router do
     put "/groups/:id/note", GroupController, :note
     post "/recipients/resolve", RecipientController, :resolve
     post "/message-batches", MessageBatchController, :create
+    post "/blobs", BlobController, :create
     get "/envelopes", EnvelopeController, :index
     get "/message-delivery-policies", MessageDeliveryPolicyController, :index
     put "/contacts/:subject_id/message-delivery-policy", MessageDeliveryPolicyController, :contact
