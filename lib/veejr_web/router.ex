@@ -63,6 +63,7 @@ defmodule VeejrWeb.Router do
     post "/notifications/:id/accept", NotificationController, :accept
     post "/notifications/:id/decline", NotificationController, :decline
     get "/contacts", RecipientController, :index
+    get "/groups", GroupController, :index
     post "/recipients/resolve", RecipientController, :resolve
     post "/message-batches", MessageBatchController, :create
     get "/envelopes", EnvelopeController, :index

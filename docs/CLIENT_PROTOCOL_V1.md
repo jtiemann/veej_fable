@@ -465,6 +465,24 @@ Contact and group notes are server-readable plaintext, as in the existing web
 application. Clients MUST label this distinction clearly and MUST NOT imply
 that these notes are end-to-end encrypted.
 
+For native policy controls, `GET /groups` returns only caller-owned groups:
+
+```json
+{
+  "groups": [
+    {
+      "id": "3",
+      "name": "Inner circle",
+      "members": [{"id": "7", "handle": "@bob"}]
+    }
+  ]
+}
+```
+
+The `GET /contacts` recipient summary includes `auto_accept`, the effective
+result after conversation, contact, and group precedence. Explicit overrides
+remain distinguishable through `GET /message-delivery-policies`.
+
 ## 11. Recipient resolution
 
 `POST /api/v1/recipients/resolve`

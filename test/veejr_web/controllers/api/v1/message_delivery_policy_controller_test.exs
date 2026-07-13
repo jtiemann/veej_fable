@@ -82,6 +82,29 @@ defmodule VeejrWeb.Api.V1.MessageDeliveryPolicyControllerTest do
     assert response["error"]["code"] == "invalid_policy"
   end
 
+  test "lists only the caller's groups for native policy controls", %{
+    conn: conn,
+    alice: alice,
+    bob: bob,
+    tokens: tokens
+  } do
+    {:ok, group} = Social.create_group(alice, %{name: "Inner circle"})
+    {:ok, _membership} = Social.add_group_member(alice, group.id, bob.id)
+    {:ok, _other_group} = Social.create_group(bob, %{name: "Not Alice's"})
+
+    response =
+      conn
+      |> authorize(tokens)
+      |> get("/api/v1/groups")
+      |> json_response(200)
+
+    assert [%{"id" => id, "name" => "Inner circle", "members" => [member]}] =
+             response["groups"]
+
+    assert id == to_string(group.id)
+    assert member == %{"id" => to_string(bob.id), "handle" => "@api_policy_bob"}
+  end
+
   defp keyed_user(username) do
     user = user_fixture(%{username: username})
 
