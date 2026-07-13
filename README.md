@@ -2,8 +2,9 @@
 
 veejr is a self-hostable Phoenix application for sharing end-to-end encrypted
 messages, attachments, locations, and map notes with selected friends and
-groups. Encryption and decryption happen in the browser; the server stores and
-federates ciphertext while enforcing identity, friendship, and consent rules.
+groups. Encryption and decryption happen in the browser or native Android
+client; the server stores and federates ciphertext while enforcing identity,
+friendship, and consent rules.
 
 > **Project status:** veejr is an early-stage application. Review the security
 > model and deployment configuration before relying on it for sensitive data.
@@ -22,6 +23,9 @@ federates ciphertext while enforcing identity, friendship, and consent rules.
   are not part of the end-to-end encrypted message system.
 - Account export/import, key rewrap/rotation/reset, installable PWA support,
   browser notifications, and encrypted Web Push.
+- A native Jetpack Compose Android client with portable-key unlock, consent,
+  conversation messaging, filtered history, contact/group policy controls, and
+  private notes. See [veejr-android](https://github.com/veejr/veejr-android).
 - Community and personal instance modes backed by SQLite.
 
 For protocol details, trust boundaries, and data flows, see
@@ -32,6 +36,7 @@ For protocol details, trust boundaries, and data flows, see
 - Elixir 1.15+ and Phoenix 1.8 / LiveView 1.2
 - SQLite through `ecto_sqlite3`
 - TweetNaCl in the browser (`nacl.box` and `nacl.secretbox`)
+- Kotlin, Jetpack Compose, and compatible NaCl primitives in the Android client
 - Leaflet with OpenStreetMap tiles
 - Phoenix PubSub, the Notifications API, and Web Push
 
@@ -55,6 +60,21 @@ allow inbound TCP port 4000 on private networks. Browser features that require
 a secure context, including WebCrypto, service workers, and push, may not work
 over a plain LAN-IP HTTP URL; use HTTPS (for example through a trusted local
 certificate or tunnel) when testing those features.
+
+### Android development
+
+The native client is maintained in
+[veejr-android](https://github.com/veejr/veejr-android) and consumes the
+versioned contract in [docs/CLIENT_PROTOCOL_V1.md](docs/CLIENT_PROTOCOL_V1.md).
+An Android emulator reaches this server at `http://10.0.2.2:4000`. For a
+physical device connected through ADB, run:
+
+```sh
+adb reverse tcp:4000 tcp:4000
+```
+
+Then configure the debug app with `http://127.0.0.1:4000`. Production Android
+builds require an HTTPS instance.
 
 First-time flow:
 
