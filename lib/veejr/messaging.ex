@@ -505,12 +505,27 @@ defmodule Veejr.Messaging do
       end
 
     query =
+      case opts[:before_id] do
+        nil -> query
+        before_id -> where(query, [e], e.id < ^before_id)
+      end
+
+    query =
       case opts[:limit] do
         nil -> query
         limit -> limit(query, ^limit)
       end
 
     Repo.all(query)
+  end
+
+  @doc "Returns an envelope id usable as a history cursor only when it belongs to `user`."
+  def history_cursor_id(%User{id: user_id}, public_id) when is_binary(public_id) do
+    from(e in Envelope,
+      where: e.recipient_id == ^user_id and e.public_id == ^public_id,
+      select: e.id
+    )
+    |> Repo.one()
   end
 
   defp expired?(%Envelope{expires_at: %DateTime{} = expires_at}) do

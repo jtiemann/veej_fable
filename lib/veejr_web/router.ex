@@ -65,6 +65,7 @@ defmodule VeejrWeb.Router do
     get "/contacts", RecipientController, :index
     post "/recipients/resolve", RecipientController, :resolve
     post "/message-batches", MessageBatchController, :create
+    get "/envelopes", EnvelopeController, :index
   end
 
   # Public attachment capability. No pipeline: serves opaque octet-stream

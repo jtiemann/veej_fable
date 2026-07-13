@@ -627,6 +627,10 @@ silently normalized by the API.
 and accepted received copies, newest first. `kind` is optional. Expired and
 display-exhausted content is omitted.
 
+Responses contain at most 50 encrypted envelopes and a nullable `next_cursor`.
+Passing that cursor returns the next older page. Cursors are scoped to the
+authenticated owner; an unknown or foreign cursor returns 400 `invalid_cursor`.
+
 The API returns encrypted copies; conversation grouping remains client
 presentation logic in v1.
 
