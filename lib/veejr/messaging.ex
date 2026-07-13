@@ -12,7 +12,15 @@ defmodule Veejr.Messaging do
 
   alias Veejr.Repo
   alias Veejr.Accounts.User
-  alias Veejr.Messaging.{Envelope, Notification, Blob, ConversationWindow}
+
+  alias Veejr.Messaging.{
+    Blob,
+    ConversationWindow,
+    Envelope,
+    MessageDeliveryPolicy,
+    Notification
+  }
+
   alias Veejr.Social
 
   # How long an active conversation keeps auto-accepting new messages without
@@ -33,9 +41,15 @@ defmodule Veejr.Messaging do
       {:veejr_notification, notification}
     )
 
-    # Only pending items need a "come request it" push; auto-accepted messages
-    # in an active conversation are already in the chat.
-    if notification.state == "pending", do: Veejr.Push.notify_async(notification)
+    envelope = notification.envelope
+
+    should_push? =
+      notification.state == "pending" or
+        (notification.state == "accepted" and
+           automatic_delivery?(notification.user, envelope.sender) and
+           delivery_notification_mode(notification.user, envelope.sender) != "silent")
+
+    if should_push?, do: Veejr.Push.notify_async(notification)
     :ok
   end
 
@@ -138,7 +152,8 @@ defmodule Veejr.Messaging do
               touch_conversation(sender.id, recipient.id)
 
               state =
-                if conversation_active?(recipient.id, sender.id) do
+                if conversation_active?(recipient.id, sender.id) or
+                     automatic_delivery?(recipient, sender) do
                   touch_conversation(recipient.id, sender.id)
                   "accepted"
                 else
@@ -166,7 +181,7 @@ defmodule Veejr.Messaging do
 
     with {:ok, pairs} <- result do
       for {_envelope, %Notification{} = notification} <- pairs do
-        broadcast_notification(Repo.preload(notification, envelope: [:sender]))
+        broadcast_notification(Repo.preload(notification, [:user, envelope: [:sender]]))
       end
 
       queued =
@@ -373,7 +388,8 @@ defmodule Veejr.Messaging do
         # lands straight in the chat. If the fetch fails, fall back to a
         # pending request the recipient can retry.
         state =
-          if conversation_active?(local_recipient.id, remote_sender.id) and
+          if (conversation_active?(local_recipient.id, remote_sender.id) or
+                automatic_delivery?(local_recipient, remote_sender)) and
                maybe_fetch_remote_content(Repo.preload(envelope, :sender)) == :ok do
             touch_conversation(local_recipient.id, remote_sender.id)
             "accepted"
@@ -388,7 +404,7 @@ defmodule Veejr.Messaging do
             state: state
           })
 
-        broadcast_notification(Repo.preload(notification, envelope: [:sender]))
+        broadcast_notification(Repo.preload(notification, [:user, envelope: [:sender]]))
         {:ok, :created}
     end
   end
@@ -538,6 +554,146 @@ defmodule Veejr.Messaging do
   end
 
   defp expired?(_), do: false
+
+  ## Message delivery policies
+
+  def list_delivery_policies(%User{id: user_id}) do
+    from(p in MessageDeliveryPolicy,
+      where: p.user_id == ^user_id,
+      order_by: [asc: p.subject_type, asc: p.subject_id]
+    )
+    |> Repo.all()
+  end
+
+  def put_delivery_policy(%User{} = user, subject_type, subject_id, attrs)
+      when subject_type in ~w(contact group conversation) do
+    with {:ok, subject_id} <- parse_policy_subject_id(subject_id),
+         :ok <- authorize_policy_subject(user, subject_type, subject_id) do
+      policy =
+        Repo.get_by(MessageDeliveryPolicy,
+          user_id: user.id,
+          subject_type: subject_type,
+          subject_id: subject_id
+        ) ||
+          %MessageDeliveryPolicy{
+            user_id: user.id,
+            subject_type: subject_type,
+            subject_id: subject_id
+          }
+
+      policy
+      |> MessageDeliveryPolicy.changeset(attrs)
+      |> Repo.insert_or_update()
+    end
+  end
+
+  def put_delivery_policy(_user, _subject_type, _subject_id, _attrs),
+    do: {:error, :not_found}
+
+  def delete_delivery_policy(%User{id: user_id} = user, subject_type, subject_id) do
+    with {:ok, subject_id} <- parse_policy_subject_id(subject_id),
+         :ok <- authorize_policy_subject(user, subject_type, subject_id) do
+      from(p in MessageDeliveryPolicy,
+        where:
+          p.user_id == ^user_id and p.subject_type == ^subject_type and
+            p.subject_id == ^subject_id
+      )
+      |> Repo.delete_all()
+
+      :ok
+    end
+  end
+
+  @doc "Returns whether `sender` may bypass the recipient's per-message consent prompt."
+  def automatic_delivery?(%User{} = recipient, %User{} = sender) do
+    if Social.friends?(recipient.id, sender.id) and is_nil(sender.pending_public_key) do
+      case direct_policy(recipient.id, sender.id, "conversation") do
+        %MessageDeliveryPolicy{acceptance: acceptance} -> acceptance == "automatic"
+        nil -> contact_or_group_automatic?(recipient.id, sender.id)
+      end
+    else
+      false
+    end
+  end
+
+  def delivery_notification_mode(%User{} = recipient, %User{} = sender) do
+    case effective_delivery_policy(recipient.id, sender.id) do
+      %MessageDeliveryPolicy{notification: notification} -> notification
+      nil -> "normal"
+    end
+  end
+
+  defp effective_delivery_policy(recipient_id, sender_id) do
+    direct_policy(recipient_id, sender_id, "conversation") ||
+      direct_policy(recipient_id, sender_id, "contact") ||
+      effective_group_policy(recipient_id, sender_id)
+  end
+
+  defp contact_or_group_automatic?(recipient_id, sender_id) do
+    case direct_policy(recipient_id, sender_id, "contact") do
+      %MessageDeliveryPolicy{acceptance: acceptance} ->
+        acceptance == "automatic"
+
+      nil ->
+        policies = group_policies(recipient_id, sender_id)
+        policies != [] and Enum.all?(policies, &(&1.acceptance == "automatic"))
+    end
+  end
+
+  defp effective_group_policy(recipient_id, sender_id) do
+    policies = group_policies(recipient_id, sender_id)
+
+    Enum.find(policies, &(&1.acceptance == "ask")) ||
+      Enum.find(policies, &(&1.notification != "silent")) ||
+      List.first(policies)
+  end
+
+  defp direct_policy(user_id, subject_id, subject_type) do
+    Repo.get_by(MessageDeliveryPolicy,
+      user_id: user_id,
+      subject_type: subject_type,
+      subject_id: subject_id
+    )
+  end
+
+  defp group_policies(user_id, sender_id) do
+    from(p in MessageDeliveryPolicy,
+      join: g in Veejr.Social.Group,
+      on: g.id == p.subject_id,
+      join: gm in Veejr.Social.GroupMember,
+      on: gm.group_id == g.id,
+      where:
+        p.user_id == ^user_id and p.subject_type == "group" and g.owner_id == ^user_id and
+          gm.user_id == ^sender_id
+    )
+    |> Repo.all()
+  end
+
+  defp parse_policy_subject_id(id) when is_integer(id) and id > 0, do: {:ok, id}
+
+  defp parse_policy_subject_id(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {parsed, ""} when parsed > 0 -> {:ok, parsed}
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp parse_policy_subject_id(_id), do: {:error, :not_found}
+
+  defp authorize_policy_subject(user, subject_type, subject_id)
+       when subject_type in ~w(contact conversation) do
+    if Social.friends?(user.id, subject_id), do: :ok, else: {:error, :not_found}
+  end
+
+  defp authorize_policy_subject(user, "group", subject_id) do
+    case Social.get_owned_group(user, subject_id) do
+      %Veejr.Social.Group{} -> :ok
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp authorize_policy_subject(_user, _subject_type, _subject_id),
+    do: {:error, :not_found}
 
   @doc """
   Records a successful client-side display of an envelope visible to `user`.

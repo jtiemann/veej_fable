@@ -67,11 +67,16 @@ defmodule Veejr.Push do
     subscriptions =
       from(s in Subscription, where: s.user_id == ^notification.user_id) |> Repo.all()
 
+    action =
+      if Map.get(notification, :state, "pending") == "accepted",
+        do: "Open veejr to read it.",
+        else: "Open veejr to request it."
+
     payload = %{
       title: "veejr",
       body:
         "#{Address.handle(notification.envelope.sender)} sent you an encrypted " <>
-          "#{notification.envelope.kind}. Open veejr to request it.",
+          "#{notification.envelope.kind}. #{action}",
       url: "/messages"
     }
 

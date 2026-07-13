@@ -66,6 +66,26 @@ defmodule VeejrWeb.Router do
     post "/recipients/resolve", RecipientController, :resolve
     post "/message-batches", MessageBatchController, :create
     get "/envelopes", EnvelopeController, :index
+    get "/message-delivery-policies", MessageDeliveryPolicyController, :index
+    put "/contacts/:subject_id/message-delivery-policy", MessageDeliveryPolicyController, :contact
+
+    delete "/contacts/:subject_id/message-delivery-policy",
+           MessageDeliveryPolicyController,
+           :delete_contact
+
+    put "/groups/:subject_id/message-delivery-policy", MessageDeliveryPolicyController, :group
+
+    delete "/groups/:subject_id/message-delivery-policy",
+           MessageDeliveryPolicyController,
+           :delete_group
+
+    put "/conversations/:subject_id/message-delivery-policy",
+        MessageDeliveryPolicyController,
+        :conversation
+
+    delete "/conversations/:subject_id/message-delivery-policy",
+           MessageDeliveryPolicyController,
+           :delete_conversation
   end
 
   # Public attachment capability. No pipeline: serves opaque octet-stream

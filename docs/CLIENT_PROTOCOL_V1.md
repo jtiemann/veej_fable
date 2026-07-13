@@ -546,7 +546,38 @@ section 9.3.
 notification. Declined remote content is never fetched for that recipient.
 Success returns `204 No Content`.
 
-### 12.4 Fetch
+### 12.4 Automatic delivery policies
+
+Users may explicitly allow encrypted messages from accepted friends to bypass
+the per-message consent prompt. This changes when ciphertext is released; it
+does not give the server access to plaintext and does not authorize background
+identity-key unlocking.
+
+Policies have `subject_type` (`contact`, `group`, or `conversation`), a
+string `subject_id`, `acceptance` (`ask` or `automatic`), and `notification`
+(`normal`, `preview`, or `silent`). The authenticated owner may manage only
+accepted contacts, owned groups, and conversations with accepted contacts.
+
+Precedence is conversation, then contact, then matching recipient-owned
+groups, then the default `ask`. When multiple matching group policies exist,
+`ask` wins. A pending unconfirmed contact key change always forces `ask`.
+Deleting an override restores inheritance.
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /message-delivery-policies` | List explicit caller-owned overrides |
+| `PUT /contacts/{id}/message-delivery-policy` | Set a contact override |
+| `PUT /groups/{id}/message-delivery-policy` | Set a group override |
+| `PUT /conversations/{peer_id}/message-delivery-policy` | Set a conversation override |
+| `DELETE` on any policy path | Restore inherited behavior |
+
+An automatically accepted message enters encrypted history immediately. A
+client may decrypt it only while the identity secret is already available or
+through a separately enabled, device-protected key. Background decryption MUST
+NOT record a display. Notification previews MUST NOT contain plaintext unless
+the user separately enables device-protected background decryption.
+
+### 12.5 Fetch
 
 `GET /api/v1/envelopes/{public_id}` returns an envelope only when the caller is:
 

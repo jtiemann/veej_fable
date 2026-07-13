@@ -200,6 +200,8 @@ defmodule Veejr.Social do
         Repo.transaction(fn ->
           delete_group_memberships(user.id, friend_id)
           delete_group_memberships(friend_id, user.id)
+          delete_friend_delivery_policies(user.id, friend_id)
+          delete_friend_delivery_policies(friend_id, user.id)
           Repo.delete!(fr)
         end)
 
@@ -217,6 +219,15 @@ defmodule Veejr.Social do
 
     from(gm in GroupMember,
       where: gm.user_id == ^member_id and gm.group_id in subquery(owned_group_ids)
+    )
+    |> Repo.delete_all()
+  end
+
+  defp delete_friend_delivery_policies(owner_id, friend_id) do
+    from(p in Veejr.Messaging.MessageDeliveryPolicy,
+      where:
+        p.user_id == ^owner_id and p.subject_id == ^friend_id and
+          p.subject_type in ["contact", "conversation"]
     )
     |> Repo.delete_all()
   end
@@ -344,7 +355,16 @@ defmodule Veejr.Social do
 
   def delete_group(%User{} = owner, group_id) do
     with %Group{} = group <- get_owned_group(owner, group_id) do
-      Repo.delete(group)
+      Repo.transaction(fn ->
+        from(p in Veejr.Messaging.MessageDeliveryPolicy,
+          where:
+            p.user_id == ^owner.id and p.subject_type == "group" and
+              p.subject_id == ^group.id
+        )
+        |> Repo.delete_all()
+
+        Repo.delete!(group)
+      end)
     end
   end
 

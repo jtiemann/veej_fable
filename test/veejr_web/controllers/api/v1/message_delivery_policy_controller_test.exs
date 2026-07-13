@@ -1,0 +1,115 @@
+defmodule VeejrWeb.Api.V1.MessageDeliveryPolicyControllerTest do
+  use VeejrWeb.ConnCase
+
+  import Veejr.AccountsFixtures
+
+  alias Veejr.{Accounts, Social}
+
+  setup %{conn: conn} do
+    alice = keyed_user("api_policy_alice") |> set_password()
+    bob = keyed_user("api_policy_bob")
+    {:ok, request} = Social.send_friend_request(alice, bob.username)
+    {:ok, _friendship} = Social.accept_friend_request(bob, request.id)
+    tokens = login(conn, alice)
+    %{alice: alice, bob: bob, tokens: tokens}
+  end
+
+  test "creates, lists, and removes a contact override", %{conn: conn, bob: bob, tokens: tokens} do
+    response =
+      conn
+      |> authorize(tokens)
+      |> put("/api/v1/contacts/#{bob.id}/message-delivery-policy", %{
+        "acceptance" => "automatic",
+        "notification" => "normal"
+      })
+      |> json_response(200)
+
+    assert response["policy"]["subject_type"] == "contact"
+    assert response["policy"]["acceptance"] == "automatic"
+
+    policies =
+      build_conn()
+      |> authorize(tokens)
+      |> get("/api/v1/message-delivery-policies")
+      |> json_response(200)
+
+    assert [response["policy"]] == policies["policies"]
+
+    contacts =
+      build_conn()
+      |> authorize(tokens)
+      |> get("/api/v1/contacts")
+      |> json_response(200)
+
+    assert [%{"auto_accept" => true}] = contacts["contacts"]
+
+    delete_conn =
+      build_conn()
+      |> authorize(tokens)
+      |> delete("/api/v1/contacts/#{bob.id}/message-delivery-policy")
+
+    assert response(delete_conn, 204) == ""
+  end
+
+  test "rejects subjects outside the authenticated owner's address book", %{
+    conn: conn,
+    tokens: tokens
+  } do
+    stranger = keyed_user("api_policy_eve")
+
+    response =
+      conn
+      |> authorize(tokens)
+      |> put("/api/v1/contacts/#{stranger.id}/message-delivery-policy", %{
+        "acceptance" => "automatic",
+        "notification" => "normal"
+      })
+      |> json_response(404)
+
+    assert response["error"]["code"] == "not_found"
+  end
+
+  test "validates policy values", %{conn: conn, bob: bob, tokens: tokens} do
+    response =
+      conn
+      |> authorize(tokens)
+      |> put("/api/v1/conversations/#{bob.id}/message-delivery-policy", %{
+        "acceptance" => "always",
+        "notification" => "loud"
+      })
+      |> json_response(422)
+
+    assert response["error"]["code"] == "invalid_policy"
+  end
+
+  defp keyed_user(username) do
+    user = user_fixture(%{username: username})
+
+    {:ok, user} =
+      Accounts.setup_user_keys(user, %{
+        public_key: Base.encode64(:binary.copy(<<1>>, 32)),
+        enc_secret_key: Base.encode64(:binary.copy(<<2>>, 48)),
+        key_salt: Base.encode64(:binary.copy(<<3>>, 16)),
+        key_nonce: Base.encode64(:binary.copy(<<4>>, 24))
+      })
+
+    user
+  end
+
+  defp login(conn, user) do
+    conn
+    |> post("/api/v1/auth/login", %{
+      "email" => user.email,
+      "password" => valid_user_password(),
+      "device" => %{
+        "name" => "Test Pixel",
+        "platform" => "android",
+        "app_version" => "0.1.0-alpha01"
+      }
+    })
+    |> json_response(200)
+    |> get_in(["tokens", "access_token"])
+  end
+
+  defp authorize(conn, token), do: put_req_header(conn, "authorization", "Bearer #{token}")
+end
