@@ -483,6 +483,11 @@ The `GET /contacts` recipient summary includes `auto_accept`, the effective
 result after conversation, contact, and group precedence. Explicit overrides
 remain distinguishable through `GET /message-delivery-policies`.
 
+Contact and group summaries also include the caller-owned plaintext `note`.
+`PUT /contacts/{id}/note` and `PUT /groups/{id}/note` accept `{"body":"..."}`.
+These private notes are readable by the caller's server and MUST be labelled
+as not end-to-end encrypted in native clients.
+
 ## 11. Recipient resolution
 
 `POST /api/v1/recipients/resolve`

@@ -105,6 +105,52 @@ defmodule VeejrWeb.Api.V1.MessageDeliveryPolicyControllerTest do
     assert member == %{"id" => to_string(bob.id), "handle" => "@api_policy_bob"}
   end
 
+  test "updates private contact and group notes through owner-scoped native routes", %{
+    conn: conn,
+    alice: alice,
+    bob: bob,
+    tokens: tokens
+  } do
+    {:ok, group} = Social.create_group(alice, %{name: "Notes group"})
+
+    contact_note =
+      conn
+      |> authorize(tokens)
+      |> put("/api/v1/contacts/#{bob.id}/note", %{"body" => "Met in Berlin"})
+      |> json_response(200)
+
+    group_note =
+      build_conn()
+      |> authorize(tokens)
+      |> put("/api/v1/groups/#{group.id}/note", %{"body" => "Weekend planning"})
+      |> json_response(200)
+
+    assert contact_note["note"] == %{
+             "subject_id" => to_string(bob.id),
+             "body" => "Met in Berlin"
+           }
+
+    assert group_note["note"] == %{
+             "subject_id" => to_string(group.id),
+             "body" => "Weekend planning"
+           }
+
+    contacts =
+      build_conn()
+      |> authorize(tokens)
+      |> get("/api/v1/contacts")
+      |> json_response(200)
+
+    groups =
+      build_conn()
+      |> authorize(tokens)
+      |> get("/api/v1/groups")
+      |> json_response(200)
+
+    assert [%{"note" => "Met in Berlin"}] = contacts["contacts"]
+    assert [%{"note" => "Weekend planning"}] = groups["groups"]
+  end
+
   defp keyed_user(username) do
     user = user_fixture(%{username: username})
 
