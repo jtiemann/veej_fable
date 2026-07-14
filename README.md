@@ -137,18 +137,75 @@ Common optional variables are `PORT` (default `4000`), `POOL_SIZE` (default
 `MAIL_FROM_NAME`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_AUTH`,
 `SMTP_TLS`, `SMTP_SSL`, and `DNS_CLUSTER_QUERY`.
 
-To enable Android background push, mount the Firebase service-account JSON as a
-Docker secret and set `FCM_SERVICE_ACCOUNT_JSON_FILE` to its path (for example,
-`/run/secrets/fcm_service_account_json`). The legacy `FCM_SERVICE_ACCOUNT_JSON`
-environment variable remains supported when a secret mount is unavailable. The
-service account is a production secret; do not add it to the repository, an
-Android build, or an ordinary environment file. This turns on `android_push`
-in the capabilities API. Browser Web Push remains available without it.
+To enable Android background push, provide a Firebase **service-account** JSON
+to Docker as a Swarm secret and set `FCM_SERVICE_ACCOUNT_JSON_FILE` to its
+mounted path, `/run/secrets/fcm_service_account_json`. The legacy
+`FCM_SERVICE_ACCOUNT_JSON` environment variable remains supported for
+non-Swarm deployments, but must not be used in production. The service account
+is a production secret: never add it to this repository, an Android build, an
+ordinary environment file, or a Docker image. This turns on `android_push` in
+the capabilities API. Browser Web Push remains available without it.
 
-On the current Windows Docker host, keep the JSON outside the repository, such
-as `C:\\ProgramData\\Veejr\\secrets\\fcm-service-account.json`, and restrict
-access to Administrators and the Docker service account. Mount that file read
-only into the application container at `/run/secrets/fcm_service_account_json`.
+### FCM Docker Swarm setup (current Windows host)
+
+This host runs Docker Desktop on Windows. Store the downloaded Firebase key
+outside the repository at:
+
+```text
+C:\ProgramData\Veejr\secrets\fcm-service-account.json
+```
+
+Create the directory, restrict its ACL to the deployment operator,
+Administrators, and SYSTEM, then download a *new* key from Firebase Console:
+select the Veejr project, open **Project settings → Service accounts**, choose
+**Generate new private key**, and save it at that path. `google-services.json`
+is an Android client configuration file, not a server credential, and cannot
+be used here.
+
+Initialize this single-node host as a Swarm manager once, then create the
+immutable Docker secret. Do not print the JSON or use `docker secret inspect`
+to troubleshoot it.
+
+```powershell
+docker swarm init
+Get-Content -Raw C:\ProgramData\Veejr\secrets\fcm-service-account.json |
+  docker secret create fcm_service_account_json -
+```
+
+Migrate only the Phoenix application from the existing `veej_fable` container
+to a Swarm service named `veej_fable`. Preserve every existing production
+environment variable from the container, add the two FCM settings below, keep
+the current project bind mount and TCP 4000 publication, and use an
+`unless-stopped`-equivalent Swarm restart policy:
+
+```text
+secret: fcm_service_account_json → /run/secrets/fcm_service_account_json
+environment: FCM_SERVICE_ACCOUNT_JSON_FILE=/run/secrets/fcm_service_account_json
+restart policy: on-failure, no maximum retry count
+```
+
+After the replacement service is healthy, remove the old standalone
+`veej_fable` container. Leave `veej_caddy` and `veej_postfix` unchanged: Caddy
+continues proxying `host.docker.internal:4000` and Postfix remains the internal
+SMTP relay. Verify the deployment without exposing secret material:
+
+```powershell
+docker service ls
+docker service ps veej_fable
+docker service logs --tail 100 veej_fable
+curl.exe https://veejr.dyndns-server.com/api/v1/capabilities
+```
+
+The capabilities response should contain `"android_push": true`. If it is
+false, first confirm that the secret is attached to the service and that
+`FCM_SERVICE_ACCOUNT_JSON_FILE` has the mounted path. Do not fall back to an
+environment variable containing the JSON.
+
+To rotate the Firebase key, generate a replacement in Firebase, create a new
+Docker secret with a versioned name, update the service to remove the old secret
+and add the new one at the same target path, verify the capability, then revoke
+the old Firebase key and remove the old Docker secret. Docker secrets are
+immutable, so they cannot be overwritten in place.
 
 Terminate TLS at a reverse proxy or configure HTTPS before exposing an
 instance. Back up both `DATABASE_PATH` and `VEEJR_BLOB_DIR`; the database also
