@@ -45,7 +45,7 @@ window.addEventListener("phx:veejr:notify", ({detail}) => {
   const kind = {message: "message", location: "location share", note: "map note"}[detail.kind] || "item"
   new Notification("veejr", {
     body: `@${detail.from} sent you an encrypted ${kind}. Open veejr to request it.`,
-    tag: "veejr-notification",
+    tag: `veejr-notification-${detail.from || "inbox"}`,
   })
 })
 
@@ -116,4 +116,3 @@ if (process.env.NODE_ENV === "development") {
     window.liveReloader = reloader
   })
 }
-

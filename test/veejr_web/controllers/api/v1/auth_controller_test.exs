@@ -211,6 +211,21 @@ defmodule VeejrWeb.Api.V1.AuthControllerTest do
              |> get("/api/v1/me")
              |> json_response(401)
     end
+
+    test "registers and removes an Android push token for the current device", %{
+      conn: conn,
+      tokens: tokens
+    } do
+      assert conn
+             |> authorize(tokens["access_token"])
+             |> put("/api/v1/devices/current/push-token", %{"token" => "fcm-token"})
+             |> response(204) == ""
+
+      assert conn
+             |> authorize(tokens["access_token"])
+             |> delete("/api/v1/devices/current/push-token")
+             |> response(204) == ""
+    end
   end
 
   defp login_params(user) do

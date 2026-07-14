@@ -76,6 +76,17 @@ if config_env() == :prod do
   config :veejr,
     mail_from: {System.get_env("MAIL_FROM_NAME") || "Veejr", mail_from_address}
 
+  fcm_service_account_json =
+    case System.get_env("FCM_SERVICE_ACCOUNT_JSON_FILE") do
+      nil -> System.get_env("FCM_SERVICE_ACCOUNT_JSON")
+      path -> File.read!(path)
+    end
+
+  case fcm_service_account_json do
+    nil -> :ok
+    json -> config :veejr, :fcm_service_account, Jason.decode!(json)
+  end
+
   smtp_host =
     System.get_env("SMTP_HOST") ||
       raise """

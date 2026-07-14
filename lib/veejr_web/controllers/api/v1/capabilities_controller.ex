@@ -8,7 +8,7 @@ defmodule VeejrWeb.Api.V1.CapabilitiesController do
       max_blob_bytes: Veejr.Messaging.max_blob_size(),
       message_kinds: Veejr.Messaging.Envelope.kinds(),
       instance_mode: Veejr.instance_mode(),
-      android_push: false
+      android_push: Veejr.Push.AndroidPush.enabled?()
     })
   end
 end

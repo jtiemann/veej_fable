@@ -17,6 +17,8 @@ defmodule Veejr.Accounts.ApiDeviceSession do
     field :refresh_expires_at, :utc_datetime
     field :authenticated_at, :utc_datetime
     field :last_used_at, :utc_datetime
+    field :push_token, :string, redact: true
+    field :push_token_updated_at, :utc_datetime
 
     belongs_to :user, Veejr.Accounts.User
 

@@ -110,6 +110,34 @@ defmodule VeejrWeb.Api.V1.AuthController do
     send_resp(conn, :no_content, "")
   end
 
+  def register_push_token(conn, %{"token" => token})
+      when is_binary(token) and byte_size(token) <= 4_096 do
+    case Veejr.Push.register_android_token(
+           conn.assigns.current_scope.user,
+           conn.assigns.api_device_session.id,
+           token
+         ) do
+      :ok ->
+        send_resp(conn, :no_content, "")
+
+      _ ->
+        Response.error(conn, :not_found, "device_not_found", "The device session was not found.")
+    end
+  end
+
+  def register_push_token(conn, _params),
+    do: Response.error(conn, :bad_request, "invalid_request", "The request is invalid.")
+
+  def delete_push_token(conn, _params) do
+    :ok =
+      Veejr.Push.remove_android_token(
+        conn.assigns.current_scope.user,
+        conn.assigns.api_device_session.id
+      )
+
+    send_resp(conn, :no_content, "")
+  end
+
   defp invalid_credentials(conn) do
     Response.error(
       conn,

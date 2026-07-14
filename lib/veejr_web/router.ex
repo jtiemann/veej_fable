@@ -59,6 +59,8 @@ defmodule VeejrWeb.Router do
     pipe_through [:api, :require_api_user]
 
     delete "/auth/session", AuthController, :logout
+    put "/devices/current/push-token", AuthController, :register_push_token
+    delete "/devices/current/push-token", AuthController, :delete_push_token
     get "/me", MeController, :show
     put "/keys", KeysController, :create
     get "/notifications", NotificationController, :index

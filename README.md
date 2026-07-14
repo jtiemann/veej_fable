@@ -137,6 +137,19 @@ Common optional variables are `PORT` (default `4000`), `POOL_SIZE` (default
 `MAIL_FROM_NAME`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_AUTH`,
 `SMTP_TLS`, `SMTP_SSL`, and `DNS_CLUSTER_QUERY`.
 
+To enable Android background push, mount the Firebase service-account JSON as a
+Docker secret and set `FCM_SERVICE_ACCOUNT_JSON_FILE` to its path (for example,
+`/run/secrets/fcm_service_account_json`). The legacy `FCM_SERVICE_ACCOUNT_JSON`
+environment variable remains supported when a secret mount is unavailable. The
+service account is a production secret; do not add it to the repository, an
+Android build, or an ordinary environment file. This turns on `android_push`
+in the capabilities API. Browser Web Push remains available without it.
+
+On the current Windows Docker host, keep the JSON outside the repository, such
+as `C:\\ProgramData\\Veejr\\secrets\\fcm-service-account.json`, and restrict
+access to Administrators and the Docker service account. Mount that file read
+only into the application container at `/run/secrets/fcm_service_account_json`.
+
 Terminate TLS at a reverse proxy or configure HTTPS before exposing an
 instance. Back up both `DATABASE_PATH` and `VEEJR_BLOB_DIR`; the database also
 contains instance federation-signing and VAPID credentials.

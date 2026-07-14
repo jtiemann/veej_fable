@@ -16,6 +16,8 @@ defmodule Veejr.Application do
       {Phoenix.PubSub, name: Veejr.PubSub},
       # Retries federation deliveries to unreachable instances.
       {Veejr.Federation.Outbox, []},
+      # Persists and retries browser and Android push delivery.
+      {Veejr.Push.Outbox, []},
       {Task.Supervisor, name: Veejr.TaskSupervisor},
       # Start to serve requests, typically the last entry
       VeejrWeb.Endpoint
