@@ -10,7 +10,7 @@ defmodule VeejrWeb.UserLive.LoginTest do
 
       assert html =~ "Log in"
       assert html =~ "Sign up"
-      assert html =~ "Log in with email"
+      assert html =~ "Email me a one-time link"
     end
   end
 
@@ -21,11 +21,11 @@ defmodule VeejrWeb.UserLive.LoginTest do
       {:ok, lv, _html} = live(conn, ~p"/users/log-in")
 
       {:ok, _lv, html} =
-        form(lv, "#login_form_magic", user: %{email: user.email})
+        form(lv, "#login_form_magic", user: %{identifier: user.username})
         |> render_submit()
         |> follow_redirect(conn, ~p"/users/log-in")
 
-      assert html =~ "If your email is in our system"
+      assert html =~ "If your username or email is in our system"
 
       assert Veejr.Repo.get_by!(Veejr.Accounts.UserToken, user_id: user.id).context ==
                "login"
@@ -35,11 +35,11 @@ defmodule VeejrWeb.UserLive.LoginTest do
       {:ok, lv, _html} = live(conn, ~p"/users/log-in")
 
       {:ok, _lv, html} =
-        form(lv, "#login_form_magic", user: %{email: "idonotexist@example.com"})
+        form(lv, "#login_form_magic", user: %{identifier: "idonotexist@example.com"})
         |> render_submit()
         |> follow_redirect(conn, ~p"/users/log-in")
 
-      assert html =~ "If your email is in our system"
+      assert html =~ "If your username or email is in our system"
     end
   end
 
@@ -51,7 +51,7 @@ defmodule VeejrWeb.UserLive.LoginTest do
 
       form =
         form(lv, "#login_form_password",
-          user: %{email: user.email, password: valid_user_password(), remember_me: true}
+          user: %{identifier: user.username, password: valid_user_password(), remember_me: true}
         )
 
       conn = submit_form(form, conn)
@@ -65,12 +65,17 @@ defmodule VeejrWeb.UserLive.LoginTest do
       {:ok, lv, _html} = live(conn, ~p"/users/log-in")
 
       form =
-        form(lv, "#login_form_password", user: %{email: "test@email.com", password: "123456"})
+        form(lv, "#login_form_password",
+          user: %{identifier: "test@email.com", password: "123456"}
+        )
 
       render_submit(form, %{user: %{remember_me: true}})
 
       conn = follow_trigger_action(form, conn)
-      assert Phoenix.Flash.get(conn.assigns.flash, :error) == "Invalid email or password"
+
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) ==
+               "Invalid username, email, or password"
+
       assert redirected_to(conn) == ~p"/users/log-in"
     end
   end
@@ -100,10 +105,10 @@ defmodule VeejrWeb.UserLive.LoginTest do
 
       assert html =~ "You need to reauthenticate"
       refute html =~ "Register"
-      assert html =~ "Log in with email"
+      assert html =~ "Email me a one-time link"
 
-      assert html =~
-               ~s(<input type="email" name="user[email]" id="login_form_magic_email" value="#{user.email}")
+      assert html =~ ~s(id="login_form_magic_identifier")
+      assert html =~ user.email
     end
   end
 end

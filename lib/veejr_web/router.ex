@@ -50,6 +50,8 @@ defmodule VeejrWeb.Router do
 
     get "/capabilities", CapabilitiesController, :show
     post "/auth/login", AuthController, :login
+    post "/auth/magic-link", AuthController, :request_magic_link
+    post "/auth/magic-link/exchange", AuthController, :exchange_magic_link
     post "/auth/refresh", AuthController, :refresh
   end
 

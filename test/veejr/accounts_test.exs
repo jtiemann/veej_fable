@@ -35,6 +35,15 @@ defmodule Veejr.AccountsTest do
     end
   end
 
+  describe "get_user_by_login_identifier/1" do
+    test "returns a local user by username" do
+      user = user_fixture(%{username: "alice"})
+
+      assert %User{id: id} = Accounts.get_user_by_login_identifier("ALICE")
+      assert id == user.id
+    end
+  end
+
   describe "get_user!/1" do
     test "raises if id is invalid" do
       assert_raise Ecto.NoResultsError, fn ->

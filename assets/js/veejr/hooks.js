@@ -30,6 +30,9 @@ function pushWithReply(hook, event, params) {
 const csrfToken = () =>
   document.querySelector("meta[name='csrf-token']").getAttribute("content")
 
+const currentLocationPath = () =>
+  `${window.location.pathname}${window.location.search}${window.location.hash}`
+
 // Encrypts one file with a fresh symmetric key and uploads the ciphertext.
 // Returns the attachment descriptor that rides inside the envelope payload.
 async function encryptAndUpload(file, metadata = {}) {
@@ -806,7 +809,7 @@ export const Composer = {
 
     const mySecret = getSecretKey(userId)
     if (!mySecret) {
-      window.location.assign(`/keys?return_to=${encodeURIComponent(location.pathname)}`)
+      window.location.assign(`/keys?return_to=${encodeURIComponent(currentLocationPath())}`)
       return
     }
 
@@ -944,7 +947,7 @@ export const Decrypt = {
 
     if (!mySecret) {
       const a = document.createElement("a")
-      a.href = `/keys?return_to=${encodeURIComponent(location.pathname)}`
+      a.href = `/keys?return_to=${encodeURIComponent(currentLocationPath())}`
       a.className = "link text-sm opacity-70"
       a.textContent = "🔒 Locked — unlock your keys to read"
       this.el.appendChild(a)

@@ -179,7 +179,13 @@ defmodule VeejrWeb.KeysLive do
             </:subtitle>
           </.header>
 
-          <form id="key-setup" phx-hook="KeySetup" data-user-id={@user.id} class="mt-6 space-y-4">
+          <form
+            id="key-setup"
+            phx-hook="KeySetup"
+            data-user-id={@user.id}
+            data-return-to={@return_to}
+            class="mt-6 space-y-4"
+          >
             <p data-role="error" class="hidden text-error text-sm"></p>
             <label class="fieldset-label">Encryption passphrase (min 8 characters)</label>
             <input
@@ -214,7 +220,7 @@ defmodule VeejrWeb.KeysLive do
     {:ok,
      assign(socket,
        user: socket.assigns.current_scope.user,
-       return_to: params["return_to"],
+       return_to: valid_return_to(params["return_to"]),
        page_title: "Keys"
      )}
   end
@@ -226,7 +232,7 @@ defmodule VeejrWeb.KeysLive do
         {:noreply,
          socket
          |> put_flash(:info, "Encryption keys created. Welcome to veejr!")
-         |> push_navigate(to: ~p"/")}
+         |> push_navigate(to: socket.assigns.return_to || ~p"/")}
 
       {:error, :keys_already_set} ->
         {:noreply, put_flash(socket, :error, "Keys are already set for this account.")}
@@ -303,4 +309,15 @@ defmodule VeejrWeb.KeysLive do
         {:reply, %{error: "Reset failed — nothing was changed."}, socket}
     end
   end
+
+  defp valid_return_to(path) when is_binary(path) do
+    uri = URI.parse(path)
+
+    if uri.scheme == nil and uri.host == nil and String.starts_with?(uri.path || "", "/") and
+         not String.starts_with?(path, "//") do
+      path
+    end
+  end
+
+  defp valid_return_to(_path), do: nil
 end

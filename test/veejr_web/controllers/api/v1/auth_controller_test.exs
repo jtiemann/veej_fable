@@ -56,6 +56,54 @@ defmodule VeejrWeb.Api.V1.AuthControllerTest do
       assert response["error"]["code"] == "validation_failed"
       assert response["error"]["details"]["fields"]["platform"]
     end
+
+    test "accepts a username as the login identifier", %{conn: conn} do
+      user = user_fixture() |> set_password()
+
+      response =
+        conn
+        |> post("/api/v1/auth/login", %{login_params(user) | "identifier" => user.username})
+        |> json_response(200)
+
+      assert response["account"]["id"] == to_string(user.id)
+    end
+  end
+
+  describe "one-time Android login" do
+    test "sends a non-enumerating magic link and exchanges its one-time token", %{conn: conn} do
+      user = user_fixture()
+
+      assert conn
+             |> post("/api/v1/auth/magic-link", %{"identifier" => user.username})
+             |> response(202) == "{}"
+
+      {one_time_token, _hashed_token} = generate_user_magic_link_token(user)
+
+      response =
+        build_conn()
+        |> post("/api/v1/auth/magic-link/exchange", %{
+          "token" => one_time_token,
+          "device" => login_params(user)["device"]
+        })
+        |> json_response(200)
+
+      assert response["account"]["id"] == to_string(user.id)
+      assert is_binary(response["tokens"]["access_token"])
+
+      assert build_conn()
+             |> post("/api/v1/auth/magic-link/exchange", %{
+               "token" => one_time_token,
+               "device" => login_params(user)["device"]
+             })
+             |> json_response(401)
+             |> get_in(["error", "code"]) == "invalid_one_time_token"
+    end
+
+    test "does not disclose whether an identifier exists", %{conn: conn} do
+      assert conn
+             |> post("/api/v1/auth/magic-link", %{"identifier" => "nobody"})
+             |> response(202) == "{}"
+    end
   end
 
   describe "authenticated device session" do
@@ -167,7 +215,7 @@ defmodule VeejrWeb.Api.V1.AuthControllerTest do
 
   defp login_params(user) do
     %{
-      "email" => user.email,
+      "identifier" => user.email,
       "password" => valid_user_password(),
       "device" => %{
         "name" => "Test Pixel",

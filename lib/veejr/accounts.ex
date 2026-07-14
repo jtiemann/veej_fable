@@ -30,7 +30,25 @@ defmodule Veejr.Accounts do
 
   """
   def get_user_by_email(email) when is_binary(email) do
-    Repo.get_by(User, email: email)
+    Repo.one(
+      from(u in User, where: u.email == ^normalize_login_identifier(email) and is_nil(u.host))
+    )
+  end
+
+  @doc """
+  Gets a local user by either their email address or username.
+
+  Remote users are intentionally excluded: their rows support federation and
+  must never be usable to authenticate with this instance.
+  """
+  def get_user_by_login_identifier(identifier) when is_binary(identifier) do
+    identifier = normalize_login_identifier(identifier)
+
+    Repo.one(
+      from(u in User,
+        where: is_nil(u.host) and (u.email == ^identifier or u.username == ^identifier)
+      )
+    )
   end
 
   @doc """
@@ -47,7 +65,7 @@ defmodule Veejr.Accounts do
   """
   def get_user_by_email_and_password(email, password)
       when is_binary(email) and is_binary(password) do
-    user = Repo.get_by(User, email: email)
+    user = get_user_by_login_identifier(email)
     if User.valid_password?(user, password), do: user
   end
 
@@ -467,6 +485,12 @@ defmodule Veejr.Accounts do
       |> Repo.delete_all()
 
     if count == 1, do: :ok, else: {:error, :not_found}
+  end
+
+  defp normalize_login_identifier(identifier) do
+    identifier
+    |> String.trim()
+    |> String.downcase()
   end
 
   defp revoke_reused_refresh_token(token_hash) do

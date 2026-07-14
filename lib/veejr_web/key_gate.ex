@@ -13,7 +13,14 @@ defmodule VeejrWeb.KeyGate do
     if socket.assigns.current_scope.user.public_key do
       {:cont, socket}
     else
-      {:halt, redirect(socket, to: ~p"/keys")}
+      return_to = socket |> get_connect_info(:uri) |> path_from_uri()
+      {:halt, redirect(socket, to: ~p"/keys?return_to=#{return_to}")}
     end
   end
+
+  defp path_from_uri(%URI{path: path, query: query, fragment: fragment}) when is_binary(path) do
+    URI.to_string(%URI{path: path, query: query, fragment: fragment})
+  end
+
+  defp path_from_uri(_uri), do: "/"
 end

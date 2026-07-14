@@ -238,7 +238,7 @@ extended deliberately rather than letting controllers bypass the scope.
 
 ```json
 {
-  "email": "alice@example.com",
+  "identifier": "alice@example.com",
   "password": "correct horse battery staple",
   "device": {
     "name": "Alice's Pixel",
@@ -253,16 +253,31 @@ MUST use one generic error and MUST NOT reveal account existence.
 
 ### 7.4 Magic-link login
 
-`POST /api/v1/auth/magic-link` requests an email link and always returns 202.
+`POST /api/v1/auth/magic-link` requests a one-time login token by username or
+email and always returns 202.
 
 ```json
-{"email": "alice@example.com"}
+{"identifier": "alice"}
 ```
 
 An HTTPS Android App Link contains a one-time login token. The app exchanges it
 using `POST /api/v1/auth/magic-link/exchange` with the same `device` object used
-for password login. The token MUST be single-use and short-lived. Opening the
-same link in the web client remains supported.
+for password login:
+
+```json
+{
+  "token": "one-time-token-from-the-app-link",
+  "device": {
+    "name": "Alice's Pixel",
+    "platform": "android",
+    "app_version": "1.0.0"
+  }
+}
+```
+
+The token MUST be single-use and short-lived. Opening the same link in the web
+client remains supported. Android should treat this token as a one-time
+passcode and never persist it after the exchange.
 
 ### 7.5 Refresh and logout
 

@@ -36,7 +36,6 @@ defmodule VeejrWeb.UserLive.Login do
         </div>
 
         <.form
-          :let={f}
           for={@form}
           id="login_form_magic"
           action={~p"/users/log-in"}
@@ -44,23 +43,23 @@ defmodule VeejrWeb.UserLive.Login do
         >
           <.input
             readonly={!!@current_scope}
-            field={f[:email]}
-            type="email"
-            label="Email"
+            field={@form[:identifier]}
+            id="login_form_magic_identifier"
+            type="text"
+            label="Username or email"
             autocomplete="username"
             spellcheck="false"
             required
             phx-mounted={JS.focus()}
           />
           <.button class="btn btn-primary w-full">
-            Log in with email <span aria-hidden="true">→</span>
+            Email me a one-time link <span aria-hidden="true">→</span>
           </.button>
         </.form>
 
         <div class="divider">or</div>
 
         <.form
-          :let={f}
           for={@form}
           id="login_form_password"
           action={~p"/users/log-in"}
@@ -69,9 +68,10 @@ defmodule VeejrWeb.UserLive.Login do
         >
           <.input
             readonly={!!@current_scope}
-            field={f[:email]}
-            type="email"
-            label="Email"
+            field={@form[:identifier]}
+            id="login_form_password_identifier"
+            type="text"
+            label="Username or email"
             autocomplete="username"
             spellcheck="false"
             required
@@ -97,11 +97,11 @@ defmodule VeejrWeb.UserLive.Login do
 
   @impl true
   def mount(_params, _session, socket) do
-    email =
-      Phoenix.Flash.get(socket.assigns.flash, :email) ||
+    identifier =
+      Phoenix.Flash.get(socket.assigns.flash, :identifier) ||
         get_in(socket.assigns, [:current_scope, Access.key(:user), Access.key(:email)])
 
-    form = to_form(%{"email" => email}, as: "user")
+    form = to_form(%{"identifier" => identifier}, as: "user")
 
     {:ok, assign(socket, form: form, trigger_submit: false)}
   end
@@ -111,8 +111,8 @@ defmodule VeejrWeb.UserLive.Login do
     {:noreply, assign(socket, :trigger_submit, true)}
   end
 
-  def handle_event("submit_magic", %{"user" => %{"email" => email}}, socket) do
-    if user = Accounts.get_user_by_email(email) do
+  def handle_event("submit_magic", %{"user" => %{"identifier" => identifier}}, socket) do
+    if user = Accounts.get_user_by_login_identifier(identifier) do
       Accounts.deliver_login_instructions(
         user,
         &url(~p"/users/log-in/#{&1}")
@@ -120,7 +120,7 @@ defmodule VeejrWeb.UserLive.Login do
     end
 
     info =
-      "If your email is in our system, you will receive instructions for logging in shortly."
+      "If your username or email is in our system, you will receive instructions for logging in shortly."
 
     {:noreply,
      socket
