@@ -502,7 +502,15 @@ export const PushSetup = {
       btn.disabled = true
       try {
         const permission = await Notification.requestPermission()
-        if (permission !== "granted") throw new Error("notification permission was not granted")
+        if (permission !== "granted") {
+          if (permission === "denied") {
+            throw new Error(
+              "Notifications are blocked for this site. Open the browser's site settings, allow Notifications, then reload this page."
+            )
+          }
+
+          throw new Error("notification permission was not granted")
+        }
 
         say("Registering service worker…")
         await navigator.serviceWorker.register("/sw.js")

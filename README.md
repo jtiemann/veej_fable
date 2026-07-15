@@ -154,6 +154,11 @@ for push messaging** under `brave://settings/privacy` if enabling push reports
 `Registration failed - push service error`. Then refresh the Settings page and
 select **Enable push on this device** again.
 
+On a phone, if the app reports that notification permission was not granted,
+open the browser's site settings for the veejr address, set **Notifications** to
+**Allow**, and reload the page. A previous denial usually prevents the browser
+from showing the permission prompt again until this setting is changed.
+
 ### FCM Docker Swarm setup (current Windows host)
 
 This host runs Docker Desktop on Windows. Store the downloaded Firebase key
