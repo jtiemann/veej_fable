@@ -450,8 +450,15 @@ defmodule VeejrWeb.MessagesLive do
   end
 
   def handle_event("message_displayed", %{"id" => public_id}, socket) do
-    Messaging.record_display(socket.assigns.current_scope.user, public_id)
-    {:reply, %{ok: true}, socket}
+    case Messaging.record_display(socket.assigns.current_scope.user, public_id) do
+      {:ok, envelope}
+      when is_integer(envelope.max_displays) and
+             envelope.display_count >= envelope.max_displays ->
+        {:reply, %{ok: true}, refresh(socket)}
+
+      _ ->
+        {:reply, %{ok: true}, socket}
+    end
   end
 
   def handle_event("prepare_edit", %{"id" => public_id}, socket) do

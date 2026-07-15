@@ -444,6 +444,8 @@ defmodule VeejrWeb.MessagingComponents do
         data-ciphertext={@envelope.ciphertext}
         data-nonce={@envelope.nonce}
         data-kind={@envelope.kind}
+        data-public-id={@envelope.public_id}
+        data-expires-at={expiry_iso8601(@envelope.expires_at)}
         class="mt-2"
       >
         <span class="loading loading-dots loading-xs"></span>
@@ -491,6 +493,7 @@ defmodule VeejrWeb.MessagingComponents do
           data-nonce={@envelope.nonce}
           data-kind={@envelope.kind}
           data-public-id={@envelope.public_id}
+          data-expires-at={expiry_iso8601(@envelope.expires_at)}
         >
           <span class="loading loading-dots loading-xs"></span>
         </div>
@@ -530,6 +533,9 @@ defmodule VeejrWeb.MessagingComponents do
     </div>
     """
   end
+
+  defp expiry_iso8601(nil), do: nil
+  defp expiry_iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
 
   defp delete_label(true), do: "delete"
   defp delete_label(false), do: "hide"

@@ -115,6 +115,27 @@ defmodule Veejr.ConversationWindowTest do
     assert Messaging.list_pending_notifications(bob) == []
   end
 
+  test "time limits apply to the sender's self-copy", %{alice: alice, bob: bob} do
+    expires_at = DateTime.add(DateTime.utc_now(:second), -1, :second)
+
+    {:ok, batch_id, []} =
+      Messaging.send_batch(
+        alice,
+        "message",
+        [
+          %{"recipient_id" => bob.id, "ciphertext" => "ct-bob", "nonce" => "n"},
+          %{"recipient_id" => alice.id, "ciphertext" => "ct-self", "nonce" => "n"}
+        ],
+        expires_at: DateTime.add(DateTime.utc_now(:second), 60, :second)
+      )
+
+    Repo.get_by!(Veejr.Messaging.Envelope, batch_id: batch_id, recipient_id: alice.id)
+    |> Ecto.Changeset.change(expires_at: expires_at)
+    |> Repo.update!()
+
+    assert Messaging.list_history(alice) == []
+  end
+
   test "display limited messages are readable once, then hidden on the next history load", %{
     alice: alice,
     bob: bob
@@ -132,6 +153,26 @@ defmodule Veejr.ConversationWindowTest do
     assert updated.display_count == 1
     assert updated.ciphertext == received.ciphertext
     assert Messaging.list_history(bob) == []
+  end
+
+  test "display limits apply to the sender's self-copy", %{alice: alice, bob: bob} do
+    {:ok, batch_id, []} =
+      Messaging.send_batch(
+        alice,
+        "message",
+        [
+          %{"recipient_id" => bob.id, "ciphertext" => "ct-bob", "nonce" => "n"},
+          %{"recipient_id" => alice.id, "ciphertext" => "ct-self", "nonce" => "n"}
+        ],
+        max_displays: 1
+      )
+
+    self_copy =
+      Repo.get_by!(Veejr.Messaging.Envelope, batch_id: batch_id, recipient_id: alice.id)
+
+    assert {:ok, updated} = Messaging.record_display(alice, self_copy.public_id)
+    assert updated.display_count == 1
+    assert Messaging.list_history(alice) == []
   end
 
   test "sender can replace ciphertext for every copy in a sent batch", %{

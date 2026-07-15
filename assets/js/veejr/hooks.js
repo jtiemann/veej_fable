@@ -533,6 +533,7 @@ export const PushSetup = {
     }
 
     btn.addEventListener("click", async () => {
+      if (this.expired) return
       btn.disabled = true
       try {
         const permission = await Notification.requestPermission()
@@ -1014,11 +1015,16 @@ export const Composer = {
 export const Decrypt = {
   mounted() {
     this.displayRecorded = false
+    this.expired = false
+    this.expiryTimer = null
     this.render()
   },
 
   render() {
     const {userId, peerKey, ciphertext, nonce, kind} = this.el.dataset
+    this.scheduleExpiry()
+    if (this.expired) return
+
     const mySecret = getSecretKey(userId)
 
     this.el.textContent = ""
@@ -1089,7 +1095,10 @@ export const Decrypt = {
       btn.className = "btn btn-outline btn-xs mt-1 mr-1"
       btn.textContent = `📎 ${att.name || "attachment"} (${Math.ceil((att.size || 0) / 1024)} KB)`
       btn.addEventListener("click", () =>
-        downloadAttachment(att).catch((err) => (btn.textContent = `⚠ ${err.message}`))
+        (this.expired
+          ? Promise.reject(new Error("This message has expired."))
+          : downloadAttachment(att)
+        ).catch((err) => (btn.textContent = `⚠ ${err.message}`))
       )
       this.el.appendChild(btn)
     }
@@ -1103,11 +1112,13 @@ export const Decrypt = {
     const kind = mime.startsWith("image/") ? "Image" : "PDF"
     btn.textContent = `View ${kind}: ${att.name || "attachment"}`
     btn.addEventListener("click", async () => {
+      if (this.expired) return
       btn.disabled = true
       const original = btn.textContent
       btn.textContent = `Opening ${kind.toLowerCase()}...`
       try {
         const blob = await decryptAttachmentBlob(att)
+        if (this.expired) throw new Error("This message has expired.")
         showMediaModal({blob, title: att.name, mime})
         btn.textContent = original
       } catch (err) {
@@ -1135,6 +1146,7 @@ export const Decrypt = {
     this.el.appendChild(wrap)
 
     this.loadAudioAttachment(att, wrap, status).catch((err) => {
+      if (this.expired) return
       status.className = "text-xs text-error"
       status.textContent = `Could not load voice message: ${err.message}`
       wrap.appendChild(this.audioDownloadButton(att))
@@ -1143,6 +1155,7 @@ export const Decrypt = {
 
   async loadAudioAttachment(att, wrap, status) {
     const blob = await decryptAttachmentBlob(att)
+    if (this.expired) return
     const url = URL.createObjectURL(blob)
     const mime = attachmentMime(att) || blob.type || "audio/webm"
 
@@ -1192,7 +1205,10 @@ export const Decrypt = {
     btn.className = "btn btn-outline btn-xs mt-2"
     btn.textContent = "Download voice message"
     btn.addEventListener("click", () =>
-      downloadAttachment(att).catch((err) => {
+      (this.expired
+        ? Promise.reject(new Error("This message has expired."))
+        : downloadAttachment(att)
+      ).catch((err) => {
         btn.textContent = `Could not download: ${err.message}`
       })
     )
@@ -1208,6 +1224,37 @@ export const Decrypt = {
     } catch {
       // Display accounting should never block reading a message.
     }
+  },
+
+  scheduleExpiry() {
+    if (this.expiryTimer) clearTimeout(this.expiryTimer)
+
+    const expiresAt = Date.parse(this.el.dataset.expiresAt || "")
+    if (!Number.isFinite(expiresAt)) return
+
+    const delay = expiresAt - Date.now()
+    if (delay <= 0) {
+      this.expire()
+      return
+    }
+
+    this.expiryTimer = setTimeout(() => this.expire(), delay)
+  },
+
+  expire() {
+    if (this.expired) return
+    this.expired = true
+    this.el.veejrPayload = null
+    this.el.textContent = ""
+
+    const p = document.createElement("p")
+    p.className = "text-sm opacity-60"
+    p.textContent = "This message has expired."
+    this.el.appendChild(p)
+  },
+
+  destroyed() {
+    if (this.expiryTimer) clearTimeout(this.expiryTimer)
   },
 }
 

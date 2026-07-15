@@ -800,9 +800,15 @@ defmodule Veejr.Messaging do
         {:ok, envelope}
 
       true ->
-        envelope
-        |> Ecto.Changeset.change(display_count: envelope.display_count + 1)
-        |> Repo.update()
+        _updated =
+          from(e in Envelope,
+            where:
+              e.id == ^envelope.id and e.display_count < ^envelope.max_displays and
+                (is_nil(e.expires_at) or e.expires_at > ^DateTime.utc_now(:second))
+          )
+          |> Repo.update_all(inc: [display_count: 1])
+
+        {:ok, Repo.get!(Envelope, envelope.id)}
     end
   end
 

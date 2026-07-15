@@ -98,6 +98,12 @@ conversations by choosing **Unarchive**.
 In Messages, the composer stays pinned to the bottom of the conversation.
 Press **Enter** to send; press **Shift+Enter** to insert a newline.
 
+The Message options menu can set an availability time and a display count.
+Those limits are applied to every encrypted copy, including the sender's
+outgoing copy, so attached files disappear with the message in the app as
+well. A file that has already been downloaded or captured by a recipient
+cannot be recalled by the server.
+
 Useful commands:
 
 ```sh
