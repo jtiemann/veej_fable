@@ -242,7 +242,9 @@ defmodule VeejrWeb.MessagesLive do
                 <div class="py-2 text-center">
                   <button
                     :if={@has_more_messages}
+                    id="load-more-messages"
                     type="button"
+                    phx-click="load_more_messages"
                     data-role="load-more-messages"
                     class="rounded-full bg-base-100 px-3 py-1.5 text-xs font-medium opacity-70 shadow-sm ring-1 ring-base-300 hover:bg-base-200 hover:opacity-100"
                   >
@@ -331,7 +333,12 @@ defmodule VeejrWeb.MessagesLive do
 
   @impl true
   def handle_params(params, _url, socket) do
-    {:noreply, params |> apply_message_params(socket) |> refresh() |> scroll_to_selected()}
+    {:noreply,
+     params
+     |> apply_message_params(socket)
+     |> reset_message_limit()
+     |> refresh()
+     |> scroll_to_selected()}
   end
 
   @impl true
@@ -362,6 +369,7 @@ defmodule VeejrWeb.MessagesLive do
     {:noreply,
      socket
      |> assign(:selected_conversation_key, key)
+     |> reset_message_limit()
      |> clear_selected_recipient()
      |> refresh()
      |> scroll_to_selected()}
@@ -379,6 +387,7 @@ defmodule VeejrWeb.MessagesLive do
             {:noreply,
              socket
              |> assign(:selected_conversation_key, nil)
+             |> reset_message_limit()
              |> clear_selected_recipient()
              |> put_flash(:info, "Conversation archived.")
              |> refresh()}
@@ -396,6 +405,7 @@ defmodule VeejrWeb.MessagesLive do
     {:noreply,
      socket
      |> assign(:selected_conversation_key, nil)
+     |> reset_message_limit()
      |> clear_selected_recipient()
      |> refresh()}
   end
@@ -406,7 +416,8 @@ defmodule VeejrWeb.MessagesLive do
      |> assign(
        selected_conversation_key: nil,
        selected_recipient_type: :friend,
-       selected_recipient_id: id
+       selected_recipient_id: id,
+       message_limit: @message_page_size
      )
      |> refresh()}
   end
@@ -417,7 +428,8 @@ defmodule VeejrWeb.MessagesLive do
      |> assign(
        selected_conversation_key: nil,
        selected_recipient_type: :group,
-       selected_recipient_id: id
+       selected_recipient_id: id,
+       message_limit: @message_page_size
      )
      |> refresh()}
   end
@@ -540,6 +552,8 @@ defmodule VeejrWeb.MessagesLive do
   defp clear_selected_recipient(socket) do
     assign(socket, selected_recipient_type: nil, selected_recipient_id: nil)
   end
+
+  defp reset_message_limit(socket), do: assign(socket, :message_limit, @message_page_size)
 
   defp scroll_to_selected(socket) do
     case socket.assigns[:selected_conversation_key] do

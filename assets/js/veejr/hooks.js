@@ -422,8 +422,12 @@ export const ScrollBottom = {
     this.beforeLoadHeight = 0
     this.threadId = this.el.id
     this.pinnedToBottom = true
+    this.hasMore = () => {
+      const value = this.el.dataset.hasMore
+      return value === "" || value === "true"
+    }
     this.loadMore = () => {
-      if (this.loadingMore || this.el.dataset.hasMore !== "true") return
+      if (this.loadingMore || !this.hasMore()) return
 
       this.loadingMore = true
       this.beforeLoadHeight = this.el.scrollHeight
@@ -434,15 +438,19 @@ export const ScrollBottom = {
         this.el.scrollHeight - this.el.scrollTop - this.el.clientHeight
       this.pinnedToBottom = distanceFromBottom <= 48
 
-      if (this.loadingMore || this.el.dataset.hasMore !== "true") return
+      if (this.loadingMore || !this.hasMore()) return
       if (this.el.scrollTop > 48) return
 
       this.loadMore()
     }
     this.onClick = (event) => {
       if (!event.target.closest("[data-role='load-more-messages']")) return
-      event.preventDefault()
-      this.loadMore()
+      if (this.loadingMore || !this.hasMore()) return
+
+      // The button owns the LiveView event; record the pre-update height here
+      // so updated() can preserve the user's viewport after older rows arrive.
+      this.loadingMore = true
+      this.beforeLoadHeight = this.el.scrollHeight
     }
     this.el.addEventListener("scroll", this.onScroll)
     this.el.addEventListener("click", this.onClick)
