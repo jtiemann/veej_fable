@@ -126,7 +126,7 @@ defmodule VeejrWeb.MessagesLive do
                     {Enum.join(conv.participants, ", ")}
                   </span>
                   <span class="mt-0.5 flex items-center justify-between gap-2 text-xs opacity-70">
-                    <span>{length(conv.envelopes)} messages</span>
+                    <span>{conv.message_count} messages</span>
                     <span>{Calendar.strftime(conv.latest.inserted_at, "%b %d")}</span>
                   </span>
                 </span>
@@ -211,7 +211,7 @@ defmodule VeejrWeb.MessagesLive do
                     {Enum.join(@selected_conversation.participants, ", ")}
                   </h2>
                   <p class="text-xs opacity-70">
-                    {length(@selected_conversation.envelopes)} messages
+                    {@selected_conversation.message_count} messages
                   </p>
                 </div>
                 <div class="flex shrink-0 items-center gap-2">
@@ -528,8 +528,11 @@ defmodule VeejrWeb.MessagesLive do
     friends = Social.list_friends(user)
     groups = Social.list_groups(user)
     message_limit = socket.assigns[:message_limit] || @message_page_size
-    {conversations, has_more_messages} = build_conversations(user, friends, message_limit)
     selected_key = socket.assigns[:selected_conversation_key]
+
+    {conversations, has_more_messages} =
+      build_conversations(user, friends, message_limit, selected_key)
+
     selected_conversation = Enum.find(conversations, &(&1.key == selected_key))
     selected_key = if selected_conversation, do: selected_key
     selected_recipient = selected_recipient(socket, friends, groups)
@@ -739,27 +742,30 @@ defmodule VeejrWeb.MessagesLive do
   # what @alice sent you form separate threads (a received group message
   # lands in the sender's thread — the server can't see its other
   # recipients; the decrypted payload shows them).
-  defp build_conversations(user, friends, limit) do
+  defp build_conversations(user, friends, limit, selected_key) do
     handle_to_id = Map.new(friends, &{Veejr.Social.Address.handle(&1), &1.id})
     archived_keys = Messaging.archived_conversation_keys(user)
 
+    # Conversation keys are derived from participants, so history must be
+    # grouped before applying the per-conversation display window. Limiting
+    # this query first would let newer messages in another thread hide older
+    # messages from the selected conversation.
     envelopes =
       user
-      |> Messaging.list_history(kind: "message", limit: limit + 1)
-
-    has_more? = length(envelopes) > limit
+      |> Messaging.list_history(kind: "message")
 
     conversations =
       envelopes
-      |> Enum.take(limit)
       |> Enum.group_by(&participants(user, &1))
       |> Enum.map(fn {participants, envelopes} ->
         envelopes = Enum.sort_by(envelopes, & &1.id)
+        message_count = length(envelopes)
 
         %{
           key: Messaging.conversation_key(participants),
           participants: participants,
-          envelopes: envelopes,
+          envelopes: Enum.take(envelopes, -limit),
+          message_count: message_count,
           latest: List.last(envelopes),
           reply_ids:
             participants
@@ -770,6 +776,12 @@ defmodule VeejrWeb.MessagesLive do
       end)
       |> Enum.reject(&MapSet.member?(archived_keys, &1.key))
       |> Enum.sort_by(& &1.latest.id, :desc)
+
+    has_more? =
+      case Enum.find(conversations, &(&1.key == selected_key)) do
+        %{message_count: count} -> count > limit
+        _ -> false
+      end
 
     {conversations, has_more?}
   end

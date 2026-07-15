@@ -130,14 +130,14 @@ defmodule Veejr.Push do
         }
       end) ++
         Enum.map(android_sessions, fn session ->
-        %{
-          notification_id: notification.id,
-          api_device_session_id: session.id,
-          channel: "android",
-          attempts: 0,
-          next_attempt_at: now,
-          inserted_at: now,
-          updated_at: now
+          %{
+            notification_id: notification.id,
+            api_device_session_id: session.id,
+            channel: "android",
+            attempts: 0,
+            next_attempt_at: now,
+            inserted_at: now,
+            updated_at: now
           }
         end),
       on_conflict: :nothing
