@@ -146,6 +146,14 @@ is a production secret: never add it to this repository, an Android build, an
 ordinary environment file, or a Docker image. This turns on `android_push` in
 the capabilities API. Browser Web Push remains available without it.
 
+### Browser push troubleshooting
+
+Browser Web Push requires HTTPS (except on localhost), an allowed notification
+permission, and a browser push service. In Brave, enable **Use Google services
+for push messaging** under `brave://settings/privacy` if enabling push reports
+`Registration failed - push service error`. Then refresh the Settings page and
+select **Enable push on this device** again.
+
 ### FCM Docker Swarm setup (current Windows host)
 
 This host runs Docker Desktop on Windows. Store the downloaded Firebase key

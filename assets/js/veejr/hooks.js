@@ -505,13 +505,26 @@ export const PushSetup = {
         if (permission !== "granted") throw new Error("notification permission was not granted")
 
         say("Registering service worker…")
-        const registration = await navigator.serviceWorker.register("/sw.js")
-        await navigator.serviceWorker.ready
+        await navigator.serviceWorker.register("/sw.js")
+        const registration = await navigator.serviceWorker.ready
 
         say("Subscribing…")
-        const subscription = await registration.pushManager.subscribe({
+        const applicationServerKey = urlB64ToBytes(el.dataset.vapidKey)
+        let subscription = await registration.pushManager.getSubscription()
+
+        // A subscription is bound to the VAPID key used to create it. If the
+        // instance was restored from a backup or its key was regenerated,
+        // discard the stale browser subscription before creating a new one.
+        const existingKey = subscription?.options?.applicationServerKey
+        if (subscription && existingKey && !sameBytes(existingKey, applicationServerKey)) {
+          say("Refreshing an old push subscriptionâ€¦")
+          await subscription.unsubscribe()
+          subscription = null
+        }
+
+        subscription ||= await registration.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlB64ToBytes(el.dataset.vapidKey),
+          applicationServerKey,
         })
 
         const resp = await fetch("/push/subscriptions", {
@@ -537,6 +550,12 @@ function urlB64ToBytes(b64url) {
   const bytes = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
   return bytes
+}
+
+function sameBytes(a, b) {
+  const left = new Uint8Array(a)
+  if (left.length !== b.length) return false
+  return left.every((value, index) => value === b[index])
 }
 
 // Lock button: drop the cached secret key for this session.
