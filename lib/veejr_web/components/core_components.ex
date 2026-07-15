@@ -296,7 +296,7 @@ defmodule VeejrWeb.CoreComponents do
           value={Phoenix.HTML.Form.normalize_value(@type, @value)}
           class={[
             @class || "w-full input",
-            "pr-12",
+            "w-full !pr-12",
             @errors != [] && (@error_class || "input-error")
           ]}
           {@rest}
@@ -304,7 +304,7 @@ defmodule VeejrWeb.CoreComponents do
         <button
           id={"#{@id}-password-visibility-toggle"}
           type="button"
-          class="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-base-content/60 transition-colors hover:text-base-content focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          class="absolute right-1 top-1/2 z-10 flex size-10 -translate-y-1/2 items-center justify-center rounded-md text-base-content/60 transition-colors hover:bg-base-200 hover:text-base-content focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           data-role="password-visibility-toggle"
           data-secret-label="password"
           aria-label="Show password"
