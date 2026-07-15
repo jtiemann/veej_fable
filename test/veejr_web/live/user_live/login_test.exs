@@ -6,11 +6,17 @@ defmodule VeejrWeb.UserLive.LoginTest do
 
   describe "login page" do
     test "renders login page", %{conn: conn} do
-      {:ok, _lv, html} = live(conn, ~p"/users/log-in")
+      {:ok, lv, html} = live(conn, ~p"/users/log-in")
 
       assert html =~ "Log in"
       assert html =~ "Sign up"
       assert html =~ "Email me a one-time link"
+      assert has_element?(lv, "#user_password-password-visibility[phx-hook=PasswordVisibility]")
+
+      assert has_element?(
+               lv,
+               "#user_password-password-visibility-toggle[aria-label='Show password']"
+             )
     end
   end
 

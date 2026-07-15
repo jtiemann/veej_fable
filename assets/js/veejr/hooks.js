@@ -1237,6 +1237,27 @@ export const AutoDismissFlash = {
   },
 }
 
+export const PasswordVisibility = {
+  mounted() {
+    const input = this.el.querySelector("input[type=password]")
+    const toggle = this.el.querySelector("[data-role=password-visibility-toggle]")
+    const icon = this.el.querySelector("[data-role=password-visibility-icon] > span")
+
+    if (!input || !toggle || !icon) return
+
+    const secretLabel = toggle.dataset.secretLabel || "password"
+
+    toggle.addEventListener("click", () => {
+      const showing = input.type === "text"
+      input.type = showing ? "password" : "text"
+      toggle.setAttribute("aria-pressed", String(!showing))
+      toggle.setAttribute("aria-label", `${showing ? "Show" : "Hide"} ${secretLabel}`)
+      icon.classList.toggle("hero-eye", showing)
+      icon.classList.toggle("hero-eye-slash", !showing)
+    })
+  },
+}
+
 import VeejrMap from "./map_hook.js"
 
 export default {
@@ -1252,6 +1273,7 @@ export default {
   Decrypt,
   MessageBubble,
   AutoDismissFlash,
+  PasswordVisibility,
   ReplyTo,
   ScrollBottom,
   VeejrMap,

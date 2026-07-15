@@ -282,6 +282,44 @@ defmodule VeejrWeb.CoreComponents do
     """
   end
 
+  def input(%{type: "password"} = assigns) do
+    ~H"""
+    <div class="fieldset mb-2">
+      <label for={@id}>
+        <span :if={@label} class="label mb-1">{@label}</span>
+      </label>
+      <div id={"#{@id}-password-visibility"} class="relative" phx-hook="PasswordVisibility">
+        <input
+          type="password"
+          name={@name}
+          id={@id}
+          value={Phoenix.HTML.Form.normalize_value(@type, @value)}
+          class={[
+            @class || "w-full input",
+            "pr-12",
+            @errors != [] && (@error_class || "input-error")
+          ]}
+          {@rest}
+        />
+        <button
+          id={"#{@id}-password-visibility-toggle"}
+          type="button"
+          class="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-base-content/60 transition-colors hover:text-base-content focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          data-role="password-visibility-toggle"
+          data-secret-label="password"
+          aria-label="Show password"
+          aria-pressed="false"
+        >
+          <span data-role="password-visibility-icon">
+            <.icon name="hero-eye" class="size-5" />
+          </span>
+        </button>
+      </div>
+      <.error :for={msg <- @errors}>{msg}</.error>
+    </div>
+    """
+  end
+
   # All other inputs text, datetime-local, url, password, etc. are handled here...
   def input(assigns) do
     ~H"""

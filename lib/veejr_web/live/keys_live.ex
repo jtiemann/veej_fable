@@ -28,13 +28,11 @@ defmodule VeejrWeb.KeysLive do
             class="mt-6 space-y-4"
           >
             <p data-role="error" class="hidden text-error text-sm"></p>
-            <label class="fieldset-label">Encryption passphrase</label>
-            <input
-              type="password"
-              data-role="passphrase"
-              class="input w-full"
+            <label for="key-unlock-passphrase" class="fieldset-label">Encryption passphrase</label>
+            <.passphrase_input
+              id="key-unlock-passphrase"
+              role="passphrase"
               autocomplete="off"
-              required
             />
             <button type="submit" class="btn btn-primary w-full">Unlock</button>
           </form>
@@ -71,26 +69,23 @@ defmodule VeejrWeb.KeysLive do
               class="mt-3 space-y-2"
             >
               <p data-role="error" class="hidden text-error text-sm"></p>
-              <input
-                type="password"
-                data-role="current"
+              <.passphrase_input
+                id="key-rewrap-current"
+                role="current"
                 placeholder="current passphrase"
-                class="input input-sm w-full"
-                required
+                compact
               />
-              <input
-                type="password"
-                data-role="next"
+              <.passphrase_input
+                id="key-rewrap-next"
+                role="next"
                 placeholder="new passphrase (min 8 characters)"
-                class="input input-sm w-full"
-                required
+                compact
               />
-              <input
-                type="password"
-                data-role="confirm"
+              <.passphrase_input
+                id="key-rewrap-confirm"
+                role="confirm"
                 placeholder="confirm new passphrase"
-                class="input input-sm w-full"
-                required
+                compact
               />
               <button type="submit" class="btn btn-sm">Change passphrase</button>
             </form>
@@ -116,19 +111,17 @@ defmodule VeejrWeb.KeysLive do
               class="mt-3 space-y-2"
             >
               <p data-role="error" class="hidden text-error text-sm"></p>
-              <input
-                type="password"
-                data-role="current"
+              <.passphrase_input
+                id="key-rotate-current"
+                role="current"
                 placeholder="current passphrase"
-                class="input input-sm w-full"
-                required
+                compact
               />
-              <input
-                type="password"
-                data-role="next"
+              <.passphrase_input
+                id="key-rotate-next"
+                role="next"
                 placeholder="new passphrase (min 8 characters)"
-                class="input input-sm w-full"
-                required
+                compact
               />
               <button type="submit" class="btn btn-warning btn-sm">Rotate my keys</button>
             </form>
@@ -149,19 +142,17 @@ defmodule VeejrWeb.KeysLive do
             </p>
             <form id="key-reset" phx-hook="KeyReset" data-user-id={@user.id} class="mt-3 space-y-2">
               <p data-role="error" class="hidden text-error text-sm"></p>
-              <input
-                type="password"
-                data-role="next"
+              <.passphrase_input
+                id="key-reset-next"
+                role="next"
                 placeholder="new passphrase (min 8 characters)"
-                class="input input-sm w-full"
-                required
+                compact
               />
-              <input
-                type="password"
-                data-role="confirm"
+              <.passphrase_input
+                id="key-reset-confirm"
+                role="confirm"
                 placeholder="confirm new passphrase"
-                class="input input-sm w-full"
-                required
+                compact
               />
               <button type="submit" class="btn btn-error btn-sm">
                 Reset keys and delete received history
@@ -187,21 +178,17 @@ defmodule VeejrWeb.KeysLive do
             class="mt-6 space-y-4"
           >
             <p data-role="error" class="hidden text-error text-sm"></p>
-            <label class="fieldset-label">Encryption passphrase (min 8 characters)</label>
-            <input
-              type="password"
-              data-role="passphrase"
-              class="input w-full"
+            <label for="key-setup-passphrase" class="fieldset-label">Encryption passphrase (min 8 characters)</label>
+            <.passphrase_input
+              id="key-setup-passphrase"
+              role="passphrase"
               autocomplete="new-password"
-              required
             />
-            <label class="fieldset-label">Confirm passphrase</label>
-            <input
-              type="password"
-              data-role="confirm"
-              class="input w-full"
+            <label for="key-setup-confirm" class="fieldset-label">Confirm passphrase</label>
+            <.passphrase_input
+              id="key-setup-confirm"
+              role="confirm"
               autocomplete="new-password"
-              required
             />
             <button type="submit" class="btn btn-primary w-full">Generate my keys</button>
             <p class="text-xs opacity-70">
@@ -223,6 +210,39 @@ defmodule VeejrWeb.KeysLive do
        return_to: valid_return_to(params["return_to"]),
        page_title: "Keys"
      )}
+  end
+
+  attr :id, :string, required: true
+  attr :role, :string, required: true
+  attr :placeholder, :string, default: nil
+  attr :autocomplete, :string, default: nil
+  attr :compact, :boolean, default: false
+
+  defp passphrase_input(assigns) do
+    ~H"""
+    <div id={"#{@id}-password-visibility"} class="relative" phx-hook="PasswordVisibility">
+      <input
+        id={@id}
+        type="password"
+        data-role={@role}
+        placeholder={@placeholder}
+        class={["input w-full pr-12", @compact && "input-sm"]}
+        autocomplete={@autocomplete}
+        required
+      />
+      <button
+        id={"#{@id}-password-visibility-toggle"}
+        type="button"
+        class="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-base-content/60 transition-colors hover:text-base-content focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        data-role="password-visibility-toggle"
+        data-secret-label="passphrase"
+        aria-label="Show passphrase"
+        aria-pressed="false"
+      >
+        <span data-role="password-visibility-icon"><.icon name="hero-eye" class="size-5" /></span>
+      </button>
+    </div>
+    """
   end
 
   @impl true
