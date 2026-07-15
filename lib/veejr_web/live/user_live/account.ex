@@ -1,6 +1,8 @@
 defmodule VeejrWeb.UserLive.Account do
   use VeejrWeb, :live_view
 
+  alias Veejr.Push
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -15,6 +17,63 @@ defmodule VeejrWeb.UserLive.Account do
           {@current_scope.user.username}
           <:subtitle>Manage your account, security, and device preferences.</:subtitle>
         </.header>
+      </section>
+
+      <section
+        id="account-status"
+        phx-hook="AccountStatus"
+        data-user-id={@current_scope.user.id}
+        data-has-identity={not is_nil(@current_scope.user.public_key)}
+        class="rounded-2xl border border-base-300/70 bg-base-200/40 p-5"
+      >
+        <div class="mb-4 flex items-center gap-3">
+          <span class="flex size-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <.icon name="hero-identification" class="size-5" />
+          </span>
+          <div>
+            <h2 class="font-semibold">Account identity</h2>
+            <p class="text-sm text-base-content/60">Profile and device status</p>
+          </div>
+        </div>
+
+        <dl class="grid gap-3 text-sm sm:grid-cols-2">
+          <div id="account-nickname" class="rounded-xl bg-base-100/70 px-3 py-2">
+            <dt class="text-xs uppercase tracking-wide text-base-content/55">Nickname</dt>
+            <dd class="mt-1 font-medium">{@current_scope.user.display_name || "Not set"}</dd>
+          </div>
+          <div id="account-username" class="rounded-xl bg-base-100/70 px-3 py-2">
+            <dt class="text-xs uppercase tracking-wide text-base-content/55">Username</dt>
+            <dd class="mt-1 font-medium">@{@current_scope.user.username}</dd>
+          </div>
+          <div id="account-identity-status" class="rounded-xl bg-base-100/70 px-3 py-2">
+            <dt class="text-xs uppercase tracking-wide text-base-content/55">
+              Identity (this browser)
+            </dt>
+            <dd class="mt-1">
+              <span
+                data-role="identity-status"
+                class="badge badge-sm badge-neutral"
+                aria-live="polite"
+              >
+                Checking…
+              </span>
+            </dd>
+          </div>
+          <div id="account-fcm-status" class="rounded-xl bg-base-100/70 px-3 py-2">
+            <dt class="text-xs uppercase tracking-wide text-base-content/55">FCM notifications</dt>
+            <dd class="mt-1">
+              <span class={[
+                "badge badge-sm",
+                if(@fcm_device_count > 0, do: "badge-success", else: "badge-warning")
+              ]}>
+                {if @fcm_device_count > 0, do: "Registered", else: "Not registered"}
+              </span>
+              <span :if={@fcm_device_count > 0} class="ml-1 text-xs text-base-content/60">
+                ({@fcm_device_count} device{if @fcm_device_count != 1, do: "s"})
+              </span>
+            </dd>
+          </div>
+        </dl>
       </section>
 
       <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-label="Account settings">
@@ -106,6 +165,12 @@ defmodule VeejrWeb.UserLive.Account do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, page_title: "Account")}
+    user = socket.assigns.current_scope.user
+
+    {:ok,
+     assign(socket,
+       page_title: "Account",
+       fcm_device_count: Push.android_registration_count(user)
+     )}
   end
 end

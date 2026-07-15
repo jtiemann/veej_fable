@@ -78,6 +78,14 @@ defmodule Veejr.Push do
     from(s in Subscription, where: s.user_id == ^user_id) |> Repo.aggregate(:count)
   end
 
+  @doc "Returns the number of Android devices with an FCM token registered for `user`."
+  def android_registration_count(%User{id: user_id}) do
+    from(s in ApiDeviceSession,
+      where: s.user_id == ^user_id and not is_nil(s.push_token)
+    )
+    |> Repo.aggregate(:count)
+  end
+
   def register_android_token(%User{id: user_id}, session_id, token) when is_binary(token) do
     now = DateTime.utc_now(:second)
 

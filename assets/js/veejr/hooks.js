@@ -619,6 +619,31 @@ export const KeyLock = {
   },
 }
 
+// The server stores only the wrapped secret key. This status is therefore
+// resolved locally from the browser session cache and never sends key data
+// over the LiveView socket.
+export const AccountStatus = {
+  mounted() {
+    this.renderIdentityStatus()
+  },
+  updated() {
+    this.renderIdentityStatus()
+  },
+  renderIdentityStatus() {
+    const status = this.el.querySelector("[data-role=identity-status]")
+    if (!status) return
+
+    const hasIdentity = this.el.dataset.hasIdentity === "true"
+    const unlocked = hasIdentity && Boolean(getSecretKey(this.el.dataset.userId))
+    const label = !hasIdentity ? "Not configured" : unlocked ? "Unlocked" : "Locked"
+    const tone = !hasIdentity ? "badge-neutral" : unlocked ? "badge-success" : "badge-warning"
+
+    status.textContent = label
+    status.classList.remove("badge-neutral", "badge-success", "badge-warning")
+    status.classList.add(tone)
+  },
+}
+
 // Composer: a plain (non-LiveView) form. Message text, files, and recipient
 // choices are read locally; only ciphertext leaves this hook.
 //
@@ -1401,6 +1426,7 @@ export default {
   KeyRotate,
   KeyReset,
   PushSetup,
+  AccountStatus,
   InstallApp,
   Composer,
   Decrypt,
