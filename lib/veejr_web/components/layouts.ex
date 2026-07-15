@@ -84,14 +84,14 @@ defmodule VeejrWeb.Layouts do
         <ul class="flex px-1 space-x-2 items-center">
           <li><.theme_toggle /></li>
           <%= if @current_scope do %>
-            <li class="hidden sm:block text-sm opacity-70">@{@current_scope.user.username}</li>
             <li>
-              <.link navigate={~p"/keys"} class="btn btn-ghost btn-sm" title="Encryption keys">
-                🔑
+              <.link
+                navigate={~p"/account"}
+                class="btn btn-ghost btn-sm max-w-40 truncate"
+                title="Account"
+              >
+                @{@current_scope.user.username}
               </.link>
-            </li>
-            <li>
-              <.link navigate={~p"/users/settings"} class="btn btn-ghost btn-sm">Settings</.link>
             </li>
             <li>
               <.link href={~p"/users/log-out"} method="delete" class="btn btn-ghost btn-sm">

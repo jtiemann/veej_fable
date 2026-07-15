@@ -24,7 +24,7 @@ defmodule VeejrWeb.UserSessionControllerTest do
       conn = get(conn, ~p"/users/settings")
       response = html_response(conn, 200)
       assert response =~ user.email
-      assert response =~ ~p"/users/settings"
+      assert response =~ ~p"/account"
       assert response =~ ~p"/users/log-out"
     end
 
@@ -90,7 +90,7 @@ defmodule VeejrWeb.UserSessionControllerTest do
       conn = get(conn, ~p"/users/settings")
       response = html_response(conn, 200)
       assert response =~ user.email
-      assert response =~ ~p"/users/settings"
+      assert response =~ ~p"/account"
       assert response =~ ~p"/users/log-out"
     end
 
@@ -114,7 +114,7 @@ defmodule VeejrWeb.UserSessionControllerTest do
       conn = get(conn, ~p"/users/settings")
       response = html_response(conn, 200)
       assert response =~ user.email
-      assert response =~ ~p"/users/settings"
+      assert response =~ ~p"/account"
       assert response =~ ~p"/users/log-out"
     end
 
