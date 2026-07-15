@@ -123,19 +123,21 @@ defmodule Veejr.Push do
           notification_id: notification.id,
           push_subscription_id: subscription.id,
           channel: "web",
+          attempts: 0,
           next_attempt_at: now,
           inserted_at: now,
           updated_at: now
         }
       end) ++
         Enum.map(android_sessions, fn session ->
-          %{
-            notification_id: notification.id,
-            api_device_session_id: session.id,
-            channel: "android",
-            next_attempt_at: now,
-            inserted_at: now,
-            updated_at: now
+        %{
+          notification_id: notification.id,
+          api_device_session_id: session.id,
+          channel: "android",
+          attempts: 0,
+          next_attempt_at: now,
+          inserted_at: now,
+          updated_at: now
           }
         end),
       on_conflict: :nothing
