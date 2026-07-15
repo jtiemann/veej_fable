@@ -85,6 +85,19 @@ First-time flow:
    means received encrypted history cannot be recovered.
 4. Add a friend on `/contacts`, then send from `/messages` or `/map`.
 
+### Account and conversation controls
+
+Click your username in the header to open the account page. From there you
+can open Settings, manage encryption keys, or open Archived conversations.
+
+To archive a conversation, open it in `/messages` and choose **Archive** in
+the conversation header. Archiving hides the thread from Messages and
+Contacts without deleting its messages. Restore it from Account → Archived
+conversations by choosing **Unarchive**.
+
+In Messages, the composer stays pinned to the bottom of the conversation.
+Press **Enter** to send; press **Shift+Enter** to insert a newline.
+
 Useful commands:
 
 ```sh

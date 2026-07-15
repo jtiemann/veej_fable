@@ -287,6 +287,8 @@ defmodule VeejrWeb.MessagingComponents do
           <textarea
             data-role="text"
             rows="1"
+            aria-label="Message"
+            aria-keyshortcuts="Enter"
             class="textarea min-h-11 w-full resize-none rounded-[22px] border-0 bg-base-200 py-3 pl-4 pr-12 text-base-content placeholder:opacity-50 focus:outline-none focus:ring-2 focus:ring-primary/30"
             placeholder={@text_placeholder}
           ></textarea>
@@ -395,18 +397,21 @@ defmodule VeejrWeb.MessagingComponents do
         </button>
 
         <button
+          :if={@surface != "messages"}
           type="submit"
-          class={[
-            "btn border-0",
-            @surface == "messages" &&
-              "order-1 h-11 min-h-11 rounded-full bg-primary px-5 text-primary-content shadow-none hover:bg-primary/90 sm:order-none",
-            @surface != "messages" && "btn-primary"
-          ]}
+          class="btn btn-primary"
           disabled={!@can_send?}
         >
           {@submit_label}
         </button>
       </div>
+
+      <p
+        :if={@surface == "messages" && @show_text}
+        class="px-2 text-[0.7rem] opacity-50"
+      >
+        Enter to send · Shift+Enter for a new line
+      </p>
 
       <div
         :if={@show_files}

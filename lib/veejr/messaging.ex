@@ -15,6 +15,7 @@ defmodule Veejr.Messaging do
 
   alias Veejr.Messaging.{
     Blob,
+    ConversationArchive,
     ConversationWindow,
     Envelope,
     MessageDeliveryPolicy,
@@ -495,6 +496,75 @@ defmodule Veejr.Messaging do
 
   ## History
 
+  @doc "Returns the stable key used to identify a conversation by participants."
+  def conversation_key(participants) when is_list(participants) do
+    participants
+    |> Enum.sort()
+    |> Enum.join("|")
+    |> then(fn value -> :crypto.hash(:md5, value) end)
+    |> Base.url_encode64(padding: false)
+  end
+
+  @doc "Lists the current user's archived conversations, newest archive first."
+  def list_archived_conversations(%User{id: user_id}) do
+    from(a in ConversationArchive,
+      where: a.user_id == ^user_id,
+      order_by: [desc: a.updated_at]
+    )
+    |> Repo.all()
+    |> Enum.map(fn archive ->
+      %{
+        key: archive.conversation_key,
+        participants: decode_participants(archive.participants),
+        archived_at: archive.updated_at
+      }
+    end)
+  end
+
+  @doc "Returns the current user's archived conversation keys."
+  def archived_conversation_keys(%User{id: user_id}) do
+    from(a in ConversationArchive,
+      where: a.user_id == ^user_id,
+      select: a.conversation_key
+    )
+    |> Repo.all()
+    |> MapSet.new()
+  end
+
+  @doc "Archives a conversation for `user` when its key matches its participants."
+  def archive_conversation(%User{id: user_id}, key, participants)
+      when is_binary(key) and is_list(participants) do
+    if participants != [] and conversation_key(participants) == key do
+      now = DateTime.utc_now(:second)
+      encoded_participants = Jason.encode!(participants)
+
+      %ConversationArchive{}
+      |> ConversationArchive.changeset(%{
+        user_id: user_id,
+        conversation_key: key,
+        participants: encoded_participants
+      })
+      |> Repo.insert(
+        on_conflict: [set: [participants: encoded_participants, updated_at: now]],
+        conflict_target: [:user_id, :conversation_key]
+      )
+    else
+      {:error, :invalid_conversation}
+    end
+  end
+
+  @doc "Removes an archive record for the current user."
+  def unarchive_conversation(%User{id: user_id}, key) when is_binary(key) do
+    {count, _} =
+      Repo.delete_all(
+        from(a in ConversationArchive,
+          where: a.user_id == ^user_id and a.conversation_key == ^key
+        )
+      )
+
+    if count > 0, do: :ok, else: {:error, :not_archived}
+  end
+
   @doc """
   Everything `user` can decrypt, newest first: their own self-copies (sent
   items) and received envelopes they accepted. Filterable by `:kind`.
@@ -554,6 +624,13 @@ defmodule Veejr.Messaging do
   end
 
   defp expired?(_), do: false
+
+  defp decode_participants(value) do
+    case Jason.decode(value) do
+      {:ok, participants} when is_list(participants) -> participants
+      _ -> []
+    end
+  end
 
   ## Message delivery policies
 

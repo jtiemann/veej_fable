@@ -675,6 +675,7 @@ defmodule VeejrWeb.ContactsLive do
 
   defp build_conversations(user, friends) do
     handle_to_id = Map.new(friends, &{Social.Address.handle(&1), &1.id})
+    archived_keys = Messaging.archived_conversation_keys(user)
 
     user
     |> Messaging.list_history(kind: "message", limit: @conversation_limit)
@@ -688,7 +689,7 @@ defmodule VeejrWeb.ContactsLive do
         |> Enum.reject(&is_nil/1)
 
       %{
-        key: conversation_key(participants),
+        key: Messaging.conversation_key(participants),
         participants: participants,
         envelopes: envelopes,
         latest: List.last(envelopes),
@@ -696,12 +697,8 @@ defmodule VeejrWeb.ContactsLive do
         policy_id: if(length(reply_ids) == 1, do: List.first(reply_ids))
       }
     end)
+    |> Enum.reject(&MapSet.member?(archived_keys, &1.key))
     |> Enum.sort_by(& &1.latest.id, :desc)
-  end
-
-  defp conversation_key(participants) do
-    :crypto.hash(:md5, Enum.join(participants, "|"))
-    |> Base.url_encode64(padding: false)
   end
 
   defp participants(user, envelope) do

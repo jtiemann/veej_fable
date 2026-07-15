@@ -214,13 +214,23 @@ defmodule VeejrWeb.MessagesLive do
                     {length(@selected_conversation.envelopes)} messages
                   </p>
                 </div>
-                <button
-                  id="new-message"
-                  phx-click="new_message"
-                  class="rounded-full px-3 py-1.5 text-sm font-medium opacity-80 hover:bg-base-200 hover:opacity-100"
-                >
-                  New chat
-                </button>
+                <div class="flex shrink-0 items-center gap-2">
+                  <button
+                    id="archive-conversation"
+                    phx-click="archive_conversation"
+                    phx-value-key={@selected_conversation.key}
+                    class="rounded-full px-3 py-1.5 text-sm font-medium opacity-80 hover:bg-base-200 hover:opacity-100"
+                  >
+                    <.icon name="hero-archive-box" class="mr-1 inline size-4" /> Archive
+                  </button>
+                  <button
+                    id="new-message"
+                    phx-click="new_message"
+                    class="rounded-full px-3 py-1.5 text-sm font-medium opacity-80 hover:bg-base-200 hover:opacity-100"
+                  >
+                    New chat
+                  </button>
+                </div>
               </div>
 
               <div
@@ -248,9 +258,10 @@ defmodule VeejrWeb.MessagesLive do
                   user={@current_scope.user}
                   mine={envelope.sender_id == @current_scope.user.id}
                 />
+                <div data-role="thread-end" aria-hidden="true" class="h-px shrink-0" />
               </div>
 
-              <section class="border-t border-base-300 bg-base-100/90 p-3 backdrop-blur">
+              <section class="sticky bottom-0 z-20 border-t border-base-300 bg-base-100/90 p-3 shadow-[0_-8px_24px_rgba(0,0,0,0.06)] backdrop-blur">
                 <.composer
                   id="message-composer"
                   user={@current_scope.user}
@@ -320,7 +331,7 @@ defmodule VeejrWeb.MessagesLive do
 
   @impl true
   def handle_params(params, _url, socket) do
-    {:noreply, params |> apply_message_params(socket) |> refresh()}
+    {:noreply, params |> apply_message_params(socket) |> refresh() |> scroll_to_selected()}
   end
 
   @impl true
@@ -352,7 +363,33 @@ defmodule VeejrWeb.MessagesLive do
      socket
      |> assign(:selected_conversation_key, key)
      |> clear_selected_recipient()
-     |> refresh()}
+     |> refresh()
+     |> scroll_to_selected()}
+  end
+
+  def handle_event("archive_conversation", %{"key" => key}, socket) do
+    case Enum.find(socket.assigns.conversations, &(&1.key == key)) do
+      %{participants: participants} ->
+        case Messaging.archive_conversation(
+               socket.assigns.current_scope.user,
+               key,
+               participants
+             ) do
+          {:ok, _archive} ->
+            {:noreply,
+             socket
+             |> assign(:selected_conversation_key, nil)
+             |> clear_selected_recipient()
+             |> put_flash(:info, "Conversation archived.")
+             |> refresh()}
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Could not archive that conversation.")}
+        end
+
+      nil ->
+        {:noreply, put_flash(socket, :error, "Conversation not found.")}
+    end
   end
 
   def handle_event("new_message", _params, socket) do
@@ -495,6 +532,16 @@ defmodule VeejrWeb.MessagesLive do
 
   defp clear_selected_recipient(socket) do
     assign(socket, selected_recipient_type: nil, selected_recipient_id: nil)
+  end
+
+  defp scroll_to_selected(socket) do
+    case socket.assigns[:selected_conversation_key] do
+      key when is_binary(key) ->
+        push_event(socket, "scroll_to_bottom", %{thread_id: "thread-#{key}"})
+
+      _ ->
+        socket
+    end
   end
 
   defp apply_message_params(%{"conversation" => key}, socket) when is_binary(key) do
@@ -673,6 +720,7 @@ defmodule VeejrWeb.MessagesLive do
   # recipients; the decrypted payload shows them).
   defp build_conversations(user, friends, limit) do
     handle_to_id = Map.new(friends, &{Veejr.Social.Address.handle(&1), &1.id})
+    archived_keys = Messaging.archived_conversation_keys(user)
 
     envelopes =
       user
@@ -688,9 +736,7 @@ defmodule VeejrWeb.MessagesLive do
         envelopes = Enum.sort_by(envelopes, & &1.id)
 
         %{
-          key:
-            :crypto.hash(:md5, Enum.join(participants, "|"))
-            |> Base.url_encode64(padding: false),
+          key: Messaging.conversation_key(participants),
           participants: participants,
           envelopes: envelopes,
           latest: List.last(envelopes),
@@ -701,6 +747,7 @@ defmodule VeejrWeb.MessagesLive do
             |> Enum.join(",")
         }
       end)
+      |> Enum.reject(&MapSet.member?(archived_keys, &1.key))
       |> Enum.sort_by(& &1.latest.id, :desc)
 
     {conversations, has_more?}

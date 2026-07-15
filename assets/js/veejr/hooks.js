@@ -420,6 +420,8 @@ export const ScrollBottom = {
   mounted() {
     this.loadingMore = false
     this.beforeLoadHeight = 0
+    this.threadId = this.el.id
+    this.pinnedToBottom = true
     this.loadMore = () => {
       if (this.loadingMore || this.el.dataset.hasMore !== "true") return
 
@@ -428,6 +430,10 @@ export const ScrollBottom = {
       this.pushEvent("load_more_messages", {})
     }
     this.onScroll = () => {
+      const distanceFromBottom =
+        this.el.scrollHeight - this.el.scrollTop - this.el.clientHeight
+      this.pinnedToBottom = distanceFromBottom <= 48
+
       if (this.loadingMore || this.el.dataset.hasMore !== "true") return
       if (this.el.scrollTop > 48) return
 
@@ -440,28 +446,56 @@ export const ScrollBottom = {
     }
     this.el.addEventListener("scroll", this.onScroll)
     this.el.addEventListener("click", this.onClick)
+    this.handleEvent("scroll_to_bottom", ({thread_id}) => {
+      if (thread_id !== this.el.id) return
+      this.pinnedToBottom = true
+      this.toBottom()
+    })
+    this.mutationObserver = new MutationObserver(() => {
+      if (!this.loadingMore && this.pinnedToBottom) this.toBottom()
+    })
+    this.mutationObserver.observe(this.el, {childList: true, subtree: true})
     this.toBottom()
   },
   updated() {
+    const threadChanged = this.threadId !== this.el.id
+    this.threadId = this.el.id
+
+    if (threadChanged) {
+      this.loadingMore = false
+      this.pinnedToBottom = true
+      this.toBottom()
+      return
+    }
+
     if (this.loadingMore) {
       requestAnimationFrame(() => {
         const delta = this.el.scrollHeight - this.beforeLoadHeight
         this.el.scrollTop = this.el.scrollTop + delta
         this.loadingMore = false
       })
-    } else {
+    } else if (this.pinnedToBottom) {
       this.toBottom()
     }
   },
   destroyed() {
     if (this.onScroll) this.el.removeEventListener("scroll", this.onScroll)
     if (this.onClick) this.el.removeEventListener("click", this.onClick)
+    if (this.mutationObserver) this.mutationObserver.disconnect()
+    clearTimeout(this.scrollRetry)
   },
   toBottom() {
-    // let decrypted bubbles paint first
-    requestAnimationFrame(() => {
-      this.el.scrollTop = this.el.scrollHeight
-    })
+    // Let decrypted bubbles and their media dimensions paint before measuring.
+    const scroll = () => {
+      requestAnimationFrame(() => {
+        this.el.scrollTop = this.el.scrollHeight
+        this.el.querySelector("[data-role='thread-end']")?.scrollIntoView({block: "end"})
+      })
+    }
+
+    requestAnimationFrame(scroll)
+    clearTimeout(this.scrollRetry)
+    this.scrollRetry = setTimeout(scroll, 120)
   },
 }
 
@@ -589,6 +623,13 @@ export const KeyLock = {
 export const Composer = {
   mounted() {
     this.recordedAudio = []
+    this.textEl = this.el.querySelector("[data-role=text]")
+
+    this.onTextKeydown = (e) => {
+      if (e.key !== "Enter" || e.shiftKey || e.isComposing) return
+      e.preventDefault()
+      if (!e.repeat) this.send().catch((err) => showError(this.el, err.message))
+    }
 
     this.onComposerClick = (e) => {
       const optionsToggle = e.target.closest("[data-role=toggle-options]")
@@ -648,6 +689,7 @@ export const Composer = {
     this.el.addEventListener("click", this.onComposerClick)
     document.addEventListener("click", this.onDocumentClick)
     document.addEventListener("keydown", this.onDocumentKeydown)
+    if (this.textEl) this.textEl.addEventListener("keydown", this.onTextKeydown)
 
     this.el.addEventListener("submit", (e) => {
       e.preventDefault()
@@ -671,6 +713,7 @@ export const Composer = {
     if (this.onComposerClick) this.el.removeEventListener("click", this.onComposerClick)
     if (this.onDocumentClick) document.removeEventListener("click", this.onDocumentClick)
     if (this.onDocumentKeydown) document.removeEventListener("keydown", this.onDocumentKeydown)
+    if (this.textEl) this.textEl.removeEventListener("keydown", this.onTextKeydown)
     if (this.emojiMenu && this.emojiMenu.parentElement === document.body) this.emojiMenu.remove()
     this.recordedAudio.forEach((entry) => URL.revokeObjectURL(entry.url))
   },
@@ -828,6 +871,8 @@ export const Composer = {
   },
 
   async send() {
+    if (this.sending) return
+
     const form = this.el
     const {userId, myKey, kind} = form.dataset
     if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
@@ -875,9 +920,12 @@ export const Composer = {
     }
 
     const btn = form.querySelector("button[type=submit]")
-    btn.disabled = true
-    const originalLabel = btn.textContent
-    const busy = (label) => (btn.textContent = label)
+    this.sending = true
+    if (btn) btn.disabled = true
+    const originalLabel = btn?.textContent
+    const busy = (label) => {
+      if (btn) btn.textContent = label
+    }
 
     try {
       busy("Resolving recipients…")
@@ -940,8 +988,11 @@ export const Composer = {
       const err = form.querySelector("[data-role=error]")
       if (err) err.classList.add("hidden")
     } finally {
-      btn.disabled = false
-      btn.textContent = originalLabel
+      this.sending = false
+      if (btn) {
+        btn.disabled = false
+        btn.textContent = originalLabel
+      }
     }
   },
 

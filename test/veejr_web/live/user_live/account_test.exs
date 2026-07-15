@@ -15,6 +15,7 @@ defmodule VeejrWeb.UserLive.AccountTest do
     assert html =~ user.username
     assert html =~ ~p"/users/settings"
     assert html =~ ~p"/keys"
+    assert html =~ ~p"/account/archives"
   end
 
   test "requires authentication", %{conn: conn} do

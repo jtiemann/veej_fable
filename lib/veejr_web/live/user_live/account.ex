@@ -17,7 +17,7 @@ defmodule VeejrWeb.UserLive.Account do
         </.header>
       </section>
 
-      <section class="grid gap-4 sm:grid-cols-2" aria-label="Account settings">
+      <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-label="Account settings">
         <.link
           navigate={~p"/users/settings"}
           id="account-settings-link"
@@ -63,6 +63,26 @@ defmodule VeejrWeb.UserLive.Account do
           </div>
           <p class="mt-1 text-sm leading-6 text-base-content/70">
             Unlock, change, rotate, or reset the keys that protect your conversations.
+          </p>
+        </.link>
+
+        <.link
+          navigate={~p"/account/archives"}
+          id="account-archives-link"
+          class="group rounded-2xl border border-base-300 bg-base-100 p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        >
+          <div class="flex items-start justify-between gap-4">
+            <span class="flex size-11 items-center justify-center rounded-xl bg-base-200 text-base-content/70">
+              <.icon name="hero-archive-box" class="size-6" />
+            </span>
+            <.icon
+              name="hero-arrow-up-right"
+              class="size-5 text-base-content/40 transition group-hover:text-primary"
+            />
+          </div>
+          <h2 class="mt-5 text-lg font-semibold">Archived conversations</h2>
+          <p class="mt-1 text-sm leading-6 text-base-content/70">
+            Review conversations you have tucked away and bring them back when needed.
           </p>
         </.link>
       </section>
