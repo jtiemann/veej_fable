@@ -7,9 +7,11 @@ defmodule Veejr.Accounts.Invitation do
     field :expires_at, :utc_datetime
     field :accepted_at, :utc_datetime
     field :seen_at, :utc_datetime
+    field :revoked_at, :utc_datetime
 
     belongs_to :inviter, Veejr.Accounts.User
     belongs_to :accepted_by, Veejr.Accounts.User
+    belongs_to :revoked_by, Veejr.Accounts.User
 
     timestamps(type: :utc_datetime)
   end

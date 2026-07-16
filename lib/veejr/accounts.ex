@@ -216,7 +216,9 @@ defmodule Veejr.Accounts do
 
     Repo.one(
       from(i in Invitation,
-        where: i.token_hash == ^token_hash and is_nil(i.accepted_at) and i.expires_at > ^now,
+        where:
+          i.token_hash == ^token_hash and is_nil(i.accepted_at) and is_nil(i.revoked_at) and
+            i.expires_at > ^now,
         preload: [:inviter]
       )
     )

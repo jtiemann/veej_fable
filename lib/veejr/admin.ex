@@ -1,5 +1,5 @@
 defmodule Veejr.Admin do
-  @moduledoc "Read-only operational information for instance administration."
+  @moduledoc "Operational information and guarded instance administration actions."
 
   import Ecto.Query, warn: false
 
@@ -38,7 +38,9 @@ defmodule Veejr.Admin do
       operations: %{
         active_invitations:
           Repo.aggregate(
-            from(i in Invitation, where: is_nil(i.accepted_at) and i.expires_at > ^now),
+            from(i in Invitation,
+              where: is_nil(i.accepted_at) and is_nil(i.revoked_at) and i.expires_at > ^now
+            ),
             :count
           ),
         federation_queue: Outbox.pending_count(),
@@ -56,6 +58,51 @@ defmodule Veejr.Admin do
         database: database_version()
       }
     }
+  end
+
+  @doc "Lists the most recent tracked invitations with their participants."
+  def list_invitations(limit \\ 50) do
+    Repo.all(
+      from(i in Invitation,
+        order_by: [desc: i.inserted_at, desc: i.id],
+        limit: ^limit,
+        preload: [:inviter, :accepted_by, :revoked_by]
+      )
+    )
+  end
+
+  @doc "Returns the current lifecycle state of a tracked invitation."
+  def invitation_status(%Invitation{} = invitation, now \\ DateTime.utc_now(:second)) do
+    cond do
+      invitation.accepted_at -> :accepted
+      invitation.revoked_at -> :revoked
+      DateTime.after?(invitation.expires_at, now) -> :active
+      true -> :expired
+    end
+  end
+
+  @doc "Revokes an active invitation. Only the permanent administrator may do this."
+  def revoke_invitation(%User{} = actor, invitation_id) do
+    if Veejr.Accounts.instance_admin?(actor) do
+      case Repo.get(Invitation, invitation_id) do
+        nil ->
+          {:error, :not_found}
+
+        invitation ->
+          if invitation_status(invitation) == :active do
+            invitation
+            |> Ecto.Changeset.change(
+              revoked_at: DateTime.utc_now(:second),
+              revoked_by_id: actor.id
+            )
+            |> Repo.update()
+          else
+            {:error, :not_revocable}
+          end
+      end
+    else
+      {:error, :unauthorized}
+    end
   end
 
   defp database_health do

@@ -63,11 +63,76 @@ defmodule VeejrWeb.AdminLive do
         </div>
       </section>
 
+      <section id="admin-invitations" aria-labelledby="admin-invitations-heading">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 id="admin-invitations-heading" class="text-lg font-semibold">Invitations</h2>
+            <p class="text-sm opacity-60">Most recent tracked invitations</p>
+          </div>
+          <.link navigate={~p"/invites/new"} class="btn btn-primary btn-sm">
+            <.icon name="hero-qr-code" class="size-4" /> New invitation
+          </.link>
+        </div>
+
+        <p :if={@invitations == []} class="mt-3 border-y border-base-300 py-5 text-sm opacity-60">
+          No tracked invitations yet.
+        </p>
+
+        <div :if={@invitations != []} class="mt-3 overflow-x-auto border-y border-base-300">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>Created</th>
+                <th>Inviter</th>
+                <th>Status</th>
+                <th>Expires / joined</th>
+                <th><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={invitation <- @invitations} id={"invitation-#{invitation.id}"}>
+                <td class="whitespace-nowrap">{format_time(invitation.inserted_at)}</td>
+                <td class="whitespace-nowrap">@{invitation.inviter.username}</td>
+                <td>
+                  <span class={[
+                    "badge badge-sm",
+                    invitation_status_class(Admin.invitation_status(invitation))
+                  ]}>
+                    {invitation_status_label(Admin.invitation_status(invitation))}
+                  </span>
+                </td>
+                <td class="whitespace-nowrap text-sm">
+                  <%= if invitation.accepted_by do %>
+                    @{invitation.accepted_by.username} · {format_time(invitation.accepted_at)}
+                  <% else %>
+                    {format_time(invitation.expires_at)}
+                  <% end %>
+                </td>
+                <td class="text-right">
+                  <button
+                    :if={Admin.invitation_status(invitation) == :active}
+                    phx-click="revoke_invitation"
+                    phx-value-id={invitation.id}
+                    data-confirm="Revoke this invitation? Its QR code and link will stop working immediately."
+                    class="btn btn-ghost btn-xs text-error"
+                  >
+                    Revoke
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <div class="grid gap-6 lg:grid-cols-2">
         <section aria-labelledby="admin-operations-heading">
           <h2 id="admin-operations-heading" class="text-lg font-semibold">Operations</h2>
           <dl class="mt-3 divide-y divide-base-300 border-y border-base-300">
-            <.row label="Pending encrypted approvals" value={@snapshot.data.pending_notifications} />
+            <.row
+              label="Encrypted items awaiting recipient approval"
+              value={@snapshot.data.pending_notifications}
+            />
             <.row label="Active invitations" value={@snapshot.operations.active_invitations} />
             <.row label="Federation retry queue" value={@snapshot.operations.federation_queue} />
             <.row label="Pinned peer instances" value={@snapshot.operations.pinned_peers} />
@@ -97,7 +162,7 @@ defmodule VeejrWeb.AdminLive do
   @impl true
   def mount(_params, _session, socket) do
     if Accounts.instance_admin?(socket.assigns.current_scope.user) do
-      {:ok, assign(socket, page_title: "Instance administration", snapshot: Admin.snapshot())}
+      {:ok, socket |> assign(page_title: "Instance administration") |> load_dashboard()}
     else
       {:ok,
        socket
@@ -108,7 +173,23 @@ defmodule VeejrWeb.AdminLive do
 
   @impl true
   def handle_event("refresh", _params, socket) do
-    {:noreply, assign(socket, :snapshot, Admin.snapshot())}
+    {:noreply, load_dashboard(socket)}
+  end
+
+  def handle_event("revoke_invitation", %{"id" => id}, socket) do
+    socket =
+      case Admin.revoke_invitation(socket.assigns.current_scope.user, id) do
+        {:ok, _invitation} ->
+          put_flash(socket, :info, "Invitation revoked.")
+
+        {:error, :not_revocable} ->
+          put_flash(socket, :error, "That invitation is no longer active.")
+
+        {:error, _reason} ->
+          put_flash(socket, :error, "Could not revoke that invitation.")
+      end
+
+    {:noreply, load_dashboard(socket)}
   end
 
   attr :id, :string, required: true
@@ -153,6 +234,22 @@ defmodule VeejrWeb.AdminLive do
   end
 
   defp healthy?(health), do: Enum.all?(health, fn {_service, status} -> status == :ok end)
+
+  defp load_dashboard(socket) do
+    assign(socket, snapshot: Admin.snapshot(), invitations: Admin.list_invitations())
+  end
+
+  defp invitation_status_label(:active), do: "Active"
+  defp invitation_status_label(:accepted), do: "Accepted"
+  defp invitation_status_label(:expired), do: "Expired"
+  defp invitation_status_label(:revoked), do: "Revoked"
+
+  defp invitation_status_class(:active), do: "badge-success"
+  defp invitation_status_class(:accepted), do: "badge-info"
+  defp invitation_status_class(:expired), do: "badge-neutral"
+  defp invitation_status_class(:revoked), do: "badge-error"
+
+  defp format_time(%DateTime{} = datetime), do: Calendar.strftime(datetime, "%b %d, %Y %H:%M UTC")
 
   defp format_bytes(bytes) when bytes < 1_024, do: "#{bytes} B"
   defp format_bytes(bytes) when bytes < 1_048_576, do: "#{Float.round(bytes / 1_024, 1)} KB"
