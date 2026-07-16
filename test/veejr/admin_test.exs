@@ -61,4 +61,34 @@ defmodule Veejr.AdminTest do
     assert Admin.invitation_status(accepted) == :accepted
     assert Admin.invitation_status(expired) == :expired
   end
+
+  test "administrator can inspect and revoke a member's sessions" do
+    admin = user_fixture()
+    member = user_fixture()
+    web_token = Accounts.generate_user_session_token(member)
+
+    {:ok, _device_session, api_tokens} =
+      Accounts.create_api_device_session(member, %{
+        "device_name" => "Test Pixel",
+        "platform" => "android",
+        "app_version" => "test"
+      })
+
+    account = Enum.find(Admin.list_local_accounts(), &(&1.user.id == member.id))
+    assert account.web_sessions == 1
+    assert account.device_sessions == 1
+    assert account.last_device_used_at
+
+    assert {:error, :unauthorized} = Admin.revoke_user_sessions(member, member.id)
+    assert {:error, :protected_admin} = Admin.revoke_user_sessions(admin, admin.id)
+
+    assert {:ok, result} = Admin.revoke_user_sessions(admin, member.id)
+    assert result.web_count == 1
+    assert result.device_count == 1
+    assert [%{token: ^web_token}] = result.web_tokens
+
+    refute Accounts.get_user_by_session_token(web_token)
+    refute Accounts.get_user_and_api_session_by_access_token(api_tokens.access_token)
+    assert Accounts.get_user!(member.id)
+  end
 end

@@ -63,6 +63,78 @@ defmodule VeejrWeb.AdminLive do
         </div>
       </section>
 
+      <section id="admin-accounts" aria-labelledby="admin-accounts-heading">
+        <div>
+          <h2 id="admin-accounts-heading" class="text-lg font-semibold">Local accounts</h2>
+          <p class="text-sm opacity-60">Membership and active sign-in sessions</p>
+        </div>
+
+        <div class="mt-3 overflow-x-auto border-y border-base-300">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th>Joined</th>
+                <th>Status</th>
+                <th>Web</th>
+                <th>Android</th>
+                <th>Last Android activity</th>
+                <th><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={account <- @accounts} id={"account-#{account.user.id}"}>
+                <td>
+                  <div class="font-medium">
+                    {account.user.display_name || "@#{account.user.username}"}
+                  </div>
+                  <div
+                    :if={account.user.display_name}
+                    class="whitespace-nowrap text-xs opacity-60"
+                  >
+                    @{account.user.username}
+                  </div>
+                </td>
+                <td class="whitespace-nowrap">{format_time(account.user.inserted_at)}</td>
+                <td>
+                  <span class={[
+                    "badge badge-sm",
+                    if(account.user.confirmed_at, do: "badge-success", else: "badge-warning")
+                  ]}>
+                    {if account.user.confirmed_at, do: "Confirmed", else: "Pending"}
+                  </span>
+                </td>
+                <td>{account.web_sessions}</td>
+                <td>{account.device_sessions}</td>
+                <td class="whitespace-nowrap">{format_optional_time(account.last_device_used_at)}</td>
+                <td class="text-right">
+                  <span
+                    :if={Accounts.instance_admin?(account.user)}
+                    class="badge badge-sm badge-neutral whitespace-nowrap"
+                  >
+                    Instance admin
+                  </span>
+                  <button
+                    :if={
+                      not Accounts.instance_admin?(account.user) and
+                        account.web_sessions + account.device_sessions > 0
+                    }
+                    phx-click="revoke_user_sessions"
+                    phx-value-id={account.user.id}
+                    data-confirm={
+                      "Sign @#{account.user.username} out of every web browser and Android device?"
+                    }
+                    class="btn btn-ghost btn-xs whitespace-nowrap text-error"
+                  >
+                    Revoke sessions
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <section id="admin-invitations" aria-labelledby="admin-invitations-heading">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -192,6 +264,32 @@ defmodule VeejrWeb.AdminLive do
     {:noreply, load_dashboard(socket)}
   end
 
+  def handle_event("revoke_user_sessions", %{"id" => id}, socket) do
+    socket =
+      case Admin.revoke_user_sessions(socket.assigns.current_scope.user, id) do
+        {:ok, result} ->
+          VeejrWeb.UserAuth.disconnect_sessions(result.web_tokens)
+
+          put_flash(
+            socket,
+            :info,
+            "Revoked #{result.web_count} web and #{result.device_count} Android sessions for @#{result.user.username}."
+          )
+
+        {:error, :protected_admin} ->
+          put_flash(
+            socket,
+            :error,
+            "The instance administrator's sessions cannot be revoked here."
+          )
+
+        {:error, _reason} ->
+          put_flash(socket, :error, "Could not revoke those sessions.")
+      end
+
+    {:noreply, load_dashboard(socket)}
+  end
+
   attr :id, :string, required: true
   attr :label, :string, required: true
   attr :value, :any, required: true
@@ -236,7 +334,11 @@ defmodule VeejrWeb.AdminLive do
   defp healthy?(health), do: Enum.all?(health, fn {_service, status} -> status == :ok end)
 
   defp load_dashboard(socket) do
-    assign(socket, snapshot: Admin.snapshot(), invitations: Admin.list_invitations())
+    assign(socket,
+      snapshot: Admin.snapshot(),
+      accounts: Admin.list_local_accounts(),
+      invitations: Admin.list_invitations()
+    )
   end
 
   defp invitation_status_label(:active), do: "Active"
@@ -250,6 +352,9 @@ defmodule VeejrWeb.AdminLive do
   defp invitation_status_class(:revoked), do: "badge-error"
 
   defp format_time(%DateTime{} = datetime), do: Calendar.strftime(datetime, "%b %d, %Y %H:%M UTC")
+
+  defp format_optional_time(nil), do: "Never"
+  defp format_optional_time(datetime), do: format_time(datetime)
 
   defp format_bytes(bytes) when bytes < 1_024, do: "#{bytes} B"
   defp format_bytes(bytes) when bytes < 1_048_576, do: "#{Float.round(bytes / 1_024, 1)} KB"

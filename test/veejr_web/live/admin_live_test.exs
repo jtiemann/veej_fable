@@ -46,6 +46,43 @@ defmodule VeejrWeb.AdminLiveTest do
     refute Accounts.get_open_invitation(token)
   end
 
+  test "lists local accounts and revokes member sessions", %{conn: conn} do
+    admin = user_fixture()
+    member = user_fixture(%{display_name: "Session Member"})
+    web_token = Accounts.generate_user_session_token(member)
+
+    {:ok, _device_session, api_tokens} =
+      Accounts.create_api_device_session(member, %{
+        "device_name" => "Test Pixel",
+        "platform" => "android",
+        "app_version" => "test"
+      })
+
+    {:ok, view, _html} =
+      conn
+      |> log_in_user(admin)
+      |> live(~p"/admin")
+
+    assert has_element?(view, "#account-#{admin.id}", "Instance admin")
+    assert has_element?(view, "#account-#{member.id}", "Session Member")
+    assert has_element?(view, "#account-#{member.id}", "Test Pixel") == false
+
+    assert has_element?(
+             view,
+             "#account-#{member.id} button[phx-click='revoke_user_sessions']",
+             "Revoke sessions"
+           )
+
+    view
+    |> element("#account-#{member.id} button[phx-click='revoke_user_sessions']")
+    |> render_click()
+
+    refute has_element?(view, "#account-#{member.id} button", "Revoke sessions")
+    assert has_element?(view, "#account-#{member.id}", "Never")
+    refute Accounts.get_user_by_session_token(web_token)
+    refute Accounts.get_user_and_api_session_by_access_token(api_tokens.access_token)
+  end
+
   test "redirects ordinary members", %{conn: conn} do
     _admin = user_fixture()
     member = user_fixture()

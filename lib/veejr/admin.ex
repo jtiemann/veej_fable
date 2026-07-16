@@ -3,7 +3,7 @@ defmodule Veejr.Admin do
 
   import Ecto.Query, warn: false
 
-  alias Veejr.Accounts.{Invitation, User}
+  alias Veejr.Accounts.{ApiDeviceSession, Invitation, User, UserToken}
   alias Veejr.Federation.Outbox
   alias Veejr.Federation.Peers.Peer
   alias Veejr.Messaging.{Blob, Envelope, Notification}
@@ -71,6 +71,43 @@ defmodule Veejr.Admin do
     )
   end
 
+  @doc "Lists local accounts with content-free session counts."
+  def list_local_accounts do
+    web_sessions =
+      from(t in UserToken,
+        where: t.context == "session",
+        group_by: t.user_id,
+        select: %{user_id: t.user_id, count: count(t.id)}
+      )
+
+    device_sessions =
+      from(s in ApiDeviceSession,
+        group_by: s.user_id,
+        select: %{
+          user_id: s.user_id,
+          count: count(s.id),
+          last_used_at: max(s.last_used_at)
+        }
+      )
+
+    Repo.all(
+      from(u in User,
+        where: is_nil(u.host),
+        left_join: web in subquery(web_sessions),
+        on: web.user_id == u.id,
+        left_join: device in subquery(device_sessions),
+        on: device.user_id == u.id,
+        order_by: [asc: u.inserted_at, asc: u.id],
+        select: %{
+          user: u,
+          web_sessions: coalesce(web.count, 0),
+          device_sessions: coalesce(device.count, 0),
+          last_device_used_at: device.last_used_at
+        }
+      )
+    )
+  end
+
   @doc "Returns the current lifecycle state of a tracked invitation."
   def invitation_status(%Invitation{} = invitation, now \\ DateTime.utc_now(:second)) do
     cond do
@@ -102,6 +139,53 @@ defmodule Veejr.Admin do
       end
     else
       {:error, :unauthorized}
+    end
+  end
+
+  @doc "Revokes every web and Android session for a local member account."
+  def revoke_user_sessions(%User{} = actor, user_id) do
+    cond do
+      not Veejr.Accounts.instance_admin?(actor) ->
+        {:error, :unauthorized}
+
+      target = Repo.get(User, user_id) ->
+        cond do
+          target.host ->
+            {:error, :not_found}
+
+          Veejr.Accounts.instance_admin?(target) ->
+            {:error, :protected_admin}
+
+          true ->
+            web_tokens =
+              Repo.all(
+                from(t in UserToken,
+                  where: t.user_id == ^target.id and t.context == "session"
+                )
+              )
+
+            Repo.transaction(fn ->
+              {web_count, _} =
+                Repo.delete_all(
+                  from(t in UserToken,
+                    where: t.user_id == ^target.id and t.context == "session"
+                  )
+                )
+
+              {device_count, _} =
+                Repo.delete_all(from(s in ApiDeviceSession, where: s.user_id == ^target.id))
+
+              %{
+                user: target,
+                web_tokens: web_tokens,
+                web_count: web_count,
+                device_count: device_count
+              }
+            end)
+        end
+
+      true ->
+        {:error, :not_found}
     end
   end
 
