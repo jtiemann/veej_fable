@@ -21,6 +21,14 @@ defmodule VeejrWeb.MessagesLiveTest do
     %{conn: log_in_user(conn, user), user: user}
   end
 
+  test "uses a back-to-contacts link instead of new-chat buttons", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/messages")
+
+    assert has_element?(view, "#back-to-contacts[href='/contacts']", "Back to contacts")
+    refute has_element?(view, "#compose-new")
+    refute has_element?(view, "#new-message")
+  end
+
   test "starts with the newest 50 messages and loads older rows on demand", %{
     conn: conn,
     user: user

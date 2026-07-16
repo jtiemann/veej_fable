@@ -17,26 +17,20 @@ defmodule VeejrWeb.MessagesLive do
       container_class="mx-auto max-w-7xl"
     >
       <div class="overflow-hidden rounded-[32px] border border-base-300 bg-base-200 shadow-sm">
-        <div class="flex flex-col gap-3 border-b border-base-300 bg-base-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div class="border-b border-base-300 bg-base-100 px-4 py-4">
           <div>
+            <.link
+              id="back-to-contacts"
+              navigate={~p"/contacts"}
+              class="group mb-2 inline-flex items-center gap-1 text-sm font-medium text-base-content/65 transition hover:text-primary"
+            >
+              <.icon
+                name="hero-arrow-left"
+                class="size-4 transition-transform group-hover:-translate-x-0.5"
+              /> Back to contacts
+            </.link>
             <h1 class="text-2xl font-semibold tracking-tight text-base-content">Messages</h1>
             <p class="text-sm opacity-70">End-to-end encrypted conversations</p>
-          </div>
-          <div class="flex items-center gap-2">
-            <.link navigate={~p"/contacts"} class="btn btn-outline btn-sm">Contacts</.link>
-            <button
-              id="compose-new"
-              phx-click="new_message"
-              class={[
-                "rounded-full px-4 py-2 text-sm font-medium transition",
-                is_nil(@selected_conversation) &&
-                  "bg-primary text-primary-content shadow-sm hover:bg-primary/90",
-                @selected_conversation &&
-                  "bg-base-200 text-base-content hover:bg-base-300"
-              ]}
-            >
-              New chat
-            </button>
           </div>
         </div>
 
@@ -214,23 +208,14 @@ defmodule VeejrWeb.MessagesLive do
                     {@selected_conversation.message_count} messages
                   </p>
                 </div>
-                <div class="flex shrink-0 items-center gap-2">
-                  <button
-                    id="archive-conversation"
-                    phx-click="archive_conversation"
-                    phx-value-key={@selected_conversation.key}
-                    class="rounded-full px-3 py-1.5 text-sm font-medium opacity-80 hover:bg-base-200 hover:opacity-100"
-                  >
-                    <.icon name="hero-archive-box" class="mr-1 inline size-4" /> Archive
-                  </button>
-                  <button
-                    id="new-message"
-                    phx-click="new_message"
-                    class="rounded-full px-3 py-1.5 text-sm font-medium opacity-80 hover:bg-base-200 hover:opacity-100"
-                  >
-                    New chat
-                  </button>
-                </div>
+                <button
+                  id="archive-conversation"
+                  phx-click="archive_conversation"
+                  phx-value-key={@selected_conversation.key}
+                  class="shrink-0 rounded-full px-3 py-1.5 text-sm font-medium opacity-80 hover:bg-base-200 hover:opacity-100"
+                >
+                  <.icon name="hero-archive-box" class="mr-1 inline size-4" /> Archive
+                </button>
               </div>
 
               <div
