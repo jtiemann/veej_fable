@@ -94,6 +94,7 @@ defmodule Veejr.ExportImportTest do
   end
 
   test "import creates ghost contacts for senders unknown to this instance" do
+    _admin = user_with_keys("instance_admin")
     alice = user_with_keys("alice")
     bob = user_with_keys("bob")
     befriend(alice, bob)
@@ -107,7 +108,7 @@ defmodule Veejr.ExportImportTest do
     {:ok, _} = Messaging.accept_notification(bob, notification.id)
     {:ok, _, zip} = Export.build(bob)
 
-    # simulate a truly fresh personal instance: neither bob nor alice exist
+    # Neither exported user remains; the permanent instance admin stays.
     {:ok, _} = Accounts.delete_user(bob)
     {:ok, _} = Accounts.delete_user(alice)
 
@@ -142,8 +143,8 @@ defmodule Veejr.ExportImportTest do
   end
 
   test "delete_user withdraws sent envelopes from recipients" do
-    alice = user_with_keys("alice")
     bob = user_with_keys("bob")
+    alice = user_with_keys("alice")
     befriend(alice, bob)
 
     {:ok, _, []} =

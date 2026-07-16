@@ -98,6 +98,28 @@ defmodule Veejr.AccountsTest do
     end
   end
 
+  describe "instance administrator" do
+    test "assigns the first local registrant once" do
+      first = user_fixture(%{username: "first_creator"})
+      second = user_fixture(%{username: "second_member"})
+
+      assert Accounts.get_instance_admin().id == first.id
+      assert Accounts.instance_admin?(first)
+      refute Accounts.instance_admin?(second)
+    end
+
+    test "the instance administrator cannot be deleted" do
+      admin = user_fixture(%{username: "permanent_admin"})
+      member = user_fixture(%{username: "deletable_member"})
+
+      assert {:error, :instance_admin} = Accounts.delete_user(admin)
+      assert Accounts.get_user!(admin.id)
+
+      assert {:ok, _} = Accounts.delete_user(member)
+      assert_raise Ecto.NoResultsError, fn -> Accounts.get_user!(member.id) end
+    end
+  end
+
   describe "tracked invitations" do
     test "registers the invited user, connects both users, and records a notice" do
       inviter = user_fixture(%{username: "inviter"})

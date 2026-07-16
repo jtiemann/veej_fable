@@ -125,12 +125,16 @@ defmodule VeejrWeb.UserLive.Settings do
 
       <section class="rounded-lg border border-error/40 p-4">
         <h2 class="text-lg font-semibold text-error">Danger zone</h2>
-        <p class="mt-1 text-sm opacity-70">
+        <p :if={@instance_admin} id="admin-account-protection" class="mt-1 text-sm opacity-70">
+          This account is the permanent instance administrator and cannot be deleted.
+        </p>
+        <p :if={!@instance_admin} class="mt-1 text-sm opacity-70">
           Deleting your account is permanent. It also withdraws every message,
           location, and note you ever sent — your data leaves with you. Export first
           if you want to keep your history.
         </p>
         <button
+          :if={!@instance_admin}
           phx-click="delete_account"
           data-confirm="Permanently delete your account? This withdraws everything you've sent and cannot be undone."
           class="btn btn-error btn-sm mt-3"
@@ -167,6 +171,7 @@ defmodule VeejrWeb.UserLive.Settings do
       |> assign(:email_form, to_form(email_changeset))
       |> assign(:password_form, to_form(password_changeset))
       |> assign(:trigger_submit, false)
+      |> assign(:instance_admin, Accounts.instance_admin?(user))
       |> assign(:invite_url, nil)
       |> assign(:vapid_key, Veejr.Push.WebPush.vapid_public_key())
       |> assign(:push_devices, Veejr.Push.subscription_count(user))
@@ -248,6 +253,9 @@ defmodule VeejrWeb.UserLive.Settings do
         # Session tokens are cascade-deleted, so the current session is
         # already invalid — a full redirect lands on the logged-out home page.
         {:noreply, redirect(socket, to: ~p"/")}
+
+      {:error, :instance_admin} ->
+        {:noreply, put_flash(socket, :error, "The instance administrator cannot be deleted.")}
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Could not delete your account — please try again.")}

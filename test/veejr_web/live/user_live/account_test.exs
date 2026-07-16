@@ -18,6 +18,7 @@ defmodule VeejrWeb.UserLive.AccountTest do
     assert html =~ ~p"/users/settings"
     assert html =~ ~p"/keys"
     assert html =~ ~p"/account/archives"
+    assert html =~ "Instance administrator"
   end
 
   test "renders profile, identity, and FCM registration status", %{conn: conn} do
@@ -52,6 +53,18 @@ defmodule VeejrWeb.UserLive.AccountTest do
       |> live(~p"/account")
 
     assert has_element?(view, "#account-fcm-status", "Not registered")
+  end
+
+  test "reports an ordinary member role", %{conn: conn} do
+    _admin = user_fixture()
+    member = user_fixture()
+
+    {:ok, view, _html} =
+      conn
+      |> log_in_user(member)
+      |> live(~p"/account")
+
+    assert has_element?(view, "#account-role", "Member")
   end
 
   test "requires authentication", %{conn: conn} do

@@ -10,6 +10,7 @@ defmodule Veejr.Accounts do
     ApiDeviceSession,
     ApiRefreshTokenHistory,
     Invitation,
+    InstanceAdministration,
     Scope,
     User,
     UserNotifier,
@@ -85,6 +86,24 @@ defmodule Veejr.Accounts do
 
   """
   def get_user!(id), do: Repo.get!(User, id)
+
+  @doc "Returns the permanently assigned administrator for this instance, if one exists."
+  def get_instance_admin do
+    Repo.one(
+      from(a in InstanceAdministration,
+        where: a.id == 1,
+        join: user in assoc(a, :admin_user),
+        select: user
+      )
+    )
+  end
+
+  @doc "Returns whether the local user is this instance's permanent administrator."
+  def instance_admin?(%User{id: user_id}) do
+    Repo.exists?(
+      from(a in InstanceAdministration, where: a.id == 1 and a.admin_user_id == ^user_id)
+    )
+  end
 
   ## User registration
 
@@ -322,8 +341,12 @@ defmodule Veejr.Accounts do
   session tokens all go. Attachment files are removed from disk first.
   """
   def delete_user(%User{} = user) do
-    Veejr.Messaging.purge_blob_files(user)
-    Repo.delete(user)
+    if instance_admin?(user) do
+      {:error, :instance_admin}
+    else
+      Veejr.Messaging.purge_blob_files(user)
+      Repo.delete(user)
+    end
   end
 
   ## Settings

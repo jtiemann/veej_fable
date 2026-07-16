@@ -45,6 +45,17 @@ defmodule VeejrWeb.UserLive.Account do
             <dt class="text-xs uppercase tracking-wide text-base-content/55">Username</dt>
             <dd class="mt-1 font-medium">@{@current_scope.user.username}</dd>
           </div>
+          <div id="account-role" class="rounded-xl bg-base-100/70 px-3 py-2">
+            <dt class="text-xs uppercase tracking-wide text-base-content/55">Instance role</dt>
+            <dd class="mt-1">
+              <span class={[
+                "badge badge-sm",
+                if(@instance_admin, do: "badge-primary", else: "badge-neutral")
+              ]}>
+                {if @instance_admin, do: "Instance administrator", else: "Member"}
+              </span>
+            </dd>
+          </div>
           <div id="account-identity-status" class="rounded-xl bg-base-100/70 px-3 py-2">
             <dt class="text-xs uppercase tracking-wide text-base-content/55">
               Identity (this browser)
@@ -170,6 +181,7 @@ defmodule VeejrWeb.UserLive.Account do
     {:ok,
      assign(socket,
        page_title: "Account",
+       instance_admin: Veejr.Accounts.instance_admin?(user),
        fcm_device_count: Push.android_registration_count(user)
      )}
   end

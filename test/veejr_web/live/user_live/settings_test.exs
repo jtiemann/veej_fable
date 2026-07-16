@@ -6,14 +6,29 @@ defmodule VeejrWeb.UserLive.SettingsTest do
   import Veejr.AccountsFixtures
 
   describe "Settings page" do
-    test "renders settings page", %{conn: conn} do
-      {:ok, _lv, html} =
+    test "renders settings page and protects the administrator account", %{conn: conn} do
+      {:ok, view, html} =
         conn
         |> log_in_user(user_fixture())
         |> live(~p"/users/settings")
 
       assert html =~ "Change Email"
       assert html =~ "Save Password"
+      assert has_element?(view, "#admin-account-protection")
+      refute has_element?(view, "button[phx-click='delete_account']")
+    end
+
+    test "keeps account deletion available to ordinary members", %{conn: conn} do
+      _admin = user_fixture()
+      member = user_fixture()
+
+      {:ok, view, _html} =
+        conn
+        |> log_in_user(member)
+        |> live(~p"/users/settings")
+
+      refute has_element?(view, "#admin-account-protection")
+      assert has_element?(view, "button[phx-click='delete_account']")
     end
 
     test "redirects if user is not logged in", %{conn: conn} do
