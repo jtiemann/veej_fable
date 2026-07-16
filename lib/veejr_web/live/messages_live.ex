@@ -581,6 +581,14 @@ defmodule VeejrWeb.MessagesLive do
     )
   end
 
+  defp apply_message_params(%{"friend_ids" => _ids} = params, socket) do
+    assign_multi_recipient(socket, params)
+  end
+
+  defp apply_message_params(%{"group_ids" => _ids} = params, socket) do
+    assign_multi_recipient(socket, params)
+  end
+
   defp apply_message_params(_params, socket) do
     socket
     |> assign(:selected_conversation_key, nil)
@@ -623,6 +631,41 @@ defmodule VeejrWeb.MessagesLive do
           _ -> nil
         end
 
+      :multi ->
+        selected = id || %{}
+        friend_ids = Map.get(selected, :friend_ids, [])
+        group_ids = Map.get(selected, :group_ids, [])
+        include_self = Map.get(selected, :include_self, false)
+        friend_id_set = MapSet.new(friend_ids)
+        group_id_set = MapSet.new(group_ids)
+        chosen_friends = Enum.filter(friends, &MapSet.member?(friend_id_set, to_string(&1.id)))
+        chosen_groups = Enum.filter(groups, &MapSet.member?(group_id_set, to_string(&1.id)))
+
+        recipient_ids =
+          chosen_friends
+          |> Enum.map(&to_string(&1.id))
+          |> Kernel.++(
+            chosen_groups
+            |> Enum.flat_map(& &1.members)
+            |> Enum.map(&to_string(&1.id))
+          )
+          |> Enum.uniq()
+
+        count = length(recipient_ids) + if(include_self, do: 1, else: 0)
+
+        if count > 0 do
+          %{
+            type: :multi,
+            id: "multi",
+            title: "New conversation",
+            subtitle: "#{count} selected #{if(count == 1, do: "recipient", else: "recipients")}",
+            friend_ids: Enum.map(chosen_friends, &to_string(&1.id)),
+            group_ids: Enum.map(chosen_groups, &to_string(&1.id)),
+            include_self: include_self,
+            initials: "NEW"
+          }
+        end
+
       _ ->
         nil
     end
@@ -637,6 +680,7 @@ defmodule VeejrWeb.MessagesLive do
   defp selected_self?(_), do: false
 
   defp selected_recipient_self?(nil), do: true
+  defp selected_recipient_self?(%{include_self: include_self}), do: include_self
   defp selected_recipient_self?(_), do: false
 
   defp selected_recipient_friend_ids(%{friend_ids: friend_ids}), do: friend_ids
@@ -655,6 +699,31 @@ defmodule VeejrWeb.MessagesLive do
   defp selected_recipient_initials(_), do: "ME"
 
   defp composer_submit_label(_conversation), do: "Send"
+
+  defp assign_multi_recipient(socket, params) do
+    friend_ids = parse_id_list(Map.get(params, "friend_ids"))
+    group_ids = parse_id_list(Map.get(params, "group_ids"))
+    include_self = Map.get(params, "include_self") in [true, "true", "1", "on"]
+
+    assign(socket,
+      selected_conversation_key: nil,
+      selected_recipient_type: :multi,
+      selected_recipient_id: %{
+        friend_ids: friend_ids,
+        group_ids: group_ids,
+        include_self: include_self
+      }
+    )
+  end
+
+  defp parse_id_list(nil), do: []
+
+  defp parse_id_list(value) do
+    value
+    |> to_string()
+    |> String.split(",", trim: true)
+    |> Enum.uniq()
+  end
 
   defp available_friends(friends, conversations) do
     used_ids =

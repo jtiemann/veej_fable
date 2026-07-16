@@ -29,6 +29,26 @@ defmodule VeejrWeb.MessagesLiveTest do
     refute has_element?(view, "#new-message")
   end
 
+  test "opens a new conversation with multiple recipients preselected", %{
+    conn: conn,
+    user: user
+  } do
+    friend = user_fixture()
+    {:ok, request} = Social.send_friend_request(user, friend.username)
+    {:ok, _friendship} = Social.accept_friend_request(friend, request.id)
+
+    {:ok, view, html} =
+      live(conn, "/messages?friend_ids=#{friend.id}&group_ids=&include_self=false")
+
+    assert html =~ "New conversation"
+    assert html =~ "1 selected recipient"
+
+    assert has_element?(
+             view,
+             "#message-composer input[type='hidden'][name='friends[]'][value='#{friend.id}']"
+           )
+  end
+
   test "starts with the newest 50 messages and loads older rows on demand", %{
     conn: conn,
     user: user
