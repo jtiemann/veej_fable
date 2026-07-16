@@ -48,6 +48,7 @@ defmodule VeejrWeb.Api.V1.MessageBatchControllerTest do
     bob: bob,
     tokens: tokens
   } do
+    :ok = Messaging.subscribe(bob)
     params = batch_params(alice, bob)
 
     first =
@@ -67,6 +68,9 @@ defmodule VeejrWeb.Api.V1.MessageBatchControllerTest do
     assert second["batch_id"] == first["batch_id"]
     assert length(first["copies"]) == 2
     assert length(Messaging.list_pending_notifications(bob)) == 1
+    assert_receive {:veejr_notification, notification}
+    assert notification.user_id == bob.id
+    refute_receive {:veejr_notification, _notification}
   end
 
   test "creates a single encrypted notes-to-self copy", %{

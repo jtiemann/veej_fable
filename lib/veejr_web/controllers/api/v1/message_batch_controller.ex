@@ -21,6 +21,7 @@ defmodule VeejrWeb.Api.V1.MessageBatchController do
           json(conn, response)
 
         {:ok, {:created, response}} ->
+          :ok = Messaging.broadcast_batch_notifications(user, response.batch_id)
           conn |> put_status(:created) |> json(response)
 
         {:ok, :conflict} ->
@@ -83,7 +84,11 @@ defmodule VeejrWeb.Api.V1.MessageBatchController do
         :conflict
 
       nil ->
-        opts = [expires_at: params["expires_at"], max_displays: params["max_displays"]]
+        opts = [
+          expires_at: params["expires_at"],
+          max_displays: params["max_displays"],
+          defer_notifications: true
+        ]
 
         case Messaging.send_batch(user, "message", envelopes, opts) do
           {:ok, batch_id, queued} ->

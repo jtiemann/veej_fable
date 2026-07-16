@@ -54,6 +54,27 @@ defmodule Veejr.Messaging do
     :ok
   end
 
+  @doc """
+  Broadcasts notifications created for a batch after its surrounding
+  transaction has committed.
+
+  API callers use this when idempotency handling wraps `send_batch/4` in a
+  larger transaction, preventing subscribers from refreshing against
+  uncommitted message data.
+  """
+  def broadcast_batch_notifications(%User{id: sender_id}, batch_id) do
+    notifications =
+      from(n in Notification,
+        join: e in assoc(n, :envelope),
+        where: e.sender_id == ^sender_id and e.batch_id == ^batch_id
+      )
+      |> Repo.all()
+      |> Repo.preload([:user, envelope: [:sender]])
+
+    Enum.each(notifications, &broadcast_notification/1)
+    :ok
+  end
+
   ## Active-conversation windows
 
   @doc """
@@ -181,8 +202,10 @@ defmodule Veejr.Messaging do
       end)
 
     with {:ok, pairs} <- result do
-      for {_envelope, %Notification{} = notification} <- pairs do
-        broadcast_notification(Repo.preload(notification, [:user, envelope: [:sender]]))
+      unless opt(opts, :defer_notifications) do
+        for {_envelope, %Notification{} = notification} <- pairs do
+          broadcast_notification(Repo.preload(notification, [:user, envelope: [:sender]]))
+        end
       end
 
       queued =
