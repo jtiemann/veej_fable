@@ -130,13 +130,19 @@ defmodule Veejr.Messaging do
 
     result =
       Repo.transaction(fn ->
-        for attrs <- envelopes do
-          recipient_id =
+        recipient_ids =
+          Enum.map(envelopes, fn attrs ->
             case parse_id(attrs["recipient_id"] || attrs[:recipient_id]) do
               {:ok, id} -> id
               :error -> Repo.rollback(:bad_recipient_id)
             end
+          end)
 
+        if length(Enum.uniq(recipient_ids)) != length(recipient_ids) do
+          Repo.rollback(:duplicate_recipients)
+        end
+
+        for {attrs, recipient_id} <- Enum.zip(envelopes, recipient_ids) do
           recipient = Repo.get(User, recipient_id) || Repo.rollback({:no_such_user, recipient_id})
 
           unless recipient.id == sender.id or Social.friends?(sender.id, recipient.id) do

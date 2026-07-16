@@ -38,5 +38,6 @@ defmodule Veejr.Messaging.Envelope do
     # ~256 KB of base64 keeps envelope bodies light; bulk data goes in blobs.
     |> validate_length(:ciphertext, max: 350_000)
     |> unique_constraint(:public_id)
+    |> unique_constraint([:batch_id, :recipient_id])
   end
 end

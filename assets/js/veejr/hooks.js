@@ -1010,7 +1010,7 @@ export const Composer = {
         ...sealFor(r.public_key, payload, mySecret),
       }))
       // Self-copy so our own history stays readable.
-      if (!recipients.some((r) => r.id === parseInt(userId))) {
+      if (!recipients.some((r) => String(r.id) === String(userId))) {
         envelopes.push({recipient_id: parseInt(userId), ...sealFor(myKey, payload, mySecret)})
       }
 
