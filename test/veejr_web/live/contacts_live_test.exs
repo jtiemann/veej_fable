@@ -48,6 +48,35 @@ defmodule VeejrWeb.ContactsLiveTest do
     )
   end
 
+  test "links to a scannable invitation", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/contacts")
+
+    assert has_element?(view, "a[href='/invites/new']", "Invite person")
+
+    {:ok, invite_view, html} = live(conn, "/invites/new")
+    assert html =~ "Invite someone"
+    assert has_element?(invite_view, "img[alt='QR code for this invitation']")
+    assert has_element?(invite_view, "#invite-url[value^='http']")
+  end
+
+  test "shows and dismisses a joined invitation notice", %{conn: conn, user: user} do
+    {:ok, invitation, token} = Accounts.create_invitation(user)
+    {:ok, invited} = Accounts.register_user(valid_user_attributes(username: "new_joiner"), token)
+
+    {:ok, view, html} = live(conn, "/contacts")
+    assert html =~ "@new_joiner"
+    assert has_element?(view, "#invitation-acceptances")
+
+    view
+    |> element(
+      "button[phx-click='dismiss_invitation_acceptance'][phx-value-id='#{invitation.id}']"
+    )
+    |> render_click()
+
+    refute has_element?(view, "#invitation-acceptances")
+    assert Enum.any?(Social.list_friends(user), &(&1.id == invited.id))
+  end
+
   test "opens an existing selected conversation", %{conn: conn, user: user, friend: friend} do
     {:ok, _batch_id, []} =
       Messaging.send_batch(user, "message", [

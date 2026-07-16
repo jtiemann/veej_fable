@@ -48,6 +48,23 @@ defmodule Veejr.Accounts.UserNotifier do
     end
   end
 
+  @doc "Notifies an inviter after someone accepts their invitation."
+  def deliver_invitation_accepted(inviter, invited_user) do
+    invited_name = invited_user.display_name || "@#{invited_user.username}"
+
+    deliver(inviter.email, "#{invited_name} joined #{Veejr.instance_name()}", """
+
+    ==============================
+
+    Hi #{inviter.display_name || "@#{inviter.username}"},
+
+    #{invited_name} accepted your invitation and joined #{Veejr.instance_name()}.
+    You are now connected as friends.
+
+    ==============================
+    """)
+  end
+
   defp deliver_magic_link_instructions(user, url) do
     deliver(user.email, "Log in instructions", """
 

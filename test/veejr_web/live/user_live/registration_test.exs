@@ -33,6 +33,18 @@ defmodule VeejrWeb.UserLive.RegistrationTest do
       assert result =~ "Register"
       assert result =~ "must have the @ sign and no spaces"
     end
+
+    test "shows who sent a tracked invitation", %{conn: conn} do
+      inviter = user_fixture(%{username: "friendly_inviter", display_name: "Friendly Inviter"})
+      {:ok, _invitation, token} = Veejr.Accounts.create_invitation(inviter)
+
+      {:ok, view, html} = live(conn, ~p"/users/register?invite=#{token}")
+
+      assert html =~ "You have been invited"
+      assert html =~ "Friendly Inviter"
+      assert html =~ Veejr.instance_name()
+      assert has_element?(view, "#invitation-introduction")
+    end
   end
 
   describe "register user" do

@@ -1,7 +1,7 @@
 defmodule VeejrWeb.ContactsLive do
   use VeejrWeb, :live_view
 
-  alias Veejr.{Messaging, Social}
+  alias Veejr.{Accounts, Messaging, Social}
 
   @conversation_limit 100
 
@@ -21,6 +21,9 @@ defmodule VeejrWeb.ContactsLive do
           <code>{Social.Address.full(@current_scope.user)}</code>
         </:subtitle>
         <:actions>
+          <.link navigate={~p"/invites/new"} class="btn btn-outline btn-sm">
+            <.icon name="hero-qr-code" class="size-4" /> Invite person
+          </.link>
           <details id="conversation-builder" class="dropdown dropdown-end">
             <summary class="btn btn-primary btn-sm list-none">
               <.icon name="hero-chat-bubble-left-right" class="size-4" /> New conversation
@@ -107,6 +110,35 @@ defmodule VeejrWeb.ContactsLive do
           </details>
         </:actions>
       </.header>
+
+      <section
+        :if={@invitation_acceptances != []}
+        id="invitation-acceptances"
+        class="rounded-lg border border-success/30 bg-success/10 p-4"
+      >
+        <h2 class="text-sm font-semibold">Someone you invited has joined</h2>
+        <ul class="mt-2 space-y-2">
+          <li
+            :for={invitation <- @invitation_acceptances}
+            class="flex items-center justify-between gap-3 rounded-lg bg-base-100 px-3 py-2"
+          >
+            <span class="text-sm">
+              <strong>
+                {invitation.accepted_by.display_name || "@#{invitation.accepted_by.username}"}
+              </strong>
+              joined this instance and is now your friend.
+            </span>
+            <button
+              phx-click="dismiss_invitation_acceptance"
+              phx-value-id={invitation.id}
+              class="btn btn-ghost btn-xs"
+              aria-label="Dismiss joined notification"
+            >
+              <.icon name="hero-x-mark" class="size-4" />
+            </button>
+          </li>
+        </ul>
+      </section>
 
       <section :if={@pending != []} class="rounded-lg border border-primary/20 bg-primary/10 p-4">
         <div class="flex items-center justify-between gap-3">
@@ -639,6 +671,11 @@ defmodule VeejrWeb.ContactsLive do
     {:noreply, refresh(socket)}
   end
 
+  def handle_event("dismiss_invitation_acceptance", %{"id" => id}, socket) do
+    Accounts.dismiss_invitation_acceptance(socket.assigns.current_scope.user, id)
+    {:noreply, refresh(socket)}
+  end
+
   def handle_event(
         "toggle_auto_open",
         %{"subject_type" => subject_type, "subject_id" => subject_id},
@@ -790,6 +827,7 @@ defmodule VeejrWeb.ContactsLive do
     assign(socket,
       pending: pending,
       pending_count: length(pending),
+      invitation_acceptances: Accounts.list_unseen_invitation_acceptances(user),
       friends: friends,
       groups: groups,
       contact_notes: Social.list_contact_notes(user),

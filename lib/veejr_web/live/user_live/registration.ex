@@ -10,6 +10,23 @@ defmodule VeejrWeb.UserLive.Registration do
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <div class="mx-auto max-w-sm">
         <div class="text-center">
+          <div
+            :if={@invitation}
+            id="invitation-introduction"
+            class="mb-6 rounded-lg border border-primary/30 bg-primary/10 p-4 text-left"
+          >
+            <p class="text-sm font-semibold text-primary">You have been invited</p>
+            <p class="mt-1 text-sm">
+              <strong>
+                {@invitation.inviter.display_name || "@#{@invitation.inviter.username}"}
+              </strong>
+              invited you to join <strong>{Veejr.instance_name()}</strong>
+              on veejr.
+            </p>
+            <p class="mt-2 text-xs opacity-70">
+              Register below and you will be connected as friends automatically.
+            </p>
+          </div>
           <.header>
             Register for an account
             <:subtitle>
@@ -65,6 +82,7 @@ defmodule VeejrWeb.UserLive.Registration do
     {:ok,
      socket
      |> assign(:invite, params["invite"])
+     |> assign(:invitation, Accounts.get_open_invitation(params["invite"]))
      |> assign_form(changeset), temporary_assigns: [form: nil]}
   end
 
@@ -90,6 +108,12 @@ defmodule VeejrWeb.UserLive.Registration do
         {:noreply,
          socket
          |> put_flash(:error, "This is a personal veejr instance — registration is closed.")
+         |> push_navigate(to: ~p"/users/log-in")}
+
+      {:error, :invite_unavailable} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "That invitation has expired or has already been used.")
          |> push_navigate(to: ~p"/users/log-in")}
 
       {:error, %Ecto.Changeset{} = changeset} ->

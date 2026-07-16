@@ -1,7 +1,9 @@
 defmodule Veejr.AccountsTest do
   use Veejr.DataCase
 
-  alias Veejr.Accounts
+  import Swoosh.TestAssertions
+
+  alias Veejr.{Accounts, Repo, Social}
 
   import Veejr.AccountsFixtures
   alias Veejr.Accounts.{User, UserToken}
@@ -93,6 +95,63 @@ defmodule Veejr.AccountsTest do
       assert is_nil(user.hashed_password)
       assert is_nil(user.confirmed_at)
       assert is_nil(user.password)
+    end
+  end
+
+  describe "tracked invitations" do
+    test "registers the invited user, connects both users, and records a notice" do
+      inviter = user_fixture(%{username: "inviter"})
+      assert_email_sent()
+      {:ok, invitation, token} = Accounts.create_invitation(inviter)
+
+      assert Accounts.get_open_invitation(token).inviter.id == inviter.id
+
+      assert {:ok, invited} =
+               Accounts.register_user(
+                 valid_user_attributes(username: "new_friend"),
+                 token
+               )
+
+      assert Enum.any?(Social.list_friends(inviter), &(&1.id == invited.id))
+      assert [notice] = Accounts.list_unseen_invitation_acceptances(inviter)
+      assert notice.id == invitation.id
+      assert notice.accepted_by.id == invited.id
+      refute Accounts.get_open_invitation(token)
+
+      assert_email_sent(
+        to: inviter.email,
+        subject: "@new_friend joined #{Veejr.instance_name()}"
+      )
+
+      assert {:error, :invite_unavailable} =
+               Accounts.register_user(valid_user_attributes(), token)
+    end
+
+    test "rejects an expired tracked invitation" do
+      inviter = user_fixture()
+      {:ok, invitation, token} = Accounts.create_invitation(inviter)
+
+      invitation
+      |> Ecto.Changeset.change(expires_at: DateTime.add(DateTime.utc_now(:second), -1, :second))
+      |> Repo.update!()
+
+      refute Accounts.get_open_invitation(token)
+
+      assert {:error, :invite_unavailable} =
+               Accounts.register_user(valid_user_attributes(), token)
+    end
+
+    test "dismisses only the inviter's acceptance notice" do
+      inviter = user_fixture()
+      other = user_fixture()
+      {:ok, invitation, token} = Accounts.create_invitation(inviter)
+      {:ok, _invited} = Accounts.register_user(valid_user_attributes(), token)
+
+      assert {:error, :not_found} =
+               Accounts.dismiss_invitation_acceptance(other, invitation.id)
+
+      assert {:ok, _} = Accounts.dismiss_invitation_acceptance(inviter, invitation.id)
+      assert Accounts.list_unseen_invitation_acceptances(inviter) == []
     end
   end
 

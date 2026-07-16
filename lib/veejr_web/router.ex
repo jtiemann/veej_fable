@@ -154,6 +154,7 @@ defmodule VeejrWeb.Router do
       live "/friends", FriendsLive
       live "/groups", GroupsLive
       live "/contacts", ContactsLive
+      live "/invites/new", InvitationLive.New, :new
       live "/messages", MessagesLive
       live "/map", MapLive
       live "/history", HistoryLive

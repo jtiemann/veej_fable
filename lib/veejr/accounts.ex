@@ -9,6 +9,7 @@ defmodule Veejr.Accounts do
   alias Veejr.Accounts.{
     ApiDeviceSession,
     ApiRefreshTokenHistory,
+    Invitation,
     Scope,
     User,
     UserNotifier,
@@ -103,12 +104,64 @@ defmodule Veejr.Accounts do
   @invite_max_age_seconds 7 * 24 * 60 * 60
 
   def register_user(attrs, invite_token \\ nil) do
-    if Veejr.registration_open?() or valid_invite?(invite_token) do
-      %User{}
-      |> User.registration_changeset(attrs)
-      |> Repo.insert()
-    else
-      {:error, :registration_closed}
+    invitation = get_open_invitation(invite_token)
+    tracked_invitation = invitation || get_tracked_invitation(invite_token)
+
+    cond do
+      invitation ->
+        register_invited_user(attrs, invitation)
+
+      tracked_invitation ->
+        {:error, :invite_unavailable}
+
+      Veejr.registration_open?() or valid_legacy_invite?(invite_token) ->
+        register_open_user(attrs)
+
+      true ->
+        {:error, :registration_closed}
+    end
+  end
+
+  defp register_open_user(attrs) do
+    %User{}
+    |> User.registration_changeset(attrs)
+    |> Repo.insert()
+  end
+
+  defp register_invited_user(attrs, invitation) do
+    now = DateTime.utc_now(:second)
+
+    Ecto.Multi.new()
+    |> Ecto.Multi.insert(:user, User.registration_changeset(%User{}, attrs))
+    |> Ecto.Multi.run(:invitation, fn repo, %{user: user} ->
+      {count, _} =
+        repo.update_all(
+          from(i in Invitation,
+            where: i.id == ^invitation.id and is_nil(i.accepted_at) and i.expires_at > ^now
+          ),
+          set: [accepted_by_id: user.id, accepted_at: now, updated_at: now]
+        )
+
+      if count == 1, do: {:ok, invitation}, else: {:error, :invite_unavailable}
+    end)
+    |> Ecto.Multi.insert(:friendship, fn %{user: user} ->
+      Veejr.Social.Friendship.changeset(%Veejr.Social.Friendship{}, %{
+        requester_id: invitation.inviter_id,
+        addressee_id: user.id,
+        status: "accepted"
+      })
+    end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{user: user}} ->
+        UserNotifier.deliver_invitation_accepted(invitation.inviter, user)
+        {:ok, user}
+
+      {:error, :user, changeset, _changes} ->
+        {:error, changeset}
+
+      {:error, _operation, _reason, _changes} ->
+        {:error, :invite_unavailable}
     end
   end
 
@@ -121,15 +174,87 @@ defmodule Veejr.Accounts do
     Phoenix.Token.sign(VeejrWeb.Endpoint, @invite_salt, id)
   end
 
+  @doc "Creates a tracked, single-use invitation that expires after seven days."
+  def create_invitation(%User{} = inviter) do
+    token = :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
+
+    attrs = %{
+      inviter_id: inviter.id,
+      token_hash: invitation_token_hash(token),
+      expires_at: DateTime.add(DateTime.utc_now(:second), @invite_max_age_seconds, :second)
+    }
+
+    case Repo.insert(Invitation.changeset(%Invitation{}, attrs)) do
+      {:ok, invitation} -> {:ok, invitation, token}
+      error -> error
+    end
+  end
+
+  @doc "Returns an unexpired, unused tracked invitation with its inviter."
+  def get_open_invitation(token) when is_binary(token) and byte_size(token) > 0 do
+    now = DateTime.utc_now(:second)
+    token_hash = invitation_token_hash(token)
+
+    Repo.one(
+      from(i in Invitation,
+        where: i.token_hash == ^token_hash and is_nil(i.accepted_at) and i.expires_at > ^now,
+        preload: [:inviter]
+      )
+    )
+  end
+
+  def get_open_invitation(_token), do: nil
+
+  defp get_tracked_invitation(token) when is_binary(token) and byte_size(token) > 0 do
+    token_hash = invitation_token_hash(token)
+    Repo.one(from(i in Invitation, where: i.token_hash == ^token_hash))
+  end
+
+  defp get_tracked_invitation(_token), do: nil
+
+  @doc "Lists invitation acceptances that the inviter has not dismissed."
+  def list_unseen_invitation_acceptances(%User{id: inviter_id}) do
+    Repo.all(
+      from(i in Invitation,
+        where: i.inviter_id == ^inviter_id and not is_nil(i.accepted_at) and is_nil(i.seen_at),
+        order_by: [desc: i.accepted_at],
+        preload: [:accepted_by]
+      )
+    )
+  end
+
+  @doc "Dismisses one joined-from-invitation notice owned by the inviter."
+  def dismiss_invitation_acceptance(%User{id: inviter_id}, invitation_id) do
+    case Repo.get_by(Invitation, id: invitation_id, inviter_id: inviter_id) do
+      nil ->
+        {:error, :not_found}
+
+      invitation ->
+        invitation
+        |> Ecto.Changeset.change(seen_at: DateTime.utc_now(:second))
+        |> Repo.update()
+    end
+  end
+
   def valid_invite?(nil), do: false
 
   def valid_invite?(token) when is_binary(token) do
+    get_open_invitation(token) != nil or valid_legacy_invite?(token)
+  end
+
+  defp valid_legacy_invite?(nil), do: false
+
+  defp valid_legacy_invite?(token) when is_binary(token) do
     case Phoenix.Token.verify(VeejrWeb.Endpoint, @invite_salt, token,
            max_age: @invite_max_age_seconds
          ) do
       {:ok, inviter_id} -> Repo.get(User, inviter_id) != nil
       _ -> false
     end
+  end
+
+  defp invitation_token_hash(token) do
+    :crypto.hash(:sha256, token) |> Base.url_encode64(padding: false)
   end
 
   @doc """
