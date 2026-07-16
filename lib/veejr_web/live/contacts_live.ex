@@ -103,7 +103,7 @@ defmodule VeejrWeb.ContactsLive do
                 >
                   <div class="min-w-0">
                     <p class="truncate font-medium">
-                      {Enum.join(conversation.participants, ", ")}
+                      {conversation_title(conversation)}
                     </p>
                     <p class="text-xs opacity-70">
                       {length(conversation.envelopes)} messages · latest {Calendar.strftime(
@@ -675,40 +675,33 @@ defmodule VeejrWeb.ContactsLive do
 
   defp build_conversations(user, friends) do
     handle_to_id = Map.new(friends, &{Social.Address.handle(&1), &1.id})
-    archived_keys = Messaging.archived_conversation_keys(user)
 
     user
     |> Messaging.list_history(kind: "message", limit: @conversation_limit)
-    |> Enum.group_by(&participants(user, &1))
-    |> Enum.map(fn {participants, envelopes} ->
-      envelopes = Enum.sort_by(envelopes, & &1.id)
+    |> then(&Messaging.conversation_threads(user, &1))
+    |> Enum.map(fn thread ->
+      participants = thread.participants
 
       reply_ids =
         participants
         |> Enum.map(&handle_to_id[&1])
         |> Enum.reject(&is_nil/1)
 
-      %{
-        key: Messaging.conversation_key(participants),
-        participants: participants,
-        envelopes: envelopes,
-        latest: List.last(envelopes),
+      Map.merge(thread, %{
         reply_ids: Enum.join(reply_ids, ","),
         policy_id: if(length(reply_ids) == 1, do: List.first(reply_ids))
-      }
+      })
     end)
-    |> Enum.reject(&MapSet.member?(archived_keys, &1.key))
     |> Enum.sort_by(& &1.latest.id, :desc)
   end
 
-  defp participants(user, envelope) do
-    if envelope.sender_id == user.id do
-      case Messaging.batch_recipients(user, envelope.batch_id) do
-        [] -> ["notes to yourself"]
-        handles -> Enum.sort(handles)
-      end
+  defp conversation_title(conversation) do
+    title = Enum.join(conversation.participants, ", ")
+
+    if conversation.preserved do
+      "#{title} · #{Calendar.strftime(conversation.started_at, "%b %d, %Y")}"
     else
-      [Social.Address.handle(envelope.sender)]
+      title
     end
   end
 

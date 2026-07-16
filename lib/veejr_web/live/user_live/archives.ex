@@ -41,7 +41,10 @@ defmodule VeejrWeb.UserLive.Archives do
             <div class="min-w-0">
               <h2 class="truncate font-medium">{Enum.join(archive.participants, ", ")}</h2>
               <p class="text-xs opacity-60">
-                Archived {Calendar.strftime(archive.archived_at, "%b %d, %Y")}
+                Started {Calendar.strftime(archive.started_at, "%b %d, %Y")} · Archived {Calendar.strftime(
+                  archive.archived_at,
+                  "%b %d, %Y"
+                )}
               </p>
             </div>
           </div>

@@ -123,7 +123,7 @@ defmodule VeejrWeb.MessagesLive do
                 </span>
                 <span class="min-w-0 flex-1">
                   <span class="block truncate text-sm font-medium">
-                    {Enum.join(conv.participants, ", ")}
+                    {conversation_title(conv)}
                   </span>
                   <span class="mt-0.5 flex items-center justify-between gap-2 text-xs opacity-70">
                     <span>{conv.message_count} messages</span>
@@ -208,7 +208,7 @@ defmodule VeejrWeb.MessagesLive do
               <div class="flex items-center justify-between gap-3 border-b border-base-300 bg-base-100 px-5 py-4">
                 <div class="min-w-0">
                   <h2 class="truncate text-lg font-semibold text-base-content">
-                    {Enum.join(@selected_conversation.participants, ", ")}
+                    {conversation_title(@selected_conversation)}
                   </h2>
                   <p class="text-xs opacity-70">
                     {@selected_conversation.message_count} messages
@@ -377,11 +377,17 @@ defmodule VeejrWeb.MessagesLive do
 
   def handle_event("archive_conversation", %{"key" => key}, socket) do
     case Enum.find(socket.assigns.conversations, &(&1.key == key)) do
-      %{participants: participants} ->
+      %{
+        participants: participants,
+        envelope_ids: envelope_ids,
+        started_at: started_at
+      } ->
         case Messaging.archive_conversation(
                socket.assigns.current_scope.user,
                key,
-               participants
+               participants,
+               envelope_ids,
+               started_at
              ) do
           {:ok, _archive} ->
             {:noreply,
@@ -744,7 +750,6 @@ defmodule VeejrWeb.MessagesLive do
   # recipients; the decrypted payload shows them).
   defp build_conversations(user, friends, limit, selected_key) do
     handle_to_id = Map.new(friends, &{Veejr.Social.Address.handle(&1), &1.id})
-    archived_keys = Messaging.archived_conversation_keys(user)
 
     # Conversation keys are derived from participants, so history must be
     # grouped before applying the per-conversation display window. Limiting
@@ -756,25 +761,22 @@ defmodule VeejrWeb.MessagesLive do
 
     conversations =
       envelopes
-      |> Enum.group_by(&participants(user, &1))
-      |> Enum.map(fn {participants, envelopes} ->
-        envelopes = Enum.sort_by(envelopes, & &1.id)
+      |> then(&Messaging.conversation_threads(user, &1))
+      |> Enum.map(fn thread ->
+        envelopes = thread.envelopes
+        participants = thread.participants
         message_count = length(envelopes)
 
-        %{
-          key: Messaging.conversation_key(participants),
-          participants: participants,
+        Map.merge(thread, %{
           envelopes: Enum.take(envelopes, -limit),
           message_count: message_count,
-          latest: List.last(envelopes),
           reply_ids:
             participants
             |> Enum.map(&handle_to_id[&1])
             |> Enum.reject(&is_nil/1)
             |> Enum.join(",")
-        }
+        })
       end)
-      |> Enum.reject(&MapSet.member?(archived_keys, &1.key))
       |> Enum.sort_by(& &1.latest.id, :desc)
 
     has_more? =
@@ -786,14 +788,13 @@ defmodule VeejrWeb.MessagesLive do
     {conversations, has_more?}
   end
 
-  defp participants(user, envelope) do
-    if envelope.sender_id == user.id do
-      case Messaging.batch_recipients(user, envelope.batch_id) do
-        [] -> ["notes to yourself"]
-        handles -> Enum.sort(handles)
-      end
+  defp conversation_title(conversation) do
+    title = Enum.join(conversation.participants, ", ")
+
+    if conversation.preserved do
+      "#{title} · #{Calendar.strftime(conversation.started_at, "%b %d, %Y")}"
     else
-      [Veejr.Social.Address.handle(envelope.sender)]
+      title
     end
   end
 end

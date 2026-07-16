@@ -9,7 +9,12 @@ defmodule VeejrWeb.UserLive.ArchivesTest do
     user = user_fixture()
     participants = ["@alice@example.test"]
     key = Messaging.conversation_key(participants)
-    assert {:ok, _} = Messaging.archive_conversation(user, key, participants)
+    started_at = ~U[2026-07-01 09:30:00Z]
+
+    assert {:ok, archive} =
+             Messaging.archive_conversation(user, key, participants, ["message-1"], started_at)
+
+    archive_key = archive.conversation_key
 
     {:ok, view, html} =
       conn
@@ -17,13 +22,14 @@ defmodule VeejrWeb.UserLive.ArchivesTest do
       |> live(~p"/account/archives")
 
     assert html =~ "@alice@example.test"
-    assert has_element?(view, "#archive-#{key}")
+    assert html =~ "Started Jul 01, 2026"
+    assert has_element?(view, "#archive-#{archive_key}")
 
     view
-    |> element("#unarchive-#{key}")
+    |> element("#unarchive-#{archive_key}")
     |> render_click()
 
-    refute has_element?(view, "#archive-#{key}")
+    refute has_element?(view, "#archive-#{archive_key}")
   end
 
   test "requires authentication", %{conn: conn} do

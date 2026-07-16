@@ -529,7 +529,14 @@ defmodule Veejr.Messaging do
   end
 
   @doc "Lists the current user's archived conversations, newest archive first."
-  def list_archived_conversations(%User{id: user_id}) do
+  def list_archived_conversations(%User{} = user) do
+    user
+    |> list_conversation_boundaries()
+    |> Enum.filter(& &1.archived)
+  end
+
+  @doc "Lists the saved boundaries that keep conversation instances distinct."
+  def list_conversation_boundaries(%User{id: user_id}) do
     from(a in ConversationArchive,
       where: a.user_id == ^user_id,
       order_by: [desc: a.updated_at]
@@ -538,7 +545,11 @@ defmodule Veejr.Messaging do
     |> Enum.map(fn archive ->
       %{
         key: archive.conversation_key,
+        participant_key: archive.participant_key,
         participants: decode_participants(archive.participants),
+        envelope_ids: decode_envelope_ids(archive.envelope_ids),
+        started_at: archive.started_at,
+        archived: archive.archived,
         archived_at: archive.updated_at
       }
     end)
@@ -547,45 +558,110 @@ defmodule Veejr.Messaging do
   @doc "Returns the current user's archived conversation keys."
   def archived_conversation_keys(%User{id: user_id}) do
     from(a in ConversationArchive,
-      where: a.user_id == ^user_id,
+      where: a.user_id == ^user_id and a.archived,
       select: a.conversation_key
     )
     |> Repo.all()
     |> MapSet.new()
   end
 
-  @doc "Archives a conversation for `user` when its key matches its participants."
-  def archive_conversation(%User{id: user_id}, key, participants)
-      when is_binary(key) and is_list(participants) do
-    if participants != [] and conversation_key(participants) == key do
-      now = DateTime.utc_now(:second)
-      encoded_participants = Jason.encode!(participants)
+  @doc "Archives one conversation instance without hiding later messages from the same people."
+  def archive_conversation(%User{id: user_id}, key, participants, envelope_ids, started_at)
+      when is_binary(key) and is_list(participants) and is_list(envelope_ids) do
+    participant_key = conversation_key(participants)
 
-      %ConversationArchive{}
-      |> ConversationArchive.changeset(%{
-        user_id: user_id,
-        conversation_key: key,
-        participants: encoded_participants
-      })
-      |> Repo.insert(
-        on_conflict: [set: [participants: encoded_participants, updated_at: now]],
-        conflict_target: [:user_id, :conversation_key]
-      )
-    else
-      {:error, :invalid_conversation}
+    cond do
+      participants == [] or envelope_ids == [] or is_nil(started_at) ->
+        {:error, :invalid_conversation}
+
+      archive = Repo.get_by(ConversationArchive, user_id: user_id, conversation_key: key) ->
+        if archive.participant_key == participant_key do
+          archive
+          |> ConversationArchive.changeset(%{archived: true})
+          |> Repo.update()
+        else
+          {:error, :invalid_conversation}
+        end
+
+      key == participant_key ->
+        archive_key = archived_conversation_key(participant_key, started_at, envelope_ids)
+
+        %ConversationArchive{}
+        |> ConversationArchive.changeset(%{
+          user_id: user_id,
+          conversation_key: archive_key,
+          participant_key: participant_key,
+          participants: Jason.encode!(participants),
+          envelope_ids: Jason.encode!(envelope_ids),
+          started_at: started_at,
+          archived: true
+        })
+        |> Repo.insert()
+
+      true ->
+        {:error, :invalid_conversation}
     end
   end
 
-  @doc "Removes an archive record for the current user."
+  @doc "Makes an archived conversation visible while retaining its boundary."
   def unarchive_conversation(%User{id: user_id}, key) when is_binary(key) do
-    {count, _} =
-      Repo.delete_all(
-        from(a in ConversationArchive,
-          where: a.user_id == ^user_id and a.conversation_key == ^key
-        )
-      )
+    case Repo.get_by(ConversationArchive,
+           user_id: user_id,
+           conversation_key: key,
+           archived: true
+         ) do
+      nil ->
+        {:error, :not_archived}
 
-    if count > 0, do: :ok, else: {:error, :not_archived}
+      archive ->
+        archive
+        |> ConversationArchive.changeset(%{archived: false})
+        |> Repo.update!()
+
+        :ok
+    end
+  end
+
+  @doc "Splits history into current and preserved conversation instances."
+  def conversation_threads(%User{} = user, envelopes) when is_list(envelopes) do
+    grouped = Enum.group_by(envelopes, &conversation_participants(user, &1))
+
+    boundaries =
+      user
+      |> list_conversation_boundaries()
+      |> Enum.map(&resolve_legacy_boundary(&1, grouped))
+
+    claimed_ids =
+      boundaries
+      |> Enum.flat_map(& &1.envelope_ids)
+      |> MapSet.new()
+
+    preserved_threads =
+      boundaries
+      |> Enum.reject(& &1.archived)
+      |> Enum.map(&boundary_thread(&1, envelopes))
+      |> Enum.reject(&is_nil/1)
+
+    current_threads =
+      envelopes
+      |> Enum.reject(&MapSet.member?(claimed_ids, &1.public_id))
+      |> Enum.group_by(&conversation_participants(user, &1))
+      |> Enum.map(fn {participants, thread_envelopes} ->
+        build_thread(conversation_key(participants), participants, thread_envelopes)
+      end)
+
+    preserved_threads ++ current_threads
+  end
+
+  def conversation_participants(%User{} = user, envelope) do
+    if envelope.sender_id == user.id do
+      case batch_recipients(user, envelope.batch_id) do
+        [] -> ["notes to yourself"]
+        handles -> Enum.sort(handles)
+      end
+    else
+      [Social.Address.handle(envelope.sender)]
+    end
   end
 
   @doc """
@@ -653,6 +729,63 @@ defmodule Veejr.Messaging do
       {:ok, participants} when is_list(participants) -> participants
       _ -> []
     end
+  end
+
+  defp decode_envelope_ids(value) do
+    case Jason.decode(value || "[]") do
+      {:ok, envelope_ids} when is_list(envelope_ids) -> envelope_ids
+      _ -> []
+    end
+  end
+
+  defp archived_conversation_key(participant_key, started_at, [first_envelope_id | _]) do
+    date = Calendar.strftime(started_at, "%Y%m%dT%H%M%S")
+
+    suffix =
+      :crypto.hash(:sha256, first_envelope_id)
+      |> binary_part(0, 6)
+      |> Base.url_encode64(padding: false)
+
+    "#{participant_key}-#{date}-#{suffix}"
+  end
+
+  defp resolve_legacy_boundary(%{envelope_ids: []} = boundary, grouped) do
+    envelope_ids =
+      grouped
+      |> Map.get(boundary.participants, [])
+      |> Enum.filter(&(DateTime.compare(&1.inserted_at, boundary.archived_at) != :gt))
+      |> Enum.map(& &1.public_id)
+
+    %{boundary | envelope_ids: envelope_ids}
+  end
+
+  defp resolve_legacy_boundary(boundary, _grouped), do: boundary
+
+  defp boundary_thread(boundary, envelopes) do
+    envelope_ids = MapSet.new(boundary.envelope_ids)
+    thread_envelopes = Enum.filter(envelopes, &MapSet.member?(envelope_ids, &1.public_id))
+
+    if thread_envelopes == [] do
+      nil
+    else
+      boundary.key
+      |> build_thread(boundary.participants, thread_envelopes)
+      |> Map.put(:preserved, true)
+    end
+  end
+
+  defp build_thread(key, participants, envelopes) do
+    envelopes = Enum.sort_by(envelopes, & &1.id)
+
+    %{
+      key: key,
+      participants: participants,
+      envelopes: envelopes,
+      envelope_ids: Enum.map(envelopes, & &1.public_id),
+      started_at: hd(envelopes).inserted_at,
+      latest: List.last(envelopes),
+      preserved: false
+    }
   end
 
   ## Message delivery policies

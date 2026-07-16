@@ -111,4 +111,36 @@ defmodule VeejrWeb.MessagesLiveTest do
     refute has_element?(view, "#message-shell-#{oldest.public_id}")
     assert has_element?(view, "#load-more-messages")
   end
+
+  test "labels a restored conversation with its start date", %{conn: conn, user: user} do
+    {:ok, batch_id, []} =
+      Messaging.send_batch(user, "message", [
+        %{"recipient_id" => user.id, "ciphertext" => "first", "nonce" => "nonce"}
+      ])
+
+    envelope =
+      Repo.get_by!(Veejr.Messaging.Envelope,
+        batch_id: batch_id,
+        recipient_id: user.id
+      )
+
+    participants = ["notes to yourself"]
+    current_key = Messaging.conversation_key(participants)
+
+    assert {:ok, archive} =
+             Messaging.archive_conversation(
+               user,
+               current_key,
+               participants,
+               [envelope.public_id],
+               envelope.inserted_at
+             )
+
+    assert :ok = Messaging.unarchive_conversation(user, archive.conversation_key)
+
+    {:ok, _view, html} = live(conn, "/messages?conversation=#{archive.conversation_key}")
+
+    assert html =~
+             "notes to yourself · #{Calendar.strftime(envelope.inserted_at, "%b %d, %Y")}"
+  end
 end
