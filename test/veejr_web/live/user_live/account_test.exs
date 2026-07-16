@@ -19,6 +19,7 @@ defmodule VeejrWeb.UserLive.AccountTest do
     assert html =~ ~p"/keys"
     assert html =~ ~p"/account/archives"
     assert html =~ "Instance administrator"
+    assert html =~ ~p"/admin"
   end
 
   test "renders profile, identity, and FCM registration status", %{conn: conn} do
@@ -65,6 +66,7 @@ defmodule VeejrWeb.UserLive.AccountTest do
       |> live(~p"/account")
 
     assert has_element?(view, "#account-role", "Member")
+    refute has_element?(view, "#account-admin-link")
   end
 
   test "requires authentication", %{conn: conn} do

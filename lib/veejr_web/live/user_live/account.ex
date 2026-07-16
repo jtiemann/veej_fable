@@ -89,6 +89,27 @@ defmodule VeejrWeb.UserLive.Account do
 
       <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-label="Account settings">
         <.link
+          :if={@instance_admin}
+          navigate={~p"/admin"}
+          id="account-admin-link"
+          class="group rounded-2xl border border-primary/40 bg-base-100 p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-primary hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        >
+          <div class="flex items-start justify-between gap-4">
+            <span class="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <.icon name="hero-command-line" class="size-6" />
+            </span>
+            <.icon
+              name="hero-arrow-up-right"
+              class="size-5 text-base-content/40 transition group-hover:text-primary"
+            />
+          </div>
+          <h2 class="mt-5 text-lg font-semibold">Instance administration</h2>
+          <p class="mt-1 text-sm leading-6 text-base-content/70">
+            Review instance health, usage, queues, and runtime information.
+          </p>
+        </.link>
+
+        <.link
           navigate={~p"/users/settings"}
           id="account-settings-link"
           class="group rounded-2xl border border-base-300 bg-base-100 p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
