@@ -218,6 +218,40 @@ defmodule VeejrWeb.AdminLive do
         </div>
       </section>
 
+      <section id="admin-audit" aria-labelledby="admin-audit-heading">
+        <div>
+          <h2 id="admin-audit-heading" class="text-lg font-semibold">Recent admin activity</h2>
+          <p class="text-sm opacity-60">Append-only security and access actions</p>
+        </div>
+
+        <p :if={@audit_events == []} class="mt-3 border-y border-base-300 py-5 text-sm opacity-60">
+          No administrator actions recorded yet.
+        </p>
+
+        <div :if={@audit_events != []} class="mt-3 overflow-x-auto border-y border-base-300">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Administrator</th>
+                <th>Action</th>
+                <th>Target</th>
+                <th>Sessions ended</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={event <- @audit_events} id={"audit-event-#{event.id}"}>
+                <td class="whitespace-nowrap">{format_time(event.inserted_at)}</td>
+                <td class="whitespace-nowrap">@{event.actor.username}</td>
+                <td class="whitespace-nowrap">{audit_action_label(event.action)}</td>
+                <td class="whitespace-nowrap">{audit_target_label(event)}</td>
+                <td>{audit_session_count(event)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <div class="grid gap-6 lg:grid-cols-2">
         <section aria-labelledby="admin-operations-heading">
           <h2 id="admin-operations-heading" class="text-lg font-semibold">Operations</h2>
@@ -399,7 +433,8 @@ defmodule VeejrWeb.AdminLive do
     assign(socket,
       snapshot: Admin.snapshot(),
       accounts: Admin.list_local_accounts(),
-      invitations: Admin.list_invitations()
+      invitations: Admin.list_invitations(),
+      audit_events: Admin.list_audit_events()
     )
   end
 
@@ -424,6 +459,28 @@ defmodule VeejrWeb.AdminLive do
 
   defp account_status_class(%{confirmed_at: nil}), do: "badge-warning"
   defp account_status_class(_user), do: "badge-success"
+
+  defp audit_action_label("account.reactivated"), do: "Account reactivated"
+  defp audit_action_label("account.suspended"), do: "Account suspended"
+  defp audit_action_label("invitation.revoked"), do: "Invitation revoked"
+  defp audit_action_label("sessions.revoked"), do: "Sessions revoked"
+
+  defp audit_target_label(%{target_type: "user", target_id: id, details: details}) do
+    case details["username"] do
+      username when is_binary(username) -> "@#{username}"
+      _ -> "User ##{id}"
+    end
+  end
+
+  defp audit_target_label(%{target_type: "invitation", target_id: id}),
+    do: "Invitation ##{id}"
+
+  defp audit_session_count(%{details: details}) do
+    web = details["web_sessions"] || 0
+    devices = details["device_sessions"] || 0
+
+    if web + devices == 0, do: "-", else: "#{web} web / #{devices} Android"
+  end
 
   defp format_time(%DateTime{} = datetime), do: Calendar.strftime(datetime, "%b %d, %Y %H:%M UTC")
 

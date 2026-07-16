@@ -4,6 +4,7 @@ defmodule Veejr.Admin do
   import Ecto.Query, warn: false
 
   alias Veejr.Accounts.{ApiDeviceSession, Invitation, User, UserToken}
+  alias Veejr.Admin.AuditEvent
   alias Veejr.Federation.Outbox
   alias Veejr.Federation.Peers.Peer
   alias Veejr.Messaging.{Blob, Envelope, Notification}
@@ -108,6 +109,17 @@ defmodule Veejr.Admin do
     )
   end
 
+  @doc "Lists the most recent append-only administrator actions."
+  def list_audit_events(limit \\ 50) do
+    Repo.all(
+      from(event in AuditEvent,
+        order_by: [desc: event.inserted_at, desc: event.id],
+        limit: ^limit,
+        preload: [:actor]
+      )
+    )
+  end
+
   @doc "Returns the current lifecycle state of a tracked invitation."
   def invitation_status(%Invitation{} = invitation, now \\ DateTime.utc_now(:second)) do
     cond do
@@ -127,12 +139,18 @@ defmodule Veejr.Admin do
 
         invitation ->
           if invitation_status(invitation) == :active do
-            invitation
-            |> Ecto.Changeset.change(
-              revoked_at: DateTime.utc_now(:second),
-              revoked_by_id: actor.id
-            )
-            |> Repo.update()
+            Repo.transaction(fn ->
+              invitation =
+                invitation
+                |> Ecto.Changeset.change(
+                  revoked_at: DateTime.utc_now(:second),
+                  revoked_by_id: actor.id
+                )
+                |> Repo.update!()
+
+              audit!(actor, "invitation.revoked", "invitation", invitation.id)
+              invitation
+            end)
           else
             {:error, :not_revocable}
           end
@@ -157,7 +175,17 @@ defmodule Veejr.Admin do
             {:error, :protected_admin}
 
           true ->
-            Repo.transaction(fn -> revoke_sessions(target) end)
+            Repo.transaction(fn ->
+              result = revoke_sessions(target)
+
+              audit!(actor, "sessions.revoked", "user", target.id, %{
+                "username" => target.username,
+                "web_sessions" => result.web_count,
+                "device_sessions" => result.device_count
+              })
+
+              result
+            end)
         end
 
       true ->
@@ -180,6 +208,13 @@ defmodule Veejr.Admin do
 
         result = revoke_sessions(target)
         Repo.delete_all(from(t in UserToken, where: t.user_id == ^target.id))
+
+        audit!(actor, "account.suspended", "user", target.id, %{
+          "username" => target.username,
+          "web_sessions" => result.web_count,
+          "device_sessions" => result.device_count
+        })
+
         result
       end)
     else
@@ -192,9 +227,18 @@ defmodule Veejr.Admin do
   def reactivate_user(%User{} = actor, user_id) do
     with {:ok, target} <- manageable_user(actor, user_id),
          true <- not is_nil(target.suspended_at) do
-      target
-      |> Ecto.Changeset.change(suspended_at: nil, suspended_by_id: nil)
-      |> Repo.update()
+      Repo.transaction(fn ->
+        target =
+          target
+          |> Ecto.Changeset.change(suspended_at: nil, suspended_by_id: nil)
+          |> Repo.update!()
+
+        audit!(actor, "account.reactivated", "user", target.id, %{
+          "username" => target.username
+        })
+
+        target
+      end)
     else
       false -> {:error, :not_suspended}
       {:error, reason} -> {:error, reason}
@@ -242,6 +286,18 @@ defmodule Veejr.Admin do
       web_count: web_count,
       device_count: device_count
     }
+  end
+
+  defp audit!(actor, action, target_type, target_id, details \\ %{}) do
+    %AuditEvent{}
+    |> AuditEvent.changeset(%{
+      action: action,
+      target_type: target_type,
+      target_id: target_id,
+      details: details,
+      actor_user_id: actor.id
+    })
+    |> Repo.insert!()
   end
 
   defp database_health do

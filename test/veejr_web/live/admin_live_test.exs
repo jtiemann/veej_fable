@@ -44,6 +44,7 @@ defmodule VeejrWeb.AdminLiveTest do
     assert has_element?(view, "#invitation-#{invitation.id}", "Revoked")
     refute has_element?(view, "#invitation-#{invitation.id} button", "Revoke")
     refute Accounts.get_open_invitation(token)
+    assert has_element?(view, "#admin-audit", "Invitation revoked")
   end
 
   test "lists local accounts and revokes member sessions", %{conn: conn} do
@@ -79,6 +80,7 @@ defmodule VeejrWeb.AdminLiveTest do
 
     refute has_element?(view, "#account-#{member.id} button", "Revoke sessions")
     assert has_element?(view, "#account-#{member.id}", "Never")
+    assert has_element?(view, "#admin-audit", "1 web / 1 Android")
     refute Accounts.get_user_by_session_token(web_token)
     refute Accounts.get_user_and_api_session_by_access_token(api_tokens.access_token)
   end
@@ -101,6 +103,7 @@ defmodule VeejrWeb.AdminLiveTest do
 
     assert has_element?(view, "#account-#{member.id}", "Suspended")
     assert has_element?(view, "#account-#{member.id} button", "Reactivate")
+    assert has_element?(view, "#admin-audit", "Account suspended")
     refute Accounts.get_user_by_session_token(token)
 
     view
@@ -109,6 +112,7 @@ defmodule VeejrWeb.AdminLiveTest do
 
     assert has_element?(view, "#account-#{member.id}", "Confirmed")
     assert has_element?(view, "#account-#{member.id} button", "Suspend")
+    assert has_element?(view, "#admin-audit", "Account reactivated")
   end
 
   test "redirects ordinary members", %{conn: conn} do

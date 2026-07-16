@@ -41,6 +41,12 @@ defmodule Veejr.AdminTest do
     assert Admin.invitation_status(revoked) == :revoked
     refute Accounts.get_open_invitation(token)
 
+    assert [%{action: "invitation.revoked", target_id: target_id, actor: actor}] =
+             Admin.list_audit_events()
+
+    assert target_id == invitation.id
+    assert actor.id == admin.id
+
     assert {:error, :invite_unavailable} =
              Accounts.register_user(valid_user_attributes(), token)
   end
@@ -87,6 +93,11 @@ defmodule Veejr.AdminTest do
     assert result.device_count == 1
     assert [%{token: ^web_token}] = result.web_tokens
 
+    assert [%{action: "sessions.revoked", details: details}] = Admin.list_audit_events()
+    assert details["username"] == member.username
+    assert details["web_sessions"] == 1
+    assert details["device_sessions"] == 1
+
     refute Accounts.get_user_by_session_token(web_token)
     refute Accounts.get_user_and_api_session_by_access_token(api_tokens.access_token)
     assert Accounts.get_user!(member.id)
@@ -124,5 +135,11 @@ defmodule Veejr.AdminTest do
     refute Accounts.get_user_by_session_token(web_token)
     assert {:error, :not_found} = Accounts.login_user_by_magic_link(magic_token)
     assert {:error, :not_suspended} = Admin.reactivate_user(admin, member.id)
+
+    assert [reactivated_event, suspended_event] = Admin.list_audit_events()
+    assert reactivated_event.action == "account.reactivated"
+    assert suspended_event.action == "account.suspended"
+    assert reactivated_event.target_id == member.id
+    assert suspended_event.target_id == member.id
   end
 end
