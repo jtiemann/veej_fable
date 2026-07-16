@@ -2,9 +2,11 @@ defmodule VeejrWeb.AdminLiveTest do
   use VeejrWeb.ConnCase
 
   import Phoenix.LiveViewTest
+  import Swoosh.TestAssertions
   import Veejr.AccountsFixtures
 
-  alias Veejr.Accounts
+  alias Veejr.{Accounts, Operations, Repo}
+  alias Veejr.Federation.Peers.Peer
 
   test "renders the administrator dashboard", %{conn: conn} do
     admin = user_fixture()
@@ -19,6 +21,8 @@ defmodule VeejrWeb.AdminLiveTest do
     assert has_element?(view, "#admin-health", "All monitored services operational")
     assert has_element?(view, "#metric-local-users", "1")
     assert has_element?(view, "#metric-storage")
+    assert has_element?(view, "#admin-settings")
+    assert has_element?(view, "#instance-settings-form")
     assert has_element?(view, "button[phx-click='refresh']")
     assert has_element?(view, "#admin-invitations a[href='/invites/new']")
     assert has_element?(view, "#invitation-#{invitation.id}", "Active")
@@ -26,6 +30,59 @@ defmodule VeejrWeb.AdminLiveTest do
 
     view |> element("button[phx-click='refresh']") |> render_click()
     assert has_element?(view, "#admin-health")
+  end
+
+  test "updates instance settings and tests mail delivery", %{conn: conn} do
+    admin = user_fixture()
+    assert_email_sent()
+
+    {:ok, view, _html} = conn |> log_in_user(admin) |> live(~p"/admin")
+
+    view
+    |> form("#instance-settings-form", %{
+      "settings" => %{
+        "name" => "Veejr Test Community",
+        "description" => "Test description",
+        "registration_policy" => "invite_only",
+        "invitation_lifetime_days" => "3",
+        "max_upload_mb" => "20",
+        "storage_quota_mb" => "200",
+        "default_retention_hours" => "24",
+        "mail_from_name" => "Veejr Test",
+        "mail_from_address" => "sender@example.com"
+      }
+    })
+    |> render_submit()
+
+    assert has_element?(view, "#instance-settings-form input[value='Veejr Test Community']")
+    assert has_element?(view, "#admin-audit", "Settings updated")
+
+    view |> element("button[phx-click='test_mail']") |> render_click()
+    assert_email_sent(subject: "Veejr email delivery test")
+    assert has_element?(view, "#admin-audit", "Mail tested")
+  end
+
+  test "expires an invitation", %{conn: conn} do
+    admin = user_fixture()
+    {:ok, invitation, token} = Accounts.create_invitation(admin)
+    {:ok, view, _html} = conn |> log_in_user(admin) |> live(~p"/admin")
+
+    view |> element("#invitation-#{invitation.id} button", "Expire") |> render_click()
+
+    assert has_element?(view, "#invitation-#{invitation.id}", "Expired")
+    refute Accounts.get_open_invitation(token)
+    assert has_element?(view, "#admin-audit", "Invitation expired")
+  end
+
+  test "shows content-free operational failures", %{conn: conn} do
+    admin = user_fixture()
+    assert {:ok, _failure} = Operations.record_failure("email", "login_link", :timeout)
+
+    {:ok, view, _html} = conn |> log_in_user(admin) |> live(~p"/admin")
+
+    assert has_element?(view, "#metric-email-failures", "1")
+    assert has_element?(view, "#admin-failures", "login_link")
+    assert has_element?(view, "#admin-failures", "timeout")
   end
 
   test "revokes an active invitation", %{conn: conn} do
@@ -113,6 +170,34 @@ defmodule VeejrWeb.AdminLiveTest do
     assert has_element?(view, "#account-#{member.id}", "Confirmed")
     assert has_element?(view, "#account-#{member.id} button", "Suspend")
     assert has_element?(view, "#admin-audit", "Account reactivated")
+  end
+
+  test "blocks and unblocks a federation peer", %{conn: conn} do
+    admin = user_fixture()
+
+    peer =
+      %Peer{authority: "remote.example", public_key: Base.encode64("peer-key")}
+      |> Ecto.Changeset.change()
+      |> Repo.insert!()
+
+    {:ok, view, _html} =
+      conn
+      |> log_in_user(admin)
+      |> live(~p"/admin")
+
+    assert has_element?(view, "#peer-#{peer.id}", "Allowed")
+    assert has_element?(view, "#peer-#{peer.id} button", "Block")
+
+    view |> element("#peer-#{peer.id} button[phx-click='block_peer']") |> render_click()
+
+    assert has_element?(view, "#peer-#{peer.id}", "Blocked")
+    assert has_element?(view, "#peer-#{peer.id} button", "Unblock")
+    assert has_element?(view, "#admin-audit", "Peer blocked")
+
+    view |> element("#peer-#{peer.id} button[phx-click='unblock_peer']") |> render_click()
+
+    assert has_element?(view, "#peer-#{peer.id}", "Allowed")
+    assert has_element?(view, "#admin-audit", "Peer unblocked")
   end
 
   test "redirects ordinary members", %{conn: conn} do

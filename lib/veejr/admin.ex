@@ -4,10 +4,13 @@ defmodule Veejr.Admin do
   import Ecto.Query, warn: false
 
   alias Veejr.Accounts.{ApiDeviceSession, Invitation, User, UserToken}
+  alias Veejr.Accounts.UserNotifier
   alias Veejr.Admin.AuditEvent
   alias Veejr.Federation.Outbox
+  alias Veejr.Federation.Outbox.Delivery
   alias Veejr.Federation.Peers.Peer
   alias Veejr.Messaging.{Blob, Envelope, Notification}
+  alias Veejr.{InstanceSettings, Operations}
   alias Veejr.Repo
 
   @doc "Returns a content-free snapshot of instance usage and health."
@@ -45,6 +48,12 @@ defmodule Veejr.Admin do
             :count
           ),
         federation_queue: Outbox.pending_count(),
+        email_failures: Operations.count_failures("email"),
+        pending_key_changes:
+          Repo.aggregate(
+            from(u in User, where: not is_nil(u.host) and not is_nil(u.pending_public_key)),
+            :count
+          ),
         pinned_peers: Repo.aggregate(Peer, :count)
       },
       health: %{
@@ -78,7 +87,11 @@ defmodule Veejr.Admin do
       from(t in UserToken,
         where: t.context == "session",
         group_by: t.user_id,
-        select: %{user_id: t.user_id, count: count(t.id)}
+        select: %{
+          user_id: t.user_id,
+          count: count(t.id),
+          last_authenticated_at: max(t.authenticated_at)
+        }
       )
 
     device_sessions =
@@ -91,6 +104,12 @@ defmodule Veejr.Admin do
         }
       )
 
+    storage =
+      from(b in Blob,
+        group_by: b.owner_id,
+        select: %{user_id: b.owner_id, bytes: sum(b.size)}
+      )
+
     Repo.all(
       from(u in User,
         where: is_nil(u.host),
@@ -98,12 +117,16 @@ defmodule Veejr.Admin do
         on: web.user_id == u.id,
         left_join: device in subquery(device_sessions),
         on: device.user_id == u.id,
+        left_join: stored in subquery(storage),
+        on: stored.user_id == u.id,
         order_by: [asc: u.inserted_at, asc: u.id],
         select: %{
           user: u,
           web_sessions: coalesce(web.count, 0),
+          last_web_authenticated_at: web.last_authenticated_at,
           device_sessions: coalesce(device.count, 0),
-          last_device_used_at: device.last_used_at
+          last_device_used_at: device.last_used_at,
+          storage_bytes: coalesce(stored.bytes, 0)
         }
       )
     )
@@ -118,6 +141,71 @@ defmodule Veejr.Admin do
         preload: [:actor]
       )
     )
+  end
+
+  @doc "Lists pinned federation peers for instance administration."
+  def list_peers do
+    pending =
+      from(d in Delivery,
+        group_by: d.authority,
+        select: %{
+          authority: d.authority,
+          count: count(d.id),
+          attempts: max(d.attempts),
+          last_error: max(d.last_error)
+        }
+      )
+
+    Repo.all(
+      from(peer in Peer,
+        left_join: pending in subquery(pending),
+        on: pending.authority == peer.authority,
+        order_by: [asc: peer.authority],
+        select: %{
+          peer: peer,
+          pending_deliveries: coalesce(pending.count, 0),
+          delivery_attempts: coalesce(pending.attempts, 0),
+          last_error: pending.last_error
+        }
+      )
+    )
+  end
+
+  def list_operational_failures, do: Operations.list_failures()
+
+  def list_pending_key_changes do
+    Repo.all(
+      from(u in User,
+        where: not is_nil(u.host) and not is_nil(u.pending_public_key),
+        order_by: [asc: u.host, asc: u.username]
+      )
+    )
+  end
+
+  def change_instance_settings(attrs \\ %{}),
+    do: InstanceSettings.change(InstanceSettings.get(), attrs)
+
+  def update_instance_settings(%User{} = actor, attrs) do
+    if Veejr.Accounts.instance_admin?(actor) do
+      changeset = change_instance_settings(attrs)
+      changed_fields = changeset.changes |> Map.keys() |> Enum.reject(&(&1 in [:updated_at]))
+
+      Repo.transaction(fn ->
+        case Repo.update(changeset) do
+          {:ok, settings} ->
+            audit!(actor, "instance.settings_updated", "instance", 1, %{
+              "fields" => Enum.map(changed_fields, &to_string/1)
+            })
+
+            settings
+
+          {:error, changeset} ->
+            Repo.rollback(changeset)
+        end
+      end)
+    else
+      {:error, :unauthorized}
+    end
   end
 
   @doc "Returns the current lifecycle state of a tracked invitation."
@@ -154,6 +242,34 @@ defmodule Veejr.Admin do
           else
             {:error, :not_revocable}
           end
+      end
+    else
+      {:error, :unauthorized}
+    end
+  end
+
+  @doc "Expires an active invitation immediately."
+  def expire_invitation(%User{} = actor, invitation_id) do
+    if Veejr.Accounts.instance_admin?(actor) do
+      case Repo.get(Invitation, invitation_id) do
+        %Invitation{} = invitation
+        when is_nil(invitation.accepted_at) and is_nil(invitation.revoked_at) ->
+          if invitation_status(invitation) == :active do
+            Repo.transaction(fn ->
+              invitation =
+                invitation
+                |> Ecto.Changeset.change(expires_at: DateTime.utc_now(:second))
+                |> Repo.update!()
+
+              audit!(actor, "invitation.expired", "invitation", invitation.id)
+              invitation
+            end)
+          else
+            {:error, :not_expirable}
+          end
+
+        _ ->
+          {:error, :not_expirable}
       end
     else
       {:error, :unauthorized}
@@ -245,6 +361,78 @@ defmodule Veejr.Admin do
     end
   end
 
+  @doc "Blocks all inbound and outbound federation traffic for a pinned peer."
+  def block_peer(%User{} = actor, peer_id) do
+    with {:ok, peer} <- manageable_peer(actor, peer_id),
+         false <- not is_nil(peer.blocked_at) do
+      Repo.transaction(fn ->
+        peer =
+          peer
+          |> Ecto.Changeset.change(
+            blocked_at: DateTime.utc_now(:second),
+            blocked_by_id: actor.id
+          )
+          |> Repo.update!()
+
+        dropped = Veejr.Federation.Outbox.drop_for_authority(peer.authority)
+
+        audit!(actor, "peer.blocked", "peer", peer.id, %{
+          "authority" => peer.authority,
+          "outbound_deliveries_dropped" => dropped
+        })
+
+        %{peer: peer, outbound_deliveries_dropped: dropped}
+      end)
+    else
+      true -> {:error, :already_blocked}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc "Restores federation traffic for a blocked peer without restoring discarded deliveries."
+  def unblock_peer(%User{} = actor, peer_id) do
+    with {:ok, peer} <- manageable_peer(actor, peer_id),
+         true <- not is_nil(peer.blocked_at) do
+      Repo.transaction(fn ->
+        peer =
+          peer
+          |> Ecto.Changeset.change(blocked_at: nil, blocked_by_id: nil)
+          |> Repo.update!()
+
+        audit!(actor, "peer.unblocked", "peer", peer.id, %{"authority" => peer.authority})
+        peer
+      end)
+    else
+      false -> {:error, :not_blocked}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def retry_federation(%User{} = actor) do
+    if Veejr.Accounts.instance_admin?(actor) do
+      result = Outbox.retry_all()
+      {:ok, _event} = audit(actor, "federation.retried", "instance", 1, stringify_keys(result))
+      {:ok, result}
+    else
+      {:error, :unauthorized}
+    end
+  end
+
+  def test_mail_delivery(%User{} = actor) do
+    if Veejr.Accounts.instance_admin?(actor) do
+      result = UserNotifier.deliver_admin_test(actor)
+
+      audit_result = if match?({:ok, _}, result), do: "success", else: "failure"
+
+      {:ok, _event} =
+        audit(actor, "instance.mail_tested", "instance", 1, %{"result" => audit_result})
+
+      result
+    else
+      {:error, :unauthorized}
+    end
+  end
+
   defp manageable_user(actor, user_id) do
     cond do
       not Veejr.Accounts.instance_admin?(actor) ->
@@ -259,6 +447,14 @@ defmodule Veejr.Admin do
 
       true ->
         {:error, :not_found}
+    end
+  end
+
+  defp manageable_peer(actor, peer_id) do
+    cond do
+      not Veejr.Accounts.instance_admin?(actor) -> {:error, :unauthorized}
+      peer = Repo.get(Peer, peer_id) -> {:ok, peer}
+      true -> {:error, :not_found}
     end
   end
 
@@ -289,16 +485,28 @@ defmodule Veejr.Admin do
   end
 
   defp audit!(actor, action, target_type, target_id, details \\ %{}) do
+    case audit(actor, action, target_type, target_id, details) do
+      {:ok, event} ->
+        event
+
+      {:error, changeset} ->
+        raise Ecto.InvalidChangesetError, action: :insert, changeset: changeset
+    end
+  end
+
+  defp audit(actor, action, target_type, target_id, details) do
     %AuditEvent{}
     |> AuditEvent.changeset(%{
       action: action,
       target_type: target_type,
       target_id: target_id,
-      details: details,
+      details: Map.put_new(details, "result", "success"),
       actor_user_id: actor.id
     })
-    |> Repo.insert!()
+    |> Repo.insert()
   end
+
+  defp stringify_keys(map), do: Map.new(map, fn {key, value} -> {to_string(key), value} end)
 
   defp database_health do
     case Ecto.Adapters.SQL.query(Repo, "SELECT 1", []) do

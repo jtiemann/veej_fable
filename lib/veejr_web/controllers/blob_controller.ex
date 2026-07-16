@@ -24,6 +24,11 @@ defmodule VeejrWeb.BlobController do
             |> put_status(:request_entity_too_large)
             |> json(%{error: "attachment too large"})
 
+          {:error, :storage_quota_exceeded} ->
+            conn
+            |> put_status(:unprocessable_entity)
+            |> json(%{error: "instance attachment storage quota reached"})
+
           {:error, _} ->
             conn |> put_status(:unprocessable_entity) |> json(%{error: "upload failed"})
         end

@@ -129,15 +129,20 @@ defmodule Veejr.Accounts do
   def register_user(attrs, invite_token \\ nil) do
     invitation = get_open_invitation(invite_token)
     tracked_invitation = invitation || get_tracked_invitation(invite_token)
+    registration_policy = Veejr.InstanceSettings.registration_policy()
 
     cond do
-      invitation ->
+      invitation && registration_policy != "closed" ->
         register_invited_user(attrs, invitation)
+
+      invitation ->
+        {:error, :registration_closed}
 
       tracked_invitation ->
         {:error, :invite_unavailable}
 
-      Veejr.registration_open?() or valid_legacy_invite?(invite_token) ->
+      Veejr.registration_open?() or
+          (registration_policy != "closed" and valid_legacy_invite?(invite_token)) ->
         register_open_user(attrs)
 
       true ->
@@ -197,19 +202,24 @@ defmodule Veejr.Accounts do
     Phoenix.Token.sign(VeejrWeb.Endpoint, @invite_salt, id)
   end
 
-  @doc "Creates a tracked, single-use invitation that expires after seven days."
+  @doc "Creates a tracked, single-use invitation using the configured lifetime."
   def create_invitation(%User{} = inviter) do
-    token = :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
+    if Veejr.InstanceSettings.registration_policy() == "closed" do
+      {:error, :invitations_closed}
+    else
+      token = :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
+      lifetime = Veejr.InstanceSettings.invitation_lifetime_hours() * 60 * 60
 
-    attrs = %{
-      inviter_id: inviter.id,
-      token_hash: invitation_token_hash(token),
-      expires_at: DateTime.add(DateTime.utc_now(:second), @invite_max_age_seconds, :second)
-    }
+      attrs = %{
+        inviter_id: inviter.id,
+        token_hash: invitation_token_hash(token),
+        expires_at: DateTime.add(DateTime.utc_now(:second), lifetime, :second)
+      }
 
-    case Repo.insert(Invitation.changeset(%Invitation{}, attrs)) do
-      {:ok, invitation} -> {:ok, invitation, token}
-      error -> error
+      case Repo.insert(Invitation.changeset(%Invitation{}, attrs)) do
+        {:ok, invitation} -> {:ok, invitation, token}
+        error -> error
+      end
     end
   end
 

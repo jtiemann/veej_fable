@@ -19,7 +19,7 @@ defmodule Veejr.Federation.Outbox do
 
   require Logger
 
-  alias Veejr.Federation.Client
+  alias Veejr.Federation.{Client, Peers}
   alias Veejr.Repo
 
   @max_attempts 25
@@ -53,13 +53,15 @@ defmodule Veejr.Federation.Outbox do
   unreachable. Returns `:ok` or `{:queued, reason}`.
   """
   def deliver(authority, path, payload) do
-    case Client.post_json(authority, path, payload) do
-      {:ok, _} ->
-        :ok
+    with :ok <- Peers.allow(authority) do
+      case Client.post_json(authority, path, payload) do
+        {:ok, _} ->
+          :ok
 
-      {:error, reason} ->
-        enqueue(authority, path, payload, reason)
-        {:queued, reason}
+        {:error, reason} ->
+          enqueue(authority, path, payload, reason)
+          {:queued, reason}
+      end
     end
   end
 
@@ -80,6 +82,20 @@ defmodule Veejr.Federation.Outbox do
   end
 
   def pending_count, do: Repo.aggregate(Delivery, :count)
+
+  @doc "Drops queued deliveries to a blocked authority and returns the count."
+  def drop_for_authority(authority) do
+    {count, _} = Repo.delete_all(from(d in Delivery, where: d.authority == ^authority))
+    count
+  end
+
+  @doc "Makes queued deliveries due now and processes one bounded batch."
+  def retry_all do
+    now = DateTime.utc_now(:second)
+    {scheduled, _} = Repo.update_all(Delivery, set: [next_attempt_at: now, updated_at: now])
+    {succeeded, failed} = process_due()
+    %{scheduled: scheduled, succeeded: succeeded, failed: failed, remaining: pending_count()}
+  end
 
   ## GenServer
 
@@ -117,6 +133,17 @@ defmodule Veejr.Federation.Outbox do
   end
 
   defp attempt(%Delivery{} = delivery) do
+    case Peers.allow(delivery.authority) do
+      {:error, :peer_blocked} ->
+        Repo.delete(delivery)
+        :blocked
+
+      :ok ->
+        attempt_allowed(delivery)
+    end
+  end
+
+  defp attempt_allowed(%Delivery{} = delivery) do
     case Client.post_json(delivery.authority, delivery.path, Jason.decode!(delivery.payload)) do
       {:ok, _} ->
         Repo.delete(delivery)

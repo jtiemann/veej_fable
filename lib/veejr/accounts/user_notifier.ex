@@ -5,16 +5,22 @@ defmodule Veejr.Accounts.UserNotifier do
   alias Veejr.Accounts.User
 
   # Delivers the email using the application mailer.
-  defp deliver(recipient, subject, body) do
+  defp deliver(recipient, operation, subject, body) do
     email =
       new()
       |> to(recipient)
-      |> from(Application.fetch_env!(:veejr, :mail_from))
+      |> from(Veejr.InstanceSettings.mail_from())
       |> subject(subject)
       |> text_body(body)
 
-    with {:ok, _metadata} <- Mailer.deliver(email) do
-      {:ok, email}
+    case Mailer.deliver(email) do
+      {:ok, _metadata} ->
+        {:ok, email}
+
+      {:error, reason} = error ->
+        sanitized_reason = reason |> inspect() |> String.replace(recipient, "[REDACTED]")
+        Veejr.Operations.record_failure("email", operation, sanitized_reason)
+        error
     end
   end
 
@@ -22,7 +28,7 @@ defmodule Veejr.Accounts.UserNotifier do
   Deliver instructions to update a user email.
   """
   def deliver_update_email_instructions(user, url) do
-    deliver(user.email, "Update email instructions", """
+    deliver(user.email, "email_change", "Update email instructions", """
 
     ==============================
 
@@ -52,21 +58,26 @@ defmodule Veejr.Accounts.UserNotifier do
   def deliver_invitation_accepted(inviter, invited_user) do
     invited_name = invited_user.display_name || "@#{invited_user.username}"
 
-    deliver(inviter.email, "#{invited_name} joined #{Veejr.instance_name()}", """
+    deliver(
+      inviter.email,
+      "invitation_accepted",
+      "#{invited_name} joined #{Veejr.instance_name()}",
+      """
 
-    ==============================
+      ==============================
 
-    Hi #{inviter.display_name || "@#{inviter.username}"},
+      Hi #{inviter.display_name || "@#{inviter.username}"},
 
-    #{invited_name} accepted your invitation and joined #{Veejr.instance_name()}.
-    You are now connected as friends.
+      #{invited_name} accepted your invitation and joined #{Veejr.instance_name()}.
+      You are now connected as friends.
 
-    ==============================
-    """)
+      ==============================
+      """
+    )
   end
 
   defp deliver_magic_link_instructions(user, url) do
-    deliver(user.email, "Log in instructions", """
+    deliver(user.email, "login_link", "Log in instructions", """
 
     ==============================
 
@@ -83,7 +94,7 @@ defmodule Veejr.Accounts.UserNotifier do
   end
 
   defp deliver_confirmation_instructions(user, url) do
-    deliver(user.email, "Confirmation instructions", """
+    deliver(user.email, "account_confirmation", "Confirmation instructions", """
 
     ==============================
 
@@ -96,6 +107,16 @@ defmodule Veejr.Accounts.UserNotifier do
     If you didn't create an account with us, please ignore this.
 
     ==============================
+    """)
+  end
+
+  @doc "Sends a content-free delivery test to the instance administrator."
+  def deliver_admin_test(%User{} = admin) do
+    deliver(admin.email, "admin_delivery_test", "Veejr email delivery test", """
+
+    This is a test email from #{Veejr.instance_name()}.
+
+    Email delivery is configured and working.
     """)
   end
 end

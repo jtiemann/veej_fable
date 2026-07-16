@@ -138,6 +138,34 @@ a development server should listen only on loopback.
 Development mode is configured in `config/config.exs`. In production, set
 `VEEJR_MODE=personal` for a private instance.
 
+### Instance administration
+
+The first local account is permanently assigned as the instance administrator.
+That assignment cannot be changed or deleted. The administrator can open
+`/admin` from the Account page to:
+
+- Review service health, versions, registrations, attachment storage, email
+  failures, federation retries, and pending remote key changes.
+- Configure open, invitation-only, or closed registration; invitation lifetime;
+  upload and total attachment-storage limits; default message retention; the
+  public instance name and description; and mail sender identity.
+- Inspect, revoke, or immediately expire tracked invitations and see who joined
+  through them.
+- Review local-account operational metadata, revoke web and Android sessions,
+  and suspend or reactivate members without deleting their data.
+- Inspect pinned federation peers, block or unblock their traffic, and retry
+  queued federation deliveries.
+- Review an append-only audit trail of administrator actions. Audit and
+  operational-failure records contain no decrypted messages, attachments,
+  notes, locations, passwords, secret keys, or recipient email addresses.
+
+`PHX_HOST`, TLS, DNS, SMTP credentials, and `VEEJR_MODE` remain deployment
+settings. The Admin page displays the effective mode and public federation
+authority but does not mutate them, because changing either without updating
+the reverse proxy, certificates, DNS, and peer identity would break the
+instance. The Admin registration policy can override the mode's default signup
+behavior without changing its federation identity.
+
 ## Production configuration
 
 The release runs database migrations automatically at startup. Set

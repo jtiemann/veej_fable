@@ -15,7 +15,7 @@ defmodule VeejrWeb.InvitationLive.New do
       <.header>
         Invite someone
         <:subtitle>
-          Ask them to scan this code. The invitation can be used once and expires in seven days.
+          Ask them to scan this code. The invitation can be used once and expires in {@invitation_lifetime_days} days.
         </:subtitle>
         <:actions>
           <.link navigate={~p"/contacts"} class="btn btn-ghost btn-sm">
@@ -24,7 +24,14 @@ defmodule VeejrWeb.InvitationLive.New do
         </:actions>
       </.header>
 
-      <section class="grid items-center gap-6 rounded-lg border border-base-300 bg-base-100 p-5 sm:grid-cols-[minmax(0,1fr)_16rem]">
+      <p :if={not @invitation_available} class="border-y border-base-300 py-5 text-sm">
+        Invitations are currently closed by the instance administrator.
+      </p>
+
+      <section
+        :if={@invitation_available}
+        class="grid items-center gap-6 rounded-lg border border-base-300 bg-base-100 p-5 sm:grid-cols-[minmax(0,1fr)_16rem]"
+      >
         <div>
           <p class="text-sm font-semibold uppercase opacity-60">Invitation from</p>
           <p class="mt-1 text-xl font-semibold">
@@ -54,7 +61,7 @@ defmodule VeejrWeb.InvitationLive.New do
         </div>
       </section>
 
-      <div class="flex justify-end">
+      <div :if={@invitation_available} class="flex justify-end">
         <button phx-click="new_invitation" class="btn btn-outline btn-sm">
           <.icon name="hero-arrow-path" class="size-4" /> Create another code
         </button>
@@ -65,7 +72,13 @@ defmodule VeejrWeb.InvitationLive.New do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, socket |> assign(page_title: "Invite someone") |> assign_invitation()}
+    {:ok,
+     socket
+     |> assign(
+       page_title: "Invite someone",
+       invitation_lifetime_days: div(Veejr.InstanceSettings.invitation_lifetime_hours(), 24)
+     )
+     |> assign_invitation()}
   end
 
   @impl true
@@ -74,15 +87,24 @@ defmodule VeejrWeb.InvitationLive.New do
   end
 
   defp assign_invitation(socket) do
-    {:ok, _invitation, token} = Accounts.create_invitation(socket.assigns.current_scope.user)
-    invite_url = url(~p"/users/register?invite=#{token}")
+    case Accounts.create_invitation(socket.assigns.current_scope.user) do
+      {:ok, _invitation, token} ->
+        invite_url = url(~p"/users/register?invite=#{token}")
 
-    {:ok, qr_code} =
-      invite_url
-      |> QRCode.create(:medium)
-      |> QRCode.render(:svg)
-      |> QRCode.to_base64()
+        {:ok, qr_code} =
+          invite_url
+          |> QRCode.create(:medium)
+          |> QRCode.render(:svg)
+          |> QRCode.to_base64()
 
-    assign(socket, invite_url: invite_url, qr_code: qr_code)
+        assign(socket,
+          invitation_available: true,
+          invite_url: invite_url,
+          qr_code: qr_code
+        )
+
+      {:error, :invitations_closed} ->
+        assign(socket, invitation_available: false, invite_url: nil, qr_code: nil)
+    end
   end
 end

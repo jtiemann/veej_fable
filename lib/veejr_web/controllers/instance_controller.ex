@@ -17,6 +17,7 @@ defmodule VeejrWeb.InstanceController do
       software: "veejr",
       version: Veejr.version(),
       name: Veejr.instance_name(),
+      description: Veejr.instance_description(),
       host: Veejr.instance_authority(),
       mode: Veejr.instance_mode(),
       registration_open: Veejr.registration_open?(),

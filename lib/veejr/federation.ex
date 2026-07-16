@@ -26,7 +26,7 @@ defmodule Veejr.Federation do
   require Logger
 
   alias Veejr.Accounts.User
-  alias Veejr.Federation.Client
+  alias Veejr.Federation.{Client, Peers}
   alias Veejr.Repo
   alias Veejr.Social.Address
 
@@ -40,7 +40,8 @@ defmodule Veejr.Federation do
   key than the one pinned earlier — never silently swap encryption keys.
   """
   def ensure_remote_user(username, authority) do
-    with {:ok, entry} <- Client.get_json(authority, "/api/directory/#{username}") do
+    with :ok <- Peers.allow(authority),
+         {:ok, entry} <- Client.get_json(authority, "/api/directory/#{username}") do
       case Repo.get_by(User, username: username, host: authority) do
         nil ->
           create_remote_user(username, authority, entry)
@@ -112,13 +113,15 @@ defmodule Veejr.Federation do
   end
 
   defp post(authority, path, payload) do
-    case Client.post_json(authority, path, payload) do
-      {:ok, _body} ->
-        :ok
+    with :ok <- Peers.allow(authority) do
+      case Client.post_json(authority, path, payload) do
+        {:ok, _body} ->
+          :ok
 
-      {:error, reason} = error ->
-        Logger.warning("federation: POST #{authority}#{path} failed: #{inspect(reason)}")
-        error
+        {:error, reason} = error ->
+          Logger.warning("federation: POST #{authority}#{path} failed: #{inspect(reason)}")
+          error
+      end
     end
   end
 
@@ -176,7 +179,8 @@ defmodule Veejr.Federation do
   """
   def fetch_envelope_content(%{public_id: public_id, sender: %User{host: authority}})
       when is_binary(authority) do
-    with {:ok, body} <- Client.get_json(authority, "/api/envelopes/#{public_id}"),
+    with :ok <- Peers.allow(authority),
+         {:ok, body} <- Client.get_json(authority, "/api/envelopes/#{public_id}"),
          %{"ciphertext" => ct, "nonce" => nonce} when is_binary(ct) and is_binary(nonce) <- body do
       {:ok, ct, nonce}
     else

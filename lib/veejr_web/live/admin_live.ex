@@ -60,7 +60,110 @@ defmodule VeejrWeb.AdminLive do
             value={format_bytes(@snapshot.data.blob_bytes)}
             detail={"#{@snapshot.data.blobs} files"}
           />
+          <.metric
+            id="metric-email-failures"
+            label="Email failures"
+            value={@snapshot.operations.email_failures}
+          />
+          <.metric
+            id="metric-federation-queue"
+            label="Federation retries"
+            value={@snapshot.operations.federation_queue}
+          />
         </div>
+      </section>
+
+      <section id="admin-settings" aria-labelledby="admin-settings-heading">
+        <div>
+          <h2 id="admin-settings-heading" class="text-lg font-semibold">Instance settings</h2>
+          <p class="text-sm opacity-60">Registration, storage, retention, and mail defaults</p>
+        </div>
+
+        <.form
+          for={@settings_form}
+          id="instance-settings-form"
+          phx-change="validate_settings"
+          phx-submit="save_settings"
+          class="mt-3 space-y-4 border-y border-base-300 py-4"
+        >
+          <div class="grid gap-4 md:grid-cols-2">
+            <.input field={@settings_form[:name]} label="Instance name" />
+            <.input
+              field={@settings_form[:registration_policy]}
+              type="select"
+              label="Registration policy"
+              options={[
+                {"Use deployment mode", "mode_default"},
+                {"Open registration", "open"},
+                {"Invitation only", "invite_only"},
+                {"Closed", "closed"}
+              ]}
+            />
+          </div>
+
+          <.input field={@settings_form[:description]} type="textarea" label="Instance description" />
+
+          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <.input
+              field={@settings_form[:invitation_lifetime_days]}
+              type="number"
+              min="1"
+              max="30"
+              label="Invitation lifetime (days)"
+            />
+            <.input
+              field={@settings_form[:max_upload_mb]}
+              type="number"
+              min="1"
+              max="100"
+              label="Maximum upload (MB)"
+            />
+            <.input
+              field={@settings_form[:storage_quota_mb]}
+              type="number"
+              min="1"
+              label="Storage quota (MB)"
+              placeholder="Unlimited"
+            />
+            <.input
+              field={@settings_form[:default_retention_hours]}
+              type="number"
+              min="1"
+              max="720"
+              label="Default retention (hours)"
+              placeholder="No default"
+            />
+          </div>
+
+          <div class="grid gap-4 md:grid-cols-2">
+            <.input field={@settings_form[:mail_from_name]} label="Mail sender name" />
+            <.input
+              field={@settings_form[:mail_from_address]}
+              type="email"
+              label="Mail sender address"
+            />
+          </div>
+
+          <dl class="grid gap-3 text-sm sm:grid-cols-2">
+            <div>
+              <dt class="opacity-60">Deployment mode</dt>
+              <dd class="font-medium">{Veejr.instance_mode()}</dd>
+            </div>
+            <div>
+              <dt class="opacity-60">Public federation authority</dt>
+              <dd class="font-medium">{Veejr.instance_authority()}</dd>
+            </div>
+          </dl>
+
+          <div class="flex flex-wrap gap-2">
+            <button type="submit" class="btn btn-primary btn-sm">
+              <.icon name="hero-check" class="size-4" /> Save settings
+            </button>
+            <button type="button" phx-click="test_mail" class="btn btn-outline btn-sm">
+              <.icon name="hero-envelope" class="size-4" /> Send test email
+            </button>
+          </div>
+        </.form>
       </section>
 
       <section id="admin-accounts" aria-labelledby="admin-accounts-heading">
@@ -78,7 +181,8 @@ defmodule VeejrWeb.AdminLive do
                 <th>Status</th>
                 <th>Web</th>
                 <th>Android</th>
-                <th>Last Android activity</th>
+                <th>Last sign-in</th>
+                <th>Storage</th>
                 <th><span class="sr-only">Actions</span></th>
               </tr>
             </thead>
@@ -106,7 +210,10 @@ defmodule VeejrWeb.AdminLive do
                 </td>
                 <td>{account.web_sessions}</td>
                 <td>{account.device_sessions}</td>
-                <td class="whitespace-nowrap">{format_optional_time(account.last_device_used_at)}</td>
+                <td class="whitespace-nowrap">
+                  {format_optional_time(last_account_activity(account))}
+                </td>
+                <td class="whitespace-nowrap">{format_bytes(account.storage_bytes)}</td>
                 <td>
                   <span
                     :if={Accounts.instance_admin?(account.user)}
@@ -211,6 +318,15 @@ defmodule VeejrWeb.AdminLive do
                   >
                     Revoke
                   </button>
+                  <button
+                    :if={Admin.invitation_status(invitation) == :active}
+                    phx-click="expire_invitation"
+                    phx-value-id={invitation.id}
+                    data-confirm="Expire this invitation immediately?"
+                    class="btn btn-ghost btn-xs"
+                  >
+                    Expire
+                  </button>
                 </td>
               </tr>
             </tbody>
@@ -252,6 +368,92 @@ defmodule VeejrWeb.AdminLive do
         </div>
       </section>
 
+      <section id="admin-peers" aria-labelledby="admin-peers-heading">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 id="admin-peers-heading" class="text-lg font-semibold">Federation peers</h2>
+            <p class="text-sm opacity-60">Pinned remote instances and traffic controls</p>
+          </div>
+          <button
+            :if={@snapshot.operations.federation_queue > 0}
+            phx-click="retry_federation"
+            class="btn btn-outline btn-sm"
+          >
+            <.icon name="hero-arrow-path" class="size-4" /> Retry pending
+          </button>
+        </div>
+
+        <p :if={@peers == []} class="mt-3 border-y border-base-300 py-5 text-sm opacity-60">
+          No remote instances have been pinned yet.
+        </p>
+
+        <div :if={@peers != []} class="mt-3 overflow-x-auto border-y border-base-300">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>Authority</th>
+                <th>First pinned</th>
+                <th>Status</th>
+                <th>Pending</th>
+                <th>Last failure</th>
+                <th><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={entry <- @peers} id={"peer-#{entry.peer.id}"}>
+                <td class="font-medium">{entry.peer.authority}</td>
+                <td class="whitespace-nowrap">{format_time(entry.peer.inserted_at)}</td>
+                <td>
+                  <span class={[
+                    "badge badge-sm",
+                    if(entry.peer.blocked_at, do: "badge-error", else: "badge-success")
+                  ]}>
+                    {if entry.peer.blocked_at, do: "Blocked", else: "Allowed"}
+                  </span>
+                </td>
+                <td>{entry.pending_deliveries}</td>
+                <td class="max-w-72 truncate text-xs" title={entry.last_error}>
+                  {entry.last_error || "-"}
+                </td>
+                <td class="text-right">
+                  <button
+                    :if={is_nil(entry.peer.blocked_at)}
+                    phx-click="block_peer"
+                    phx-value-id={entry.peer.id}
+                    data-confirm={
+                      "Block #{entry.peer.authority}? Inbound and outbound federation traffic will stop, and queued notifications to it will be discarded."
+                    }
+                    class="btn btn-ghost btn-xs text-error"
+                  >
+                    Block
+                  </button>
+                  <button
+                    :if={not is_nil(entry.peer.blocked_at)}
+                    phx-click="unblock_peer"
+                    phx-value-id={entry.peer.id}
+                    class="btn btn-ghost btn-xs text-success"
+                  >
+                    Unblock
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div :if={@pending_key_changes != []} class="mt-4 border-y border-warning/40 py-3">
+          <h3 class="text-sm font-semibold">Pending remote key changes</h3>
+          <p class="mt-1 text-xs opacity-60">
+            Each affected contact must approve their new pinned key.
+          </p>
+          <ul class="mt-2 flex flex-wrap gap-2">
+            <li :for={user <- @pending_key_changes} class="badge badge-warning badge-sm">
+              @{user.username}@{user.host}
+            </li>
+          </ul>
+        </div>
+      </section>
+
       <div class="grid gap-6 lg:grid-cols-2">
         <section aria-labelledby="admin-operations-heading">
           <h2 id="admin-operations-heading" class="text-lg font-semibold">Operations</h2>
@@ -262,6 +464,8 @@ defmodule VeejrWeb.AdminLive do
             />
             <.row label="Active invitations" value={@snapshot.operations.active_invitations} />
             <.row label="Federation retry queue" value={@snapshot.operations.federation_queue} />
+            <.row label="Recorded email failures" value={@snapshot.operations.email_failures} />
+            <.row label="Pending remote key changes" value={@snapshot.operations.pending_key_changes} />
             <.row label="Pinned peer instances" value={@snapshot.operations.pinned_peers} />
             <.row label="Remote contacts" value={@snapshot.users.remote} />
           </dl>
@@ -282,6 +486,31 @@ defmodule VeejrWeb.AdminLive do
           </dl>
         </section>
       </div>
+
+      <section
+        :if={@operational_failures != []}
+        id="admin-failures"
+        aria-labelledby="admin-failures-heading"
+      >
+        <h2 id="admin-failures-heading" class="text-lg font-semibold">Recent delivery failures</h2>
+        <div class="mt-3 overflow-x-auto border-y border-base-300">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>Time</th><th>Channel</th><th>Operation</th><th>Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={failure <- @operational_failures}>
+                <td class="whitespace-nowrap">{format_time(failure.inserted_at)}</td>
+                <td>{failure.channel}</td>
+                <td>{failure.operation}</td>
+                <td class="max-w-xl truncate text-xs" title={failure.error}>{failure.error}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </Layouts.app>
     """
   end
@@ -303,6 +532,39 @@ defmodule VeejrWeb.AdminLive do
     {:noreply, load_dashboard(socket)}
   end
 
+  def handle_event("validate_settings", %{"settings" => params}, socket) do
+    form =
+      params
+      |> Admin.change_instance_settings()
+      |> Map.put(:action, :validate)
+      |> to_form(as: "settings")
+
+    {:noreply, assign(socket, settings_form: form)}
+  end
+
+  def handle_event("save_settings", %{"settings" => params}, socket) do
+    case Admin.update_instance_settings(socket.assigns.current_scope.user, params) do
+      {:ok, _settings} ->
+        {:noreply, socket |> put_flash(:info, "Instance settings saved.") |> load_dashboard()}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, assign(socket, settings_form: to_form(changeset, as: "settings"))}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Could not save instance settings.")}
+    end
+  end
+
+  def handle_event("test_mail", _params, socket) do
+    socket =
+      case Admin.test_mail_delivery(socket.assigns.current_scope.user) do
+        {:ok, _email} -> put_flash(socket, :info, "Test email sent to the administrator account.")
+        {:error, _reason} -> put_flash(socket, :error, "The test email could not be delivered.")
+      end
+
+    {:noreply, load_dashboard(socket)}
+  end
+
   def handle_event("revoke_invitation", %{"id" => id}, socket) do
     socket =
       case Admin.revoke_invitation(socket.assigns.current_scope.user, id) do
@@ -314,6 +576,22 @@ defmodule VeejrWeb.AdminLive do
 
         {:error, _reason} ->
           put_flash(socket, :error, "Could not revoke that invitation.")
+      end
+
+    {:noreply, load_dashboard(socket)}
+  end
+
+  def handle_event("expire_invitation", %{"id" => id}, socket) do
+    socket =
+      case Admin.expire_invitation(socket.assigns.current_scope.user, id) do
+        {:ok, _invitation} ->
+          put_flash(socket, :info, "Invitation expired.")
+
+        {:error, :not_expirable} ->
+          put_flash(socket, :error, "That invitation is no longer active.")
+
+        {:error, _reason} ->
+          put_flash(socket, :error, "Could not expire that invitation.")
       end
 
     {:noreply, load_dashboard(socket)}
@@ -386,6 +664,59 @@ defmodule VeejrWeb.AdminLive do
     {:noreply, load_dashboard(socket)}
   end
 
+  def handle_event("block_peer", %{"id" => id}, socket) do
+    socket =
+      case Admin.block_peer(socket.assigns.current_scope.user, id) do
+        {:ok, result} ->
+          put_flash(
+            socket,
+            :info,
+            "Blocked #{result.peer.authority}; discarded #{result.outbound_deliveries_dropped} queued deliveries."
+          )
+
+        {:error, :already_blocked} ->
+          put_flash(socket, :error, "That peer is already blocked.")
+
+        {:error, _reason} ->
+          put_flash(socket, :error, "Could not block that peer.")
+      end
+
+    {:noreply, load_dashboard(socket)}
+  end
+
+  def handle_event("unblock_peer", %{"id" => id}, socket) do
+    socket =
+      case Admin.unblock_peer(socket.assigns.current_scope.user, id) do
+        {:ok, peer} ->
+          put_flash(socket, :info, "Federation with #{peer.authority} is allowed again.")
+
+        {:error, :not_blocked} ->
+          put_flash(socket, :error, "That peer is already allowed.")
+
+        {:error, _reason} ->
+          put_flash(socket, :error, "Could not unblock that peer.")
+      end
+
+    {:noreply, load_dashboard(socket)}
+  end
+
+  def handle_event("retry_federation", _params, socket) do
+    socket =
+      case Admin.retry_federation(socket.assigns.current_scope.user) do
+        {:ok, result} ->
+          put_flash(
+            socket,
+            :info,
+            "Retried #{result.scheduled} deliveries: #{result.succeeded} succeeded, #{result.remaining} remain queued."
+          )
+
+        {:error, _reason} ->
+          put_flash(socket, :error, "Could not retry federation deliveries.")
+      end
+
+    {:noreply, load_dashboard(socket)}
+  end
+
   attr :id, :string, required: true
   attr :label, :string, required: true
   attr :value, :any, required: true
@@ -434,7 +765,11 @@ defmodule VeejrWeb.AdminLive do
       snapshot: Admin.snapshot(),
       accounts: Admin.list_local_accounts(),
       invitations: Admin.list_invitations(),
-      audit_events: Admin.list_audit_events()
+      audit_events: Admin.list_audit_events(),
+      peers: Admin.list_peers(),
+      pending_key_changes: Admin.list_pending_key_changes(),
+      operational_failures: Admin.list_operational_failures(),
+      settings_form: to_form(Admin.change_instance_settings(), as: "settings")
     )
   end
 
@@ -462,7 +797,13 @@ defmodule VeejrWeb.AdminLive do
 
   defp audit_action_label("account.reactivated"), do: "Account reactivated"
   defp audit_action_label("account.suspended"), do: "Account suspended"
+  defp audit_action_label("federation.retried"), do: "Federation retried"
+  defp audit_action_label("instance.mail_tested"), do: "Mail tested"
+  defp audit_action_label("instance.settings_updated"), do: "Settings updated"
+  defp audit_action_label("invitation.expired"), do: "Invitation expired"
   defp audit_action_label("invitation.revoked"), do: "Invitation revoked"
+  defp audit_action_label("peer.blocked"), do: "Peer blocked"
+  defp audit_action_label("peer.unblocked"), do: "Peer unblocked"
   defp audit_action_label("sessions.revoked"), do: "Sessions revoked"
 
   defp audit_target_label(%{target_type: "user", target_id: id, details: details}) do
@@ -475,6 +816,12 @@ defmodule VeejrWeb.AdminLive do
   defp audit_target_label(%{target_type: "invitation", target_id: id}),
     do: "Invitation ##{id}"
 
+  defp audit_target_label(%{target_type: "peer", target_id: id, details: details}) do
+    details["authority"] || "Peer ##{id}"
+  end
+
+  defp audit_target_label(%{target_type: "instance"}), do: "Instance"
+
   defp audit_session_count(%{details: details}) do
     web = details["web_sessions"] || 0
     devices = details["device_sessions"] || 0
@@ -486,6 +833,12 @@ defmodule VeejrWeb.AdminLive do
 
   defp format_optional_time(nil), do: "Never"
   defp format_optional_time(datetime), do: format_time(datetime)
+
+  defp last_account_activity(account) do
+    [account.last_web_authenticated_at, account.last_device_used_at]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.max_by(&DateTime.to_unix/1, fn -> nil end)
+  end
 
   defp format_bytes(bytes) when bytes < 1_024, do: "#{bytes} B"
   defp format_bytes(bytes) when bytes < 1_048_576, do: "#{Float.round(bytes / 1_024, 1)} KB"

@@ -17,6 +17,8 @@ defmodule Veejr.Federation.Peers do
     schema "peers" do
       field :authority, :string
       field :public_key, :string
+      field :blocked_at, :utc_datetime
+      belongs_to :blocked_by, Veejr.Accounts.User
 
       timestamps(type: :utc_datetime)
     end
@@ -24,9 +26,19 @@ defmodule Veejr.Federation.Peers do
 
   @doc "Returns the pinned signing key (base64) for an authority, fetching and pinning on first contact."
   def signing_key(authority) do
+    with :ok <- allow(authority) do
+      case Repo.get_by(Peer, authority: authority) do
+        %Peer{public_key: key} -> {:ok, key}
+        nil -> pin(authority)
+      end
+    end
+  end
+
+  @doc "Returns an error when federation with an authority is administratively blocked."
+  def allow(authority) when is_binary(authority) do
     case Repo.get_by(Peer, authority: authority) do
-      %Peer{public_key: key} -> {:ok, key}
-      nil -> pin(authority)
+      %Peer{blocked_at: blocked_at} when not is_nil(blocked_at) -> {:error, :peer_blocked}
+      _ -> :ok
     end
   end
 

@@ -3,7 +3,8 @@ defmodule VeejrWeb.FederationAuthTest do
 
   import Veejr.AccountsFixtures
 
-  alias Veejr.Accounts
+  alias Veejr.{Accounts, Admin, Repo}
+  alias Veejr.Federation.Peers.Peer
 
   @peer_authority "remote.example"
 
@@ -140,5 +141,29 @@ defmodule VeejrWeb.FederationAuthTest do
       )
 
     assert json_response(conn2, 401)
+  end
+
+  test "a blocked pinned peer is rejected before federation handlers run", %{conn: conn} do
+    peer_key = make_peer()
+    stub_peer_instance(peer_key)
+
+    first =
+      signed_post(conn, peer_key, "/api/federation/friend_request", friend_request_payload())
+
+    assert json_response(first, 200)
+
+    admin = Accounts.get_user_by_username("alice")
+    pinned = Repo.get_by!(Peer, authority: @peer_authority)
+    assert {:ok, _result} = Admin.block_peer(admin, pinned.id)
+
+    blocked =
+      signed_post(
+        build_conn(),
+        peer_key,
+        "/api/federation/friend_request",
+        friend_request_payload()
+      )
+
+    assert json_response(blocked, 401)["error"] =~ "signature"
   end
 end

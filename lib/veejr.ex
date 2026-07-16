@@ -23,6 +23,14 @@ defmodule Veejr do
   end
 
   def registration_open? do
+    case Veejr.InstanceSettings.registration_policy() do
+      "open" -> true
+      policy when policy in ["invite_only", "closed"] -> false
+      "mode_default" -> registration_open_for_mode?()
+    end
+  end
+
+  defp registration_open_for_mode? do
     case instance_mode() do
       :community -> true
       :personal -> Veejr.Repo.aggregate(Veejr.Accounts.User, :count) == 0
@@ -55,8 +63,10 @@ defmodule Veejr do
 
   @doc "Human-readable instance name, shown in instance metadata."
   def instance_name do
-    Application.get_env(:veejr, :instance_name, "veejr @ #{instance_host()}")
+    Veejr.InstanceSettings.effective_name()
   end
+
+  def instance_description, do: Veejr.InstanceSettings.effective_description()
 
   def version do
     to_string(Application.spec(:veejr, :vsn))

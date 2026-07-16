@@ -39,6 +39,14 @@ defmodule VeejrWeb.Api.V1.BlobController do
         {:error, :too_large} ->
           too_large(conn)
 
+        {:error, :storage_quota_exceeded} ->
+          Response.error(
+            conn,
+            :unprocessable_entity,
+            "storage_quota_exceeded",
+            "The instance attachment storage quota has been reached."
+          )
+
         {:error, _reason} ->
           Response.error(
             conn,

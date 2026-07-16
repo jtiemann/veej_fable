@@ -106,12 +106,15 @@ defmodule VeejrWeb.UserLive.Settings do
         </.link>
       </section>
 
-      <section :if={Veejr.instance_mode() == :personal}>
+      <section :if={
+        Veejr.instance_mode() == :personal and
+          Veejr.InstanceSettings.registration_policy() != "closed"
+      }>
         <div class="divider" />
         <h2 class="text-lg font-semibold">Invite someone to this instance</h2>
         <p class="mt-1 text-sm opacity-70">
           Registration on a personal instance is closed, but you can host family or
-          friends here: an invite link lets one more person register. Valid for 7 days.
+          friends here: an invite link lets one more person register.
         </p>
         <button phx-click="generate_invite" class="btn btn-outline btn-sm mt-3">
           Generate invite link

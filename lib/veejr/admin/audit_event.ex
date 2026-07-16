@@ -5,7 +5,13 @@ defmodule Veejr.Admin.AuditEvent do
   @actions [
     "account.reactivated",
     "account.suspended",
+    "federation.retried",
+    "instance.mail_tested",
+    "instance.settings_updated",
+    "invitation.expired",
     "invitation.revoked",
+    "peer.blocked",
+    "peer.unblocked",
     "sessions.revoked"
   ]
 
@@ -25,7 +31,7 @@ defmodule Veejr.Admin.AuditEvent do
     |> cast(attrs, [:action, :target_type, :target_id, :details, :actor_user_id])
     |> validate_required([:action, :target_type, :target_id, :actor_user_id])
     |> validate_inclusion(:action, @actions)
-    |> validate_inclusion(:target_type, ["invitation", "user"])
+    |> validate_inclusion(:target_type, ["instance", "invitation", "peer", "user"])
     |> foreign_key_constraint(:actor_user_id)
   end
 end

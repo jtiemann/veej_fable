@@ -125,7 +125,7 @@ defmodule Veejr.Messaging do
   """
   def send_batch(%User{} = sender, kind, envelopes, opts \\ []) when is_list(envelopes) do
     batch_id = random_id()
-    expires_at = normalize_expires_at(opt(opts, :expires_at))
+    expires_at = effective_expires_at(opt(opts, :expires_at))
     max_displays = normalize_max_displays(opt(opts, :max_displays))
 
     result =
@@ -275,6 +275,19 @@ defmodule Veejr.Messaging do
   end
 
   defp normalize_expires_at(_), do: nil
+
+  defp effective_expires_at(value) do
+    case normalize_expires_at(value) do
+      nil ->
+        case Veejr.InstanceSettings.default_retention_hours() do
+          nil -> nil
+          hours -> DateTime.add(DateTime.utc_now(:second), hours * 60 * 60, :second)
+        end
+
+      expires_at ->
+        expires_at
+    end
+  end
 
   defp normalize_max_displays(nil), do: nil
   defp normalize_max_displays(""), do: nil
@@ -1157,9 +1170,7 @@ defmodule Veejr.Messaging do
 
   ## Blobs (encrypted attachments)
 
-  @max_blob_size 25 * 1024 * 1024
-
-  def max_blob_size, do: @max_blob_size
+  def max_blob_size, do: Veejr.InstanceSettings.max_upload_bytes()
 
   @doc """
   Stores an already-encrypted attachment body and returns the blob. The
@@ -1167,21 +1178,33 @@ defmodule Veejr.Messaging do
   message envelope.
   """
   def create_blob(%User{} = owner, binary) when is_binary(binary) do
-    if byte_size(binary) > @max_blob_size do
-      {:error, :too_large}
-    else
-      public_id = random_id()
-      dir = blob_dir()
-      File.mkdir_p!(dir)
-      path = Path.join(dir, public_id <> ".bin")
-      File.write!(path, binary)
+    cond do
+      byte_size(binary) > max_blob_size() ->
+        {:error, :too_large}
 
-      Repo.insert(%Blob{
-        public_id: public_id,
-        owner_id: owner.id,
-        size: byte_size(binary),
-        path: path
-      })
+      storage_quota_exceeded?(byte_size(binary)) ->
+        {:error, :storage_quota_exceeded}
+
+      true ->
+        public_id = random_id()
+        dir = blob_dir()
+        File.mkdir_p!(dir)
+        path = Path.join(dir, public_id <> ".bin")
+        File.write!(path, binary)
+
+        Repo.insert(%Blob{
+          public_id: public_id,
+          owner_id: owner.id,
+          size: byte_size(binary),
+          path: path
+        })
+    end
+  end
+
+  defp storage_quota_exceeded?(incoming_bytes) do
+    case Veejr.InstanceSettings.storage_quota_bytes() do
+      nil -> false
+      quota -> (Repo.aggregate(Blob, :sum, :size) || 0) + incoming_bytes > quota
     end
   end
 
