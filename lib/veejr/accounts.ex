@@ -13,6 +13,7 @@ defmodule Veejr.Accounts do
     InstanceAdministration,
     Scope,
     User,
+    UserAvatar,
     UserNotifier,
     UserToken
   }
@@ -90,6 +91,67 @@ defmodule Veejr.Accounts do
 
   """
   def get_user!(id), do: Repo.get!(User, id)
+
+  @doc "Returns the public URL for a user's uploaded avatar, or nil for the placeholder."
+  def avatar_url(%User{
+        host: nil,
+        has_avatar: true,
+        avatar_version: version,
+        username: username
+      })
+      when is_integer(version) and version > 0 do
+    "/avatars/#{URI.encode(username)}?v=#{version}"
+  end
+
+  def avatar_url(_user), do: nil
+
+  @doc "Stores a browser-normalized 512px JPEG as the user's public avatar."
+  def put_user_avatar(%User{} = user, data) when is_binary(data) do
+    with :ok <- Veejr.Accounts.Avatar.validate(data) do
+      Ecto.Multi.new()
+      |> Ecto.Multi.insert(
+        :avatar,
+        UserAvatar.changeset(%UserAvatar{}, %{user_id: user.id, image: data}),
+        on_conflict: [set: [image: data, updated_at: DateTime.utc_now(:second)]],
+        conflict_target: :user_id
+      )
+      |> Ecto.Multi.update(
+        :user,
+        User.avatar_changeset(user, %{
+          has_avatar: true,
+          avatar_version: (user.avatar_version || 0) + 1
+        })
+      )
+      |> Repo.transaction()
+      |> case do
+        {:ok, %{user: updated_user}} -> {:ok, updated_user}
+        {:error, _operation, reason, _changes} -> {:error, reason}
+      end
+    end
+  end
+
+  @doc "Removes a user's avatar and advances its cache version."
+  def remove_user_avatar(%User{} = user) do
+    Ecto.Multi.new()
+    |> Ecto.Multi.delete_all(:avatar, from(a in UserAvatar, where: a.user_id == ^user.id))
+    |> Ecto.Multi.update(
+      :user,
+      User.avatar_changeset(user, %{
+        has_avatar: false,
+        avatar_version: (user.avatar_version || 0) + 1
+      })
+    )
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{user: updated_user}} -> {:ok, updated_user}
+      {:error, _operation, reason, _changes} -> {:error, reason}
+    end
+  end
+
+  @doc false
+  def get_user_avatar_image(%User{id: user_id}) do
+    Repo.one(from(a in UserAvatar, where: a.user_id == ^user_id, select: a.image))
+  end
 
   @doc "Returns the permanently assigned administrator for this instance, if one exists."
   def get_instance_admin do

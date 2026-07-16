@@ -36,6 +36,7 @@ defmodule VeejrWeb.Api.V1.RecipientController do
       id: to_string(user.id),
       username: user.username,
       handle: Address.handle(user),
+      avatar_url: Veejr.Accounts.avatar_url(user),
       public_key: user.public_key,
       auto_accept: Messaging.automatic_delivery?(owner, user),
       note: Map.get(notes, user.id, "")

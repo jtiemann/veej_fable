@@ -14,8 +14,23 @@ defmodule VeejrWeb.UserLive.SettingsTest do
 
       assert html =~ "Change Email"
       assert html =~ "Save Password"
+      assert has_element?(view, "#avatar-upload")
+      assert has_element?(view, "#settings-avatar [role='img']")
       assert has_element?(view, "#admin-account-protection")
       refute has_element?(view, "button[phx-click='delete_account']")
+    end
+
+    test "removes an uploaded profile image", %{conn: conn} do
+      user = user_fixture()
+      {:ok, user} = Accounts.put_user_avatar(user, jpeg())
+
+      {:ok, view, _html} = conn |> log_in_user(user) |> live(~p"/users/settings")
+      assert has_element?(view, "#settings-avatar img[src='/avatars/#{user.username}?v=1']")
+
+      view |> element("button[phx-click='remove_avatar']") |> render_click()
+
+      assert has_element?(view, "#settings-avatar [role='img']")
+      refute Accounts.get_user!(user.id).has_avatar
     end
 
     test "keeps account deletion available to ordinary members", %{conn: conn} do
@@ -223,5 +238,10 @@ defmodule VeejrWeb.UserLive.SettingsTest do
       assert %{"error" => message} = flash
       assert message == "You must log in to access this page."
     end
+  end
+
+  defp jpeg do
+    <<0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x11, 0x08, 512::16, 512::16, 0::size(12)-unit(8), 0xFF,
+      0xD9>>
   end
 end

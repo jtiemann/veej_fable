@@ -112,7 +112,15 @@ defmodule VeejrWeb.MessagesLive do
                     "text-base-content hover:bg-base-200"
                 ]}
               >
-                <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
+                <.user_avatar
+                  :if={conv.avatar_user}
+                  user={conv.avatar_user}
+                  class="size-10 text-sm"
+                />
+                <span
+                  :if={!conv.avatar_user}
+                  class="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary"
+                >
                   {conversation_initials(conv)}
                 </span>
                 <span class="min-w-0 flex-1">
@@ -150,9 +158,11 @@ defmodule VeejrWeb.MessagesLive do
                       "text-base-content hover:bg-base-200"
                   ]}
                 >
-                  <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-base-200 text-sm font-semibold opacity-80">
-                    {person_initials(friend)}
-                  </span>
+                  <.user_avatar
+                    id={"message-friend-avatar-#{friend.id}"}
+                    user={friend}
+                    class="size-10 text-sm"
+                  />
                   <span class="min-w-0 flex-1">
                     <span class="block truncate text-sm font-medium">
                       {friend.display_name || friend.username}
@@ -200,13 +210,26 @@ defmodule VeejrWeb.MessagesLive do
               class="flex min-h-0 flex-1 flex-col"
             >
               <div class="flex items-center justify-between gap-3 border-b border-base-300 bg-base-100 px-5 py-4">
-                <div class="min-w-0">
-                  <h2 class="truncate text-lg font-semibold text-base-content">
-                    {conversation_title(@selected_conversation)}
-                  </h2>
-                  <p class="text-xs opacity-70">
-                    {@selected_conversation.message_count} messages
-                  </p>
+                <div class="flex min-w-0 items-center gap-3">
+                  <.user_avatar
+                    :if={@selected_conversation.avatar_user}
+                    user={@selected_conversation.avatar_user}
+                    class="size-11 text-sm"
+                  />
+                  <span
+                    :if={!@selected_conversation.avatar_user}
+                    class="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary"
+                  >
+                    <.icon name="hero-user-group" class="size-5" />
+                  </span>
+                  <div class="min-w-0">
+                    <h2 class="truncate text-lg font-semibold text-base-content">
+                      {conversation_title(@selected_conversation)}
+                    </h2>
+                    <p class="text-xs opacity-70">
+                      {@selected_conversation.message_count} messages
+                    </p>
+                  </div>
                 </div>
                 <button
                   id="archive-conversation"
@@ -269,7 +292,15 @@ defmodule VeejrWeb.MessagesLive do
               class="flex flex-1 flex-col justify-end"
             >
               <div class="mx-auto max-w-xl px-6 py-12 text-center">
-                <div class="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-primary/15 text-xl font-semibold text-primary">
+                <.user_avatar
+                  :if={selected_recipient_user(@selected_recipient)}
+                  user={selected_recipient_user(@selected_recipient)}
+                  class="mx-auto mb-4 size-16 text-lg"
+                />
+                <div
+                  :if={!selected_recipient_user(@selected_recipient)}
+                  class="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-primary/15 text-xl font-semibold text-primary"
+                >
                   {selected_recipient_initials(@selected_recipient)}
                 </div>
                 <h2 class="text-xl font-semibold text-base-content">
@@ -609,7 +640,8 @@ defmodule VeejrWeb.MessagesLive do
             subtitle: Social.Address.handle(friend),
             friend_ids: [to_string(friend.id)],
             group_ids: [],
-            initials: person_initials(friend)
+            initials: person_initials(friend),
+            user: friend
           }
         else
           _ -> nil
@@ -697,6 +729,9 @@ defmodule VeejrWeb.MessagesLive do
 
   defp selected_recipient_initials(%{initials: initials}), do: initials
   defp selected_recipient_initials(_), do: "ME"
+
+  defp selected_recipient_user(%{user: user}), do: user
+  defp selected_recipient_user(_), do: nil
 
   defp composer_submit_label(_conversation), do: "Send"
 
@@ -803,7 +838,7 @@ defmodule VeejrWeb.MessagesLive do
   # lands in the sender's thread — the server can't see its other
   # recipients; the decrypted payload shows them).
   defp build_conversations(user, friends, limit, selected_key) do
-    handle_to_id = Map.new(friends, &{Veejr.Social.Address.handle(&1), &1.id})
+    handle_to_friend = Map.new(friends, &{Veejr.Social.Address.handle(&1), &1})
 
     # Conversation keys are derived from participants, so history must be
     # grouped before applying the per-conversation display window. Limiting
@@ -826,9 +861,16 @@ defmodule VeejrWeb.MessagesLive do
           message_count: message_count,
           reply_ids:
             participants
-            |> Enum.map(&handle_to_id[&1])
+            |> Enum.map(&handle_to_friend[&1])
             |> Enum.reject(&is_nil/1)
-            |> Enum.join(",")
+            |> Enum.map(& &1.id)
+            |> Enum.join(","),
+          avatar_user:
+            case participants do
+              ["notes to yourself"] -> user
+              [handle] -> handle_to_friend[handle]
+              _ -> nil
+            end
         })
       end)
       |> Enum.sort_by(& &1.latest.id, :desc)

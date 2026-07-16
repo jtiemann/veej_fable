@@ -31,12 +31,20 @@ defmodule VeejrWeb.InstanceController do
         json(conn, %{
           username: user.username,
           display_name: user.display_name,
+          avatar_url: absolute_avatar_url(user),
           public_key: public_key,
           host: Veejr.instance_authority()
         })
 
       _ ->
         conn |> put_status(:not_found) |> json(%{error: "unknown user or no published key"})
+    end
+  end
+
+  defp absolute_avatar_url(user) do
+    case Accounts.avatar_url(user) do
+      nil -> nil
+      path -> VeejrWeb.Endpoint.url() <> path
     end
   end
 end

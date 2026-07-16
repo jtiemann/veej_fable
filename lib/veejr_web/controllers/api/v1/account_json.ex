@@ -8,6 +8,7 @@ defmodule VeejrWeb.Api.V1.AccountJSON do
       username: user.username,
       display_name: user.display_name,
       handle: "@#{user.username}",
+      avatar_url: Veejr.Accounts.avatar_url(user),
       confirmed: not is_nil(user.confirmed_at),
       keys_configured: not is_nil(user.public_key),
       public_key: user.public_key,

@@ -7,7 +7,7 @@ defmodule VeejrWeb.MessagingComponents do
   pushed to the server.
   """
   use Phoenix.Component
-  import VeejrWeb.CoreComponents, only: [icon: 1]
+  import VeejrWeb.CoreComponents, only: [icon: 1, user_avatar: 1]
 
   alias Veejr.Accounts.User
   alias Veejr.Messaging.Envelope
@@ -473,62 +473,73 @@ defmodule VeejrWeb.MessagingComponents do
     <div
       id={"message-shell-#{@envelope.public_id}"}
       phx-hook={if(@mine, do: "MessageBubble", else: nil)}
-      class={["flex flex-col", @mine && "items-end", !@mine && "items-start"]}
+      class={["flex", @mine && "justify-end", !@mine && "items-start gap-2"]}
     >
-      <div :if={!@mine} class="mb-1 ml-3 text-xs font-medium opacity-70">
-        {Veejr.Social.Address.handle(@envelope.sender)}
-      </div>
+      <.user_avatar
+        :if={!@mine}
+        user={@envelope.sender}
+        class="mt-5 size-8 text-xs"
+      />
       <div class={[
-        "max-w-[78%] rounded-[22px] px-4 py-2 text-[0.95rem] leading-relaxed shadow-sm",
-        @mine && "rounded-br-md bg-primary text-primary-content",
-        !@mine && "rounded-bl-md bg-base-100 text-base-content ring-1 ring-base-300"
+        "flex min-w-0 flex-1 flex-col",
+        @mine && "items-end",
+        !@mine && "items-start"
       ]}>
-        <div
-          id={"env-#{@envelope.public_id}"}
-          phx-hook="Decrypt"
-          phx-update="ignore"
-          data-user-id={@user.id}
-          data-peer-key={Veejr.Messaging.peer_key(@envelope, @user)}
-          data-ciphertext={@envelope.ciphertext}
-          data-nonce={@envelope.nonce}
-          data-kind={@envelope.kind}
-          data-public-id={@envelope.public_id}
-          data-expires-at={expiry_iso8601(@envelope.expires_at)}
-        >
-          <span class="loading loading-dots loading-xs"></span>
+        <div :if={!@mine} class="mb-1 ml-3 text-xs font-medium opacity-70">
+          {Veejr.Social.Address.handle(@envelope.sender)}
         </div>
-      </div>
-      <div class={["mt-1 text-xs opacity-60", @mine && "mr-3", !@mine && "ml-3"]}>
-        <span>{Calendar.strftime(@envelope.inserted_at, "%H:%M")}</span>
-        <span :if={@envelope.edited_at} class="ml-1">edited</span>
-        <span :if={@envelope.expires_at} class="ml-1">
-          <.icon name="hero-clock" class="inline size-3.5" />
-        </span>
-        <span :if={@envelope.max_displays} class="ml-1">
-          <.icon name="hero-eye" class="inline size-3.5" /> {@envelope.max_displays -
-            @envelope.display_count}
-        </span>
-        <button
-          :if={@mine}
-          type="button"
-          data-role="edit-message"
-          title="Edit message"
-          aria-label="Edit message"
-          class="ml-2 rounded-full p-1 transition hover:bg-base-300 hover:opacity-100"
-        >
-          <.icon name="hero-pencil-square" class="size-3.5" />
-        </button>
-        <button
-          type="button"
-          phx-click="delete_envelope"
-          phx-value-id={@envelope.public_id}
-          data-confirm={delete_confirm(@mine)}
-          title={delete_label(@mine)}
-          aria-label={delete_label(@mine)}
-          class="ml-1 rounded-full p-1 transition hover:bg-base-300 hover:opacity-100"
-        >
-          <.icon name={if(@mine, do: "hero-trash", else: "hero-eye-slash")} class="size-3.5" />
-        </button>
+        <div class={[
+          "max-w-[78%] rounded-[22px] px-4 py-2 text-[0.95rem] leading-relaxed shadow-sm",
+          @mine && "rounded-br-md bg-primary text-primary-content",
+          !@mine && "rounded-bl-md bg-base-100 text-base-content ring-1 ring-base-300"
+        ]}>
+          <div
+            id={"env-#{@envelope.public_id}"}
+            phx-hook="Decrypt"
+            phx-update="ignore"
+            data-user-id={@user.id}
+            data-peer-key={Veejr.Messaging.peer_key(@envelope, @user)}
+            data-ciphertext={@envelope.ciphertext}
+            data-nonce={@envelope.nonce}
+            data-kind={@envelope.kind}
+            data-public-id={@envelope.public_id}
+            data-expires-at={expiry_iso8601(@envelope.expires_at)}
+          >
+            <span class="loading loading-dots loading-xs"></span>
+          </div>
+        </div>
+        <div class={["mt-1 text-xs opacity-60", @mine && "mr-3", !@mine && "ml-3"]}>
+          <span>{Calendar.strftime(@envelope.inserted_at, "%H:%M")}</span>
+          <span :if={@envelope.edited_at} class="ml-1">edited</span>
+          <span :if={@envelope.expires_at} class="ml-1">
+            <.icon name="hero-clock" class="inline size-3.5" />
+          </span>
+          <span :if={@envelope.max_displays} class="ml-1">
+            <.icon name="hero-eye" class="inline size-3.5" /> {@envelope.max_displays -
+              @envelope.display_count}
+          </span>
+          <button
+            :if={@mine}
+            type="button"
+            data-role="edit-message"
+            title="Edit message"
+            aria-label="Edit message"
+            class="ml-2 rounded-full p-1 transition hover:bg-base-300 hover:opacity-100"
+          >
+            <.icon name="hero-pencil-square" class="size-3.5" />
+          </button>
+          <button
+            type="button"
+            phx-click="delete_envelope"
+            phx-value-id={@envelope.public_id}
+            data-confirm={delete_confirm(@mine)}
+            title={delete_label(@mine)}
+            aria-label={delete_label(@mine)}
+            class="ml-1 rounded-full p-1 transition hover:bg-base-300 hover:opacity-100"
+          >
+            <.icon name={if(@mine, do: "hero-trash", else: "hero-eye-slash")} class="size-3.5" />
+          </button>
+        </div>
       </div>
     </div>
     """

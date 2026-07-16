@@ -324,6 +324,7 @@ device session.
     "username": "alice",
     "display_name": "Alice",
     "handle": "@alice",
+    "avatar_url": "/avatars/alice?v=3",
     "confirmed": true,
     "keys_configured": true,
     "public_key": "base64",
@@ -400,6 +401,7 @@ NOT attempt to decrypt key material.
   "id": "7",
   "username": "bob",
   "display_name": "Bob",
+  "avatar_url": "/avatars/bob?v=2",
   "host": "other.example",
   "handle": "@bob@other.example",
   "public_key": "base64",
@@ -408,7 +410,9 @@ NOT attempt to decrypt key material.
 ```
 
 `host` is `null` for a local user. `public_key` appears only where the caller is
-authorized to encrypt to that user.
+authorized to encrypt to that user. `avatar_url` is nullable and identifies a
+public, cache-versioned JPEG; clients resolve relative URLs against the instance
+origin and render their own placeholder when it is `null`.
 
 ### 9.2 Notification
 
@@ -494,9 +498,10 @@ For native policy controls, `GET /groups` returns only caller-owned groups:
 }
 ```
 
-The `GET /contacts` recipient summary includes `auto_accept`, the effective
-result after conversation, contact, and group precedence. Explicit overrides
-remain distinguishable through `GET /message-delivery-policies`.
+The `GET /contacts` recipient summary includes `avatar_url` and `auto_accept`,
+the effective result after conversation, contact, and group precedence.
+Explicit overrides remain distinguishable through
+`GET /message-delivery-policies`.
 
 Contact and group summaries also include the caller-owned plaintext `note`.
 `PUT /contacts/{id}/note` and `PUT /groups/{id}/note` accept `{"body":"..."}`.

@@ -49,6 +49,22 @@ defmodule VeejrWeb.MessagesLiveTest do
            )
   end
 
+  test "shows a friend's image when starting a conversation", %{conn: conn, user: user} do
+    friend = user_fixture()
+    {:ok, friend} = Accounts.put_user_avatar(friend, jpeg())
+    {:ok, request} = Social.send_friend_request(user, friend.username)
+    {:ok, _friendship} = Social.accept_friend_request(friend, request.id)
+
+    {:ok, view, _html} = live(conn, "/messages?friend_id=#{friend.id}")
+
+    assert has_element?(
+             view,
+             "#message-friend-avatar-#{friend.id} img[src='/avatars/#{friend.username}?v=1']"
+           )
+
+    assert has_element?(view, "main img[src='/avatars/#{friend.username}?v=1']")
+  end
+
   test "starts with the newest 50 messages and loads older rows on demand", %{
     conn: conn,
     user: user
@@ -170,5 +186,10 @@ defmodule VeejrWeb.MessagesLiveTest do
 
     assert html =~
              "notes to yourself · #{Calendar.strftime(envelope.inserted_at, "%b %d, %Y")}"
+  end
+
+  defp jpeg do
+    <<0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x11, 0x08, 512::16, 512::16, 0::size(12)-unit(8), 0xFF,
+      0xD9>>
   end
 end

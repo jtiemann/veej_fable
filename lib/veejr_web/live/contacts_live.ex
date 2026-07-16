@@ -214,8 +214,19 @@ defmodule VeejrWeb.ContactsLive do
               >
                 <.link
                   navigate={~p"/messages?conversation=#{conversation.key}"}
-                  class="flex min-w-0 flex-1 items-center justify-between gap-3 py-1"
+                  class="flex min-w-0 flex-1 items-center gap-3 py-1"
                 >
+                  <.user_avatar
+                    :if={conversation.avatar_user}
+                    user={conversation.avatar_user}
+                    class="size-10 text-sm"
+                  />
+                  <span
+                    :if={!conversation.avatar_user}
+                    class="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary"
+                  >
+                    <.icon name="hero-user-group" class="size-5" />
+                  </span>
                   <div class="min-w-0">
                     <p class="truncate font-medium">
                       {conversation_title(conversation)}
@@ -281,9 +292,13 @@ defmodule VeejrWeb.ContactsLive do
                   :for={req <- @incoming}
                   class="flex items-center justify-between gap-3 rounded-lg border border-base-300 p-3"
                 >
-                  <span class="min-w-0">
-                    <span class="font-medium">{req.requester.display_name || req.requester.username}</span>
-                    <span class="opacity-60">{Social.Address.handle(req.requester)}</span>
+                  <span class="flex min-w-0 items-center gap-3">
+                    <.user_avatar user={req.requester} class="size-9 text-xs" />
+                    <span>
+                      <span class="block font-medium">{req.requester.display_name ||
+                        req.requester.username}</span>
+                      <span class="block opacity-60">{Social.Address.handle(req.requester)}</span>
+                    </span>
                   </span>
                   <span class="flex gap-2">
                     <button phx-click="accept" phx-value-id={req.id} class="btn btn-primary btn-xs">
@@ -316,12 +331,19 @@ defmodule VeejrWeb.ContactsLive do
                 class="rounded-lg border border-base-300 p-3"
               >
                 <div class="flex items-start justify-between gap-3">
-                  <span class="min-w-0">
-                    <span class="block truncate font-medium">{friend.display_name || friend.username}</span>
-                    <span class="text-sm opacity-60">{Social.Address.handle(friend)}</span>
-                    <span :if={friend.host} class="badge badge-info badge-sm ml-2">remote</span>
-                    <span :if={!friend.public_key} class="badge badge-warning badge-sm ml-2">
-                      no keys yet
+                  <span class="flex min-w-0 items-center gap-3">
+                    <.user_avatar
+                      id={"friend-avatar-#{friend.id}"}
+                      user={friend}
+                      class="size-12 text-sm"
+                    />
+                    <span class="min-w-0">
+                      <span class="block truncate font-medium">{friend.display_name || friend.username}</span>
+                      <span class="text-sm opacity-60">{Social.Address.handle(friend)}</span>
+                      <span :if={friend.host} class="badge badge-info badge-sm ml-2">remote</span>
+                      <span :if={!friend.public_key} class="badge badge-warning badge-sm ml-2">
+                        no keys yet
+                      </span>
                     </span>
                   </span>
                   <span class="flex shrink-0 gap-2">
@@ -433,7 +455,8 @@ defmodule VeejrWeb.ContactsLive do
                 </div>
 
                 <div class="mt-3 flex flex-wrap gap-2">
-                  <span :for={member <- group.members} class="badge badge-outline gap-1">
+                  <span :for={member <- group.members} class="badge badge-outline h-8 gap-1 pl-1">
+                    <.user_avatar user={member} class="size-6 text-[0.6rem]" ring={false} />
                     {member.display_name || member.username}
                     <button
                       phx-click="remove_member"
@@ -847,7 +870,7 @@ defmodule VeejrWeb.ContactsLive do
   end
 
   defp build_conversations(user, friends) do
-    handle_to_id = Map.new(friends, &{Social.Address.handle(&1), &1.id})
+    handle_to_friend = Map.new(friends, &{Social.Address.handle(&1), &1})
 
     user
     |> Messaging.list_history(kind: "message", limit: @conversation_limit)
@@ -857,12 +880,21 @@ defmodule VeejrWeb.ContactsLive do
 
       reply_ids =
         participants
-        |> Enum.map(&handle_to_id[&1])
+        |> Enum.map(&handle_to_friend[&1])
         |> Enum.reject(&is_nil/1)
+        |> Enum.map(& &1.id)
+
+      avatar_user =
+        case participants do
+          ["notes to yourself"] -> user
+          [handle] -> handle_to_friend[handle]
+          _ -> nil
+        end
 
       Map.merge(thread, %{
         reply_ids: Enum.join(reply_ids, ","),
-        policy_id: if(length(reply_ids) == 1, do: List.first(reply_ids))
+        policy_id: if(length(reply_ids) == 1, do: List.first(reply_ids)),
+        avatar_user: avatar_user
       })
     end)
     |> Enum.sort_by(& &1.latest.id, :desc)

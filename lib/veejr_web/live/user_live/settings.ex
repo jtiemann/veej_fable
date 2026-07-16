@@ -16,6 +16,47 @@ defmodule VeejrWeb.UserLive.Settings do
         </.header>
       </div>
 
+      <section class="mt-8">
+        <h2 class="text-lg font-semibold">Profile image</h2>
+        <div class="mt-3 flex flex-col gap-4 sm:flex-row sm:items-center">
+          <div class="relative size-28 shrink-0">
+            <.user_avatar id="settings-avatar" user={@current_scope.user} class="size-28 text-2xl" />
+            <img
+              data-role="avatar-preview"
+              alt="Selected profile image preview"
+              class="pointer-events-none absolute inset-0 size-28 rounded-full object-cover opacity-0 has-[src]:opacity-100 ring-2 ring-base-100 shadow-sm"
+            />
+          </div>
+          <form id="avatar-upload" phx-hook="AvatarUpload" class="min-w-0 flex-1 space-y-3">
+            <p class="text-sm opacity-70">
+              Choose a photo and veejr will crop it to fit throughout the app.
+            </p>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              class="file-input file-input-bordered file-input-sm w-full max-w-md"
+            />
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="submit" class="btn btn-primary btn-sm">
+                <.icon name="hero-photo" class="size-4" /> Use this image
+              </button>
+              <button
+                :if={@current_scope.user.has_avatar}
+                type="button"
+                phx-click="remove_avatar"
+                data-confirm="Remove your profile image and use the placeholder?"
+                class="btn btn-ghost btn-sm"
+              >
+                Remove
+              </button>
+            </div>
+            <p data-role="avatar-status" class="min-h-5 text-sm opacity-70"></p>
+          </form>
+        </div>
+      </section>
+
+      <div class="divider" />
+
       <.form for={@email_form} id="email_form" phx-submit="update_email" phx-change="validate_email">
         <.input
           field={@email_form[:email]}
@@ -193,6 +234,24 @@ defmodule VeejrWeb.UserLive.Settings do
       |> to_form()
 
     {:noreply, assign(socket, email_form: email_form)}
+  end
+
+  def handle_event("avatar_uploaded", _params, socket) do
+    user = Accounts.get_user!(socket.assigns.current_scope.user.id)
+    {:noreply, assign(socket, :current_scope, Accounts.Scope.for_user(user))}
+  end
+
+  def handle_event("remove_avatar", _params, socket) do
+    case Accounts.remove_user_avatar(socket.assigns.current_scope.user) do
+      {:ok, user} ->
+        {:noreply,
+         socket
+         |> assign(:current_scope, Accounts.Scope.for_user(user))
+         |> put_flash(:info, "Profile image removed.")}
+
+      {:error, _changeset} ->
+        {:noreply, put_flash(socket, :error, "Profile image could not be removed.")}
+    end
   end
 
   def handle_event("update_email", params, socket) do

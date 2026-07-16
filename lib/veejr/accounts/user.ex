@@ -13,6 +13,8 @@ defmodule Veejr.Accounts.User do
 
     field :username, :string
     field :display_name, :string
+    field :has_avatar, :boolean, default: false
+    field :avatar_version, :integer, default: 0
 
     # nil for local accounts; a remote user's home-instance authority
     # (e.g. "veejr.example.com", "localhost:4001") otherwise. Remote users
@@ -75,6 +77,13 @@ defmodule Veejr.Accounts.User do
     |> validate_required([:public_key, :enc_secret_key, :key_salt, :key_nonce])
     |> validate_length(:public_key, max: 100)
     |> validate_length(:enc_secret_key, max: 200)
+  end
+
+  @doc "A changeset for replacing or removing a user's public profile image."
+  def avatar_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:has_avatar, :avatar_version])
+    |> validate_number(:avatar_version, greater_than_or_equal_to: 0)
   end
 
   @doc """

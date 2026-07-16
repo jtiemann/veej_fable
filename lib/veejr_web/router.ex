@@ -30,6 +30,7 @@ defmodule VeejrWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
+    get "/avatars/:username", AvatarController, :show
   end
 
   # Public instance API: the surface other veejr instances (and curious
@@ -163,6 +164,7 @@ defmodule VeejrWeb.Router do
 
     post "/users/update-password", UserSessionController, :update_password
     post "/blobs", BlobController, :create
+    post "/account/avatar", AvatarController, :create
     get "/blobs/:id", BlobController, :show
     get "/export", ExportController, :download
     post "/push/subscriptions", PushController, :create

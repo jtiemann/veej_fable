@@ -21,6 +21,8 @@ friendship, and consent rules.
   deletion, conversations, location sharing, and geo-notes.
 - Personal contact and group notes. These notes are server-side plaintext and
   are not part of the end-to-end encrypted message system.
+- Public profile images with colorful initials placeholders and browser-side
+  cropping for consistent contact and conversation avatars.
 - Account export/import, key rewrap/rotation/reset, installable PWA support,
   browser notifications, and encrypted Web Push.
 - A native Jetpack Compose Android client with portable-key unlock, consent,
@@ -89,6 +91,9 @@ First-time flow:
 
 Click your username in the header to open the account page. From there you
 can open Settings, manage encryption keys, or open Archived conversations.
+Settings also lets you choose, replace, or remove your profile image. Images
+are center-cropped and resized in the browser before upload, then shown on the
+Contacts and Messages pages.
 
 To archive a conversation, open it in `/messages` and choose **Archive** in
 the conversation header. Archiving hides the thread from Messages and

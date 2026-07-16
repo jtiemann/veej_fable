@@ -1416,6 +1416,107 @@ export const PasswordVisibility = {
   },
 }
 
+async function decodeAvatarImage(file) {
+  if (window.createImageBitmap) {
+    try {
+      return await createImageBitmap(file, {imageOrientation: "from-image"})
+    } catch (_error) {
+      // Fall through for browsers that expose createImageBitmap without image files.
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    const url = URL.createObjectURL(file)
+    image.onload = () => {
+      URL.revokeObjectURL(url)
+      resolve(image)
+    }
+    image.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error("That image could not be opened."))
+    }
+    image.src = url
+  })
+}
+
+export const AvatarUpload = {
+  mounted() {
+    const input = this.el.querySelector("input[type=file]")
+    const submit = this.el.querySelector("button[type=submit]")
+    const status = this.el.querySelector("[data-role=avatar-status]")
+    const preview = this.el.querySelector("[data-role=avatar-preview]")
+    let selectedFile = null
+
+    input.addEventListener("change", () => {
+      selectedFile = input.files?.[0] || null
+      status.textContent = selectedFile ? selectedFile.name : ""
+
+      if (selectedFile) {
+        const url = URL.createObjectURL(selectedFile)
+        preview.src = url
+        preview.classList.remove("opacity-0")
+        preview.onload = () => URL.revokeObjectURL(url)
+      }
+    })
+
+    this.el.addEventListener("submit", async (event) => {
+      event.preventDefault()
+      if (!selectedFile) return
+
+      if (!selectedFile.type.startsWith("image/") || selectedFile.size > 15_000_000) {
+        status.textContent = "Choose an image smaller than 15 MB."
+        return
+      }
+
+      submit.disabled = true
+      status.textContent = "Preparing your photo..."
+
+      try {
+        const bitmap = await decodeAvatarImage(selectedFile)
+        const width = bitmap.width || bitmap.naturalWidth
+        const height = bitmap.height || bitmap.naturalHeight
+
+        if (width * height > 40_000_000) {
+          throw new Error("That image has too many pixels. Please choose a smaller one.")
+        }
+
+        const edge = Math.min(width, height)
+        const sourceX = Math.floor((width - edge) / 2)
+        const sourceY = Math.floor((height - edge) / 2)
+        const canvas = document.createElement("canvas")
+        canvas.width = 512
+        canvas.height = 512
+        const context = canvas.getContext("2d", {alpha: false})
+        context.fillStyle = "#ffffff"
+        context.fillRect(0, 0, 512, 512)
+        context.drawImage(bitmap, sourceX, sourceY, edge, edge, 0, 0, 512, 512)
+        if (bitmap.close) bitmap.close()
+
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.86))
+        if (!blob) throw new Error("Your browser could not prepare that image.")
+
+        const response = await fetch("/account/avatar", {
+          method: "POST",
+          headers: {"content-type": "image/jpeg", "x-csrf-token": csrfToken()},
+          body: blob,
+        })
+        const result = await response.json()
+        if (!response.ok) throw new Error(result.error || "Avatar upload failed.")
+
+        status.textContent = "Profile image updated."
+        input.value = ""
+        selectedFile = null
+        this.pushEvent("avatar_uploaded", {version: result.version})
+      } catch (error) {
+        status.textContent = error.message || "Avatar upload failed."
+      } finally {
+        submit.disabled = false
+      }
+    })
+  },
+}
+
 import VeejrMap from "./map_hook.js"
 
 export default {
@@ -1433,6 +1534,7 @@ export default {
   MessageBubble,
   AutoDismissFlash,
   PasswordVisibility,
+  AvatarUpload,
   ReplyTo,
   ScrollBottom,
   VeejrMap,

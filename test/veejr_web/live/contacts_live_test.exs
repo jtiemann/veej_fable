@@ -59,6 +59,16 @@ defmodule VeejrWeb.ContactsLiveTest do
     assert has_element?(invite_view, "#invite-url[value^='http']")
   end
 
+  test "shows a friend's uploaded image", %{conn: conn, friend: friend} do
+    {:ok, _friend} = Accounts.put_user_avatar(friend, jpeg())
+    {:ok, view, _html} = live(conn, "/contacts")
+
+    assert has_element?(
+             view,
+             "#friend-avatar-#{friend.id} img[src='/avatars/#{friend.username}?v=1']"
+           )
+  end
+
   test "shows and dismisses a joined invitation notice", %{conn: conn, user: user} do
     {:ok, invitation, token} = Accounts.create_invitation(user)
     {:ok, invited} = Accounts.register_user(valid_user_attributes(username: "new_joiner"), token)
@@ -99,5 +109,10 @@ defmodule VeejrWeb.ContactsLiveTest do
     |> render_submit()
 
     assert_redirect(view, "/messages?conversation=#{key}")
+  end
+
+  defp jpeg do
+    <<0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x11, 0x08, 512::16, 512::16, 0::size(12)-unit(8), 0xFF,
+      0xD9>>
   end
 end

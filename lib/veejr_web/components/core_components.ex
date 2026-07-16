@@ -31,6 +31,73 @@ defmodule VeejrWeb.CoreComponents do
 
   alias Phoenix.LiveView.JS
 
+  attr :user, :any, required: true
+  attr :class, :any, default: "size-10"
+  attr :ring, :boolean, default: true
+  attr :rest, :global
+
+  @doc "Renders a user's uploaded avatar or a stable, colorful initials placeholder."
+  def user_avatar(assigns) do
+    assigns =
+      assigns
+      |> assign(:url, Veejr.Accounts.avatar_url(assigns.user))
+      |> assign(:label, avatar_label(assigns.user))
+      |> assign(:initials, avatar_initials(assigns.user))
+      |> assign(:palette, avatar_palette(assigns.user))
+
+    ~H"""
+    <span
+      class={[
+        "relative inline-flex shrink-0 overflow-hidden rounded-full",
+        @ring && "ring-2 ring-base-100 shadow-sm",
+        @class
+      ]}
+      {@rest}
+    >
+      <img
+        :if={@url}
+        src={@url}
+        alt={@label}
+        loading="lazy"
+        draggable="false"
+        class="size-full object-cover"
+      />
+      <span
+        :if={!@url}
+        role="img"
+        aria-label={@label}
+        class={[
+          "flex size-full items-center justify-center font-semibold uppercase",
+          @palette
+        ]}
+      >
+        {@initials}
+      </span>
+    </span>
+    """
+  end
+
+  defp avatar_label(user), do: "#{user.display_name || user.username || "User"} profile image"
+
+  defp avatar_initials(user) do
+    (user.display_name || user.username || "?")
+    |> String.split(~r/\s+/, trim: true)
+    |> Enum.take(2)
+    |> Enum.map_join("", &(&1 |> String.first() |> String.upcase()))
+  end
+
+  defp avatar_palette(user) do
+    palettes = [
+      "bg-secondary/20 text-secondary",
+      "bg-info/20 text-info",
+      "bg-success/20 text-success",
+      "bg-warning/25 text-warning-content",
+      "bg-error/15 text-error"
+    ]
+
+    Enum.at(palettes, :erlang.phash2({user.username, user.host}, length(palettes)))
+  end
+
   @doc """
   Renders flash notices.
 
