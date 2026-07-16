@@ -91,4 +91,38 @@ defmodule Veejr.AdminTest do
     refute Accounts.get_user_and_api_session_by_access_token(api_tokens.access_token)
     assert Accounts.get_user!(member.id)
   end
+
+  test "administrator can suspend and reactivate a member" do
+    admin = user_fixture()
+    member = user_fixture() |> set_password()
+    web_token = Accounts.generate_user_session_token(member)
+    {magic_token, _hashed_token} = generate_user_magic_link_token(member)
+
+    {:ok, _device_session, api_tokens} =
+      Accounts.create_api_device_session(member, %{
+        "device_name" => "Test Pixel",
+        "platform" => "android"
+      })
+
+    assert {:error, :unauthorized} = Admin.suspend_user(member, member.id)
+    assert {:error, :protected_admin} = Admin.suspend_user(admin, admin.id)
+
+    assert {:ok, result} = Admin.suspend_user(admin, member.id)
+    assert result.web_count == 1
+    assert result.device_count == 1
+    assert result.user.suspended_at
+    assert result.user.suspended_by_id == admin.id
+    refute Accounts.get_user_by_session_token(web_token)
+    refute Accounts.get_user_and_api_session_by_access_token(api_tokens.access_token)
+    refute Accounts.get_user_by_email_and_password(member.email, valid_user_password())
+    assert {:error, :already_suspended} = Admin.suspend_user(admin, member.id)
+
+    assert {:ok, reactivated} = Admin.reactivate_user(admin, member.id)
+    refute reactivated.suspended_at
+    refute reactivated.suspended_by_id
+    assert Accounts.get_user_by_email_and_password(member.email, valid_user_password())
+    refute Accounts.get_user_by_session_token(web_token)
+    assert {:error, :not_found} = Accounts.login_user_by_magic_link(magic_token)
+    assert {:error, :not_suspended} = Admin.reactivate_user(admin, member.id)
+  end
 end

@@ -157,36 +157,91 @@ defmodule Veejr.Admin do
             {:error, :protected_admin}
 
           true ->
-            web_tokens =
-              Repo.all(
-                from(t in UserToken,
-                  where: t.user_id == ^target.id and t.context == "session"
-                )
-              )
-
-            Repo.transaction(fn ->
-              {web_count, _} =
-                Repo.delete_all(
-                  from(t in UserToken,
-                    where: t.user_id == ^target.id and t.context == "session"
-                  )
-                )
-
-              {device_count, _} =
-                Repo.delete_all(from(s in ApiDeviceSession, where: s.user_id == ^target.id))
-
-              %{
-                user: target,
-                web_tokens: web_tokens,
-                web_count: web_count,
-                device_count: device_count
-              }
-            end)
+            Repo.transaction(fn -> revoke_sessions(target) end)
         end
 
       true ->
         {:error, :not_found}
     end
+  end
+
+  @doc "Suspends a local member and revokes all of their sessions."
+  def suspend_user(%User{} = actor, user_id) do
+    with {:ok, target} <- manageable_user(actor, user_id),
+         false <- not is_nil(target.suspended_at) do
+      Repo.transaction(fn ->
+        target =
+          target
+          |> Ecto.Changeset.change(
+            suspended_at: DateTime.utc_now(:second),
+            suspended_by_id: actor.id
+          )
+          |> Repo.update!()
+
+        result = revoke_sessions(target)
+        Repo.delete_all(from(t in UserToken, where: t.user_id == ^target.id))
+        result
+      end)
+    else
+      true -> {:error, :already_suspended}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc "Reactivates a suspended local member without restoring old sessions."
+  def reactivate_user(%User{} = actor, user_id) do
+    with {:ok, target} <- manageable_user(actor, user_id),
+         true <- not is_nil(target.suspended_at) do
+      target
+      |> Ecto.Changeset.change(suspended_at: nil, suspended_by_id: nil)
+      |> Repo.update()
+    else
+      false -> {:error, :not_suspended}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp manageable_user(actor, user_id) do
+    cond do
+      not Veejr.Accounts.instance_admin?(actor) ->
+        {:error, :unauthorized}
+
+      target = Repo.get(User, user_id) ->
+        cond do
+          target.host -> {:error, :not_found}
+          Veejr.Accounts.instance_admin?(target) -> {:error, :protected_admin}
+          true -> {:ok, target}
+        end
+
+      true ->
+        {:error, :not_found}
+    end
+  end
+
+  defp revoke_sessions(target) do
+    web_tokens =
+      Repo.all(
+        from(t in UserToken,
+          where: t.user_id == ^target.id and t.context == "session"
+        )
+      )
+
+    {web_count, _} =
+      Repo.delete_all(
+        from(t in UserToken,
+          where: t.user_id == ^target.id and t.context == "session"
+        )
+      )
+
+    {device_count, _} =
+      Repo.delete_all(from(s in ApiDeviceSession, where: s.user_id == ^target.id))
+
+    %{
+      user: target,
+      web_tokens: web_tokens,
+      web_count: web_count,
+      device_count: device_count
+    }
   end
 
   defp database_health do

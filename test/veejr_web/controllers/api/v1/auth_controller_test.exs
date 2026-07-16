@@ -3,7 +3,7 @@ defmodule VeejrWeb.Api.V1.AuthControllerTest do
 
   import Veejr.AccountsFixtures
 
-  alias Veejr.Accounts
+  alias Veejr.{Accounts, Admin}
 
   describe "GET /api/v1/capabilities" do
     test "advertises the stable client contract without authentication", %{conn: conn} do
@@ -67,6 +67,16 @@ defmodule VeejrWeb.Api.V1.AuthControllerTest do
 
       assert response["account"]["id"] == to_string(user.id)
     end
+
+    test "returns the generic credentials error for a suspended account", %{conn: conn} do
+      admin = user_fixture()
+      user = user_fixture() |> set_password()
+      assert {:ok, _result} = Admin.suspend_user(admin, user.id)
+
+      response = conn |> post("/api/v1/auth/login", login_params(user)) |> json_response(401)
+
+      assert response["error"]["code"] == "invalid_credentials"
+    end
   end
 
   describe "one-time Android login" do
@@ -108,9 +118,10 @@ defmodule VeejrWeb.Api.V1.AuthControllerTest do
 
   describe "authenticated device session" do
     setup %{conn: conn} do
+      admin = user_fixture()
       user = user_fixture() |> set_password()
       login = conn |> post("/api/v1/auth/login", login_params(user)) |> json_response(200)
-      %{user: user, tokens: login["tokens"]}
+      %{admin: admin, user: user, tokens: login["tokens"]}
     end
 
     test "GET /api/v1/me returns wrapped roaming key material", %{
@@ -192,6 +203,24 @@ defmodule VeejrWeb.Api.V1.AuthControllerTest do
       assert conn
              |> authorize(second_refresh["access_token"])
              |> get("/api/v1/me")
+             |> json_response(401)
+    end
+
+    test "suspension rejects current access and refresh tokens", %{
+      admin: admin,
+      conn: conn,
+      user: user,
+      tokens: tokens
+    } do
+      assert {:ok, _result} = Admin.suspend_user(admin, user.id)
+
+      assert conn
+             |> authorize(tokens["access_token"])
+             |> get("/api/v1/me")
+             |> json_response(401)
+
+      assert build_conn()
+             |> post("/api/v1/auth/refresh", %{"refresh_token" => tokens["refresh_token"]})
              |> json_response(401)
     end
 

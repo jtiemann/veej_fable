@@ -8,6 +8,8 @@ defmodule Veejr.Accounts.User do
     field :hashed_password, :string, redact: true
     field :confirmed_at, :utc_datetime
     field :authenticated_at, :utc_datetime, virtual: true
+    field :suspended_at, :utc_datetime
+    belongs_to :suspended_by, __MODULE__
 
     field :username, :string
     field :display_name, :string

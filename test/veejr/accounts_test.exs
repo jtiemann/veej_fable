@@ -35,6 +35,14 @@ defmodule Veejr.AccountsTest do
       assert %User{id: ^id} =
                Accounts.get_user_by_email_and_password(user.email, valid_user_password())
     end
+
+    test "does not return a suspended user" do
+      _admin = user_fixture()
+      user = user_fixture() |> set_password()
+      user |> Ecto.Changeset.change(suspended_at: DateTime.utc_now(:second)) |> Repo.update!()
+
+      refute Accounts.get_user_by_email_and_password(user.email, valid_user_password())
+    end
   end
 
   describe "get_user_by_login_identifier/1" do
@@ -395,6 +403,14 @@ defmodule Veejr.AccountsTest do
       {1, nil} = Repo.update_all(UserToken, set: [inserted_at: dt, authenticated_at: dt])
       refute Accounts.get_user_by_session_token(token)
     end
+
+    test "does not return a suspended user" do
+      _admin = user_fixture()
+      user = user_fixture()
+      token = Accounts.generate_user_session_token(user)
+      user |> Ecto.Changeset.change(suspended_at: DateTime.utc_now(:second)) |> Repo.update!()
+      refute Accounts.get_user_by_session_token(token)
+    end
   end
 
   describe "get_user_by_magic_link_token/1" do
@@ -476,6 +492,17 @@ defmodule Veejr.AccountsTest do
       assert user_token.user_id == user.id
       assert user_token.sent_to == user.email
       assert user_token.context == "login"
+    end
+
+    test "does not send a login link to a suspended user" do
+      _admin = user_fixture()
+      user = unconfirmed_user_fixture()
+
+      user =
+        user |> Ecto.Changeset.change(suspended_at: DateTime.utc_now(:second)) |> Repo.update!()
+
+      assert {:ok, :suppressed} = Accounts.deliver_login_instructions(user, & &1)
+      refute Repo.get_by(UserToken, user_id: user.id, context: "login")
     end
   end
 

@@ -99,15 +99,15 @@ defmodule VeejrWeb.AdminLive do
                 <td>
                   <span class={[
                     "badge badge-sm",
-                    if(account.user.confirmed_at, do: "badge-success", else: "badge-warning")
+                    account_status_class(account.user)
                   ]}>
-                    {if account.user.confirmed_at, do: "Confirmed", else: "Pending"}
+                    {account_status_label(account.user)}
                   </span>
                 </td>
                 <td>{account.web_sessions}</td>
                 <td>{account.device_sessions}</td>
                 <td class="whitespace-nowrap">{format_optional_time(account.last_device_used_at)}</td>
-                <td class="text-right">
+                <td>
                   <span
                     :if={Accounts.instance_admin?(account.user)}
                     class="badge badge-sm badge-neutral whitespace-nowrap"
@@ -127,6 +127,27 @@ defmodule VeejrWeb.AdminLive do
                     class="btn btn-ghost btn-xs whitespace-nowrap text-error"
                   >
                     Revoke sessions
+                  </button>
+                  <button
+                    :if={
+                      not Accounts.instance_admin?(account.user) and is_nil(account.user.suspended_at)
+                    }
+                    phx-click="suspend_user"
+                    phx-value-id={account.user.id}
+                    data-confirm={
+                      "Suspend @#{account.user.username}? They will be signed out everywhere and unable to sign in until reactivated."
+                    }
+                    class="btn btn-ghost btn-xs whitespace-nowrap text-error"
+                  >
+                    Suspend
+                  </button>
+                  <button
+                    :if={not is_nil(account.user.suspended_at)}
+                    phx-click="reactivate_user"
+                    phx-value-id={account.user.id}
+                    class="btn btn-ghost btn-xs whitespace-nowrap text-success"
+                  >
+                    Reactivate
                   </button>
                 </td>
               </tr>
@@ -290,6 +311,47 @@ defmodule VeejrWeb.AdminLive do
     {:noreply, load_dashboard(socket)}
   end
 
+  def handle_event("suspend_user", %{"id" => id}, socket) do
+    socket =
+      case Admin.suspend_user(socket.assigns.current_scope.user, id) do
+        {:ok, result} ->
+          VeejrWeb.UserAuth.disconnect_sessions(result.web_tokens)
+
+          put_flash(
+            socket,
+            :info,
+            "@#{result.user.username} was suspended and signed out everywhere."
+          )
+
+        {:error, :protected_admin} ->
+          put_flash(socket, :error, "The instance administrator cannot be suspended.")
+
+        {:error, :already_suspended} ->
+          put_flash(socket, :error, "That account is already suspended.")
+
+        {:error, _reason} ->
+          put_flash(socket, :error, "Could not suspend that account.")
+      end
+
+    {:noreply, load_dashboard(socket)}
+  end
+
+  def handle_event("reactivate_user", %{"id" => id}, socket) do
+    socket =
+      case Admin.reactivate_user(socket.assigns.current_scope.user, id) do
+        {:ok, user} ->
+          put_flash(socket, :info, "@#{user.username} can sign in again.")
+
+        {:error, :not_suspended} ->
+          put_flash(socket, :error, "That account is already active.")
+
+        {:error, _reason} ->
+          put_flash(socket, :error, "Could not reactivate that account.")
+      end
+
+    {:noreply, load_dashboard(socket)}
+  end
+
   attr :id, :string, required: true
   attr :label, :string, required: true
   attr :value, :any, required: true
@@ -350,6 +412,18 @@ defmodule VeejrWeb.AdminLive do
   defp invitation_status_class(:accepted), do: "badge-info"
   defp invitation_status_class(:expired), do: "badge-neutral"
   defp invitation_status_class(:revoked), do: "badge-error"
+
+  defp account_status_label(%{suspended_at: suspended_at}) when not is_nil(suspended_at),
+    do: "Suspended"
+
+  defp account_status_label(%{confirmed_at: nil}), do: "Pending"
+  defp account_status_label(_user), do: "Confirmed"
+
+  defp account_status_class(%{suspended_at: suspended_at}) when not is_nil(suspended_at),
+    do: "badge-error"
+
+  defp account_status_class(%{confirmed_at: nil}), do: "badge-warning"
+  defp account_status_class(_user), do: "badge-success"
 
   defp format_time(%DateTime{} = datetime), do: Calendar.strftime(datetime, "%b %d, %Y %H:%M UTC")
 

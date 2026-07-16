@@ -83,6 +83,34 @@ defmodule VeejrWeb.AdminLiveTest do
     refute Accounts.get_user_and_api_session_by_access_token(api_tokens.access_token)
   end
 
+  test "suspends and reactivates a member", %{conn: conn} do
+    admin = user_fixture()
+    member = user_fixture()
+    token = Accounts.generate_user_session_token(member)
+
+    {:ok, view, _html} =
+      conn
+      |> log_in_user(admin)
+      |> live(~p"/admin")
+
+    assert has_element?(view, "#account-#{member.id} button", "Suspend")
+
+    view
+    |> element("#account-#{member.id} button[phx-click='suspend_user']")
+    |> render_click()
+
+    assert has_element?(view, "#account-#{member.id}", "Suspended")
+    assert has_element?(view, "#account-#{member.id} button", "Reactivate")
+    refute Accounts.get_user_by_session_token(token)
+
+    view
+    |> element("#account-#{member.id} button[phx-click='reactivate_user']")
+    |> render_click()
+
+    assert has_element?(view, "#account-#{member.id}", "Confirmed")
+    assert has_element?(view, "#account-#{member.id} button", "Suspend")
+  end
+
   test "redirects ordinary members", %{conn: conn} do
     _admin = user_fixture()
     member = user_fixture()

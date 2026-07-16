@@ -68,8 +68,12 @@ defmodule Veejr.Accounts do
   def get_user_by_email_and_password(email, password)
       when is_binary(email) and is_binary(password) do
     user = get_user_by_login_identifier(email)
-    if User.valid_password?(user, password), do: user
+    if account_active?(user) and User.valid_password?(user, password), do: user
   end
+
+  @doc "Returns whether a local account is allowed to authenticate."
+  def account_active?(%User{suspended_at: nil}), do: true
+  def account_active?(_user), do: false
 
   @doc """
   Gets a single user.
@@ -539,9 +543,13 @@ defmodule Veejr.Accounts do
   """
   def deliver_login_instructions(%User{} = user, magic_link_url_fun)
       when is_function(magic_link_url_fun, 1) do
-    {encoded_token, user_token} = UserToken.build_email_token(user, "login")
-    Repo.insert!(user_token)
-    UserNotifier.deliver_login_instructions(user, magic_link_url_fun.(encoded_token))
+    if account_active?(user) do
+      {encoded_token, user_token} = UserToken.build_email_token(user, "login")
+      Repo.insert!(user_token)
+      UserNotifier.deliver_login_instructions(user, magic_link_url_fun.(encoded_token))
+    else
+      {:ok, :suppressed}
+    end
   end
 
   @doc """
@@ -555,11 +563,18 @@ defmodule Veejr.Accounts do
   ## Native API device sessions
 
   def create_api_device_session(%User{} = user, attrs) when is_map(attrs) do
-    {changeset, tokens} = ApiDeviceSession.create_changeset(%ApiDeviceSession{}, user, attrs)
+    if account_active?(user) do
+      {changeset, tokens} = ApiDeviceSession.create_changeset(%ApiDeviceSession{}, user, attrs)
 
-    case Repo.insert(changeset) do
-      {:ok, session} -> {:ok, session, Map.put(tokens, :device_session_id, to_string(session.id))}
-      {:error, changeset} -> {:error, changeset}
+      case Repo.insert(changeset) do
+        {:ok, session} ->
+          {:ok, session, Map.put(tokens, :device_session_id, to_string(session.id))}
+
+        {:error, changeset} ->
+          {:error, changeset}
+      end
+    else
+      {:error, :suspended}
     end
   end
 
@@ -571,6 +586,7 @@ defmodule Veejr.Accounts do
         join: user in assoc(session, :user),
         where: session.access_token_hash == ^token_hash,
         where: session.access_expires_at > ^now,
+        where: is_nil(user.suspended_at),
         select: {%{user | authenticated_at: session.authenticated_at}, session}
       )
       |> Repo.one()
@@ -588,8 +604,11 @@ defmodule Veejr.Accounts do
           session =
             Repo.one(
               from session in ApiDeviceSession,
+                join: user in assoc(session, :user),
                 where: session.refresh_token_hash == ^token_hash,
-                where: session.refresh_expires_at > ^now
+                where: session.refresh_expires_at > ^now,
+                where: is_nil(user.suspended_at),
+                select: session
             )
 
           case session do

@@ -17,6 +17,9 @@ defmodule VeejrWeb.Api.V1.AuthController do
             |> put_resp_header("cache-control", "no-store")
             |> json(%{account: AccountJSON.render(user), tokens: tokens})
 
+          {:error, :suspended} ->
+            invalid_credentials(conn)
+
           {:error, changeset} ->
             Response.error(
               conn,
@@ -70,6 +73,9 @@ defmodule VeejrWeb.Api.V1.AuthController do
             conn
             |> put_resp_header("cache-control", "no-store")
             |> json(%{account: AccountJSON.render(user), tokens: tokens})
+
+          {:error, :suspended} ->
+            invalid_one_time_token(conn)
 
           {:error, changeset} ->
             validation_failed(conn, changeset)
