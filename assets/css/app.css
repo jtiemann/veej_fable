@@ -94,6 +94,64 @@
   --noise: 0;
 }
 
+/* The app ships two theme families selectable from the header toggle:
+   "Classic" — the light/dark pair above, following the system preference by
+   default — and "Art Deco", a single black-and-gold look defined below from
+   the design handoff (Poiret One display type, Cinzel body, square geometry,
+   shimmer and entrance motion). */
+@plugin "../vendor/daisyui-theme" {
+  name: "artdeco";
+  default: false;
+  prefersdark: false;
+  color-scheme: "dark";
+  --color-base-100: #100e0c;
+  --color-base-200: #15120e;
+  --color-base-300: #2a2317;
+  --color-base-content: #e7ddc9;
+  --color-primary: #d4af37;
+  --color-primary-content: #100e0c;
+  --color-secondary: #a89a80;
+  --color-secondary-content: #100e0c;
+  --color-accent: #f2d374;
+  --color-accent-content: #100e0c;
+  --color-neutral: #1c1812;
+  --color-neutral-content: #e7ddc9;
+  --color-info: #a89a80;
+  --color-info-content: #100e0c;
+  --color-success: #6f8f5f;
+  --color-success-content: #f2e9d8;
+  --color-warning: #d4af37;
+  --color-warning-content: #100e0c;
+  --color-error: #b3543f;
+  --color-error-content: #f2e9d8;
+  --radius-selector: 0.125rem;
+  --radius-field: 0.125rem;
+  --radius-box: 0.25rem;
+  --size-selector: 0.21875rem;
+  --size-field: 0.21875rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+/* Self-hosted display faces for the Art Deco theme (Google Fonts, OFL).
+   Only fetched when the theme actually references them. */
+@font-face {
+  font-family: "Poiret One";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/poiret-one-latin.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Cinzel";
+  font-style: normal;
+  font-weight: 400 900;
+  font-display: swap;
+  src: url("/fonts/cinzel-latin.woff2") format("woff2");
+}
+
 /* Add variants based on LiveView classes */
 @custom-variant phx-click-loading (.phx-click-loading&, .phx-click-loading &);
 @custom-variant phx-submit-loading (.phx-submit-loading&, .phx-submit-loading &);
@@ -104,5 +162,139 @@
 
 /* Make LiveView wrapper divs transparent for layout */
 [data-phx-session], [data-phx-teleported-src] { display: contents }
+
+/* ---------------------------------------------------------------------------
+   Art Deco theme layer (applies only under data-theme="artdeco").
+   Values come from the design handoff: black/gold palette, Poiret One display
+   type, Cinzel body, square geometry, gold hairlines, shimmer CTAs, staggered
+   entrance motion, and a slowly rotating ambient sunburst. */
+
+@keyframes deco-fan-in {
+  0% { opacity: 0; transform: scale(0.7) translateY(26px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes deco-slow-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes deco-shimmer-sweep {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes deco-gold-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(212, 175, 55, 0.5); }
+  50% { box-shadow: 0 0 0 10px rgba(212, 175, 55, 0); }
+}
+
+[data-theme="artdeco"] {
+  /* Body/UI face; headings and the wordmark switch to the display face. */
+  font-family: "Cinzel", "Times New Roman", serif;
+
+  & h1, & h2, & h3 {
+    font-family: "Poiret One", "Cinzel", serif;
+    letter-spacing: 0.08em;
+  }
+
+  /* Wordmark in the header. */
+  & header a[href="/"] {
+    font-family: "Poiret One", serif;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: #f2e9d8;
+  }
+
+  /* Square geometry throughout: the templates round with utility classes, so
+     flatten them here rather than in every template. Diamonds over circles. */
+  & .rounded-full,
+  & .rounded-3xl,
+  & .rounded-2xl,
+  & .rounded-xl,
+  & .rounded-lg,
+  & .rounded-md,
+  & .rounded-box,
+  & .rounded-\[22px\],
+  & .rounded-\[32px\] {
+    border-radius: 4px;
+  }
+
+  /* Gold hairlines instead of neutral borders. */
+  & .border-base-300 {
+    border-color: rgba(212, 175, 55, 0.25);
+  }
+
+  & .divide-base-300 > :not([hidden]) ~ :not([hidden]) {
+    border-color: rgba(212, 175, 55, 0.2);
+  }
+
+  /* Buttons read as engraved labels; the primary CTA is brushed gold. */
+  & .btn {
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    transition: transform 0.15s ease-out, background-color 0.15s ease-out;
+  }
+
+  & .btn:hover {
+    transform: translateY(-2px);
+  }
+
+  & .btn-primary {
+    border-color: #d4af37;
+    color: #100e0c;
+    background: linear-gradient(
+      100deg,
+      #a8842f 0%,
+      #f2d374 25%,
+      #a8842f 50%,
+      #f2d374 75%,
+      #a8842f 100%
+    );
+    background-size: 300% 100%;
+    animation: deco-shimmer-sweep 4s linear infinite;
+  }
+
+  & .badge-primary {
+    animation: deco-gold-pulse 2.2s ease-in-out infinite;
+  }
+
+  & input::placeholder,
+  & textarea::placeholder {
+    color: #7a715f;
+  }
+
+  /* Staggered entrance for the top-level page blocks. */
+  & main > div > * {
+    animation: deco-fan-in 0.6s ease-out backwards;
+  }
+
+  & main > div > *:nth-child(2) { animation-delay: 0.07s; }
+  & main > div > *:nth-child(3) { animation-delay: 0.14s; }
+  & main > div > *:nth-child(4) { animation-delay: 0.21s; }
+  & main > div > *:nth-child(5) { animation-delay: 0.28s; }
+  & main > div > *:nth-child(n + 6) { animation-delay: 0.35s; }
+}
+
+/* Ambient sunburst medallion behind the page content. */
+[data-theme="artdeco"] body::before {
+  content: "";
+  position: fixed;
+  inset: -60%;
+  background: repeating-conic-gradient(
+    rgba(212, 175, 55, 0.045) 0deg 6deg,
+    transparent 6deg 12deg
+  );
+  animation: deco-slow-spin 40s linear infinite;
+  z-index: -1;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-theme="artdeco"] *,
+  [data-theme="artdeco"] body::before {
+    animation: none !important;
+  }
+}
 
 /* This file is for your main application CSS */

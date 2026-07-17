@@ -7,6 +7,34 @@
       "runtimeArgs": ["phx.server"],
       "port": 4000,
       "autoPort": false
+    },
+    {
+      "name": "veejr-docker",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": [
+        "run",
+        "--rm",
+        "--name",
+        "veejr_dev_preview",
+        "-p",
+        "4010:4010",
+        "-e",
+        "MIX_ENV=dev",
+        "-e",
+        "PORT=4010",
+        "-e",
+        "VEEJR_DB=veejr_preview.db",
+        "-v",
+        "C:\\Users\\eded1\\Documents\\Codex\\2026-07-07\\i\\work\\veej_fable:/app",
+        "-w",
+        "/app",
+        "elixir:1.20-otp-28",
+        "sh",
+        "-c",
+        "mix local.hex --force >/dev/null 2>&1 && mix ecto.create --quiet && mix ecto.migrate --quiet && mix phx.server"
+      ],
+      "port": 4010,
+      "autoPort": false
     }
   ]
 }
