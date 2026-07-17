@@ -205,7 +205,7 @@ docker run --rm `
   --mount "type=bind,source=$Data,target=/var/lib/veejr" `
   --workdir /app `
   $Image `
-  bash -lc "mix local.hex --force && mix local.rebar --force && mix deps.get --only prod && mix assets.deploy && mix ecto.create && mix ecto.migrate"
+  bash -lc "mix local.hex --force && mix local.rebar --force && mix deps.get --only prod && mix compile && mix assets.deploy && mix ecto.create && mix ecto.migrate"
 ```
 
 This writes dependencies/build output into the checkout and persistent state

@@ -93,15 +93,23 @@ function Read-ImportReceipt([string[]] $Output, [string] $PackageSha) {
   return $receipt
 }
 
-function Invoke-Import([string] $RepoPath, [string] $DataPath, [string] $EnvPath, [string] $PackagePath) {
+function Invoke-Import(
+  [string] $RepoPath,
+  [string] $DataPath,
+  [string] $EnvPath,
+  [string] $PackagePath,
+  [bool] $BuildAssets = $true
+) {
   New-Item -ItemType Directory -Force -Path $DataPath, (Join-Path $DataPath "uploads") | Out-Null
+  $prepare = "mix deps.get --only prod && mix compile"
+  if ($BuildAssets) { $prepare += " && mix assets.deploy" }
   $args = @(
     "run", "--rm", "--env-file", $EnvPath,
     "--mount", "type=bind,source=$RepoPath,target=/app",
     "--mount", "type=bind,source=$DataPath,target=/var/lib/veejr",
     "--mount", "type=bind,source=$PackagePath,target=/move.zip,readonly",
     "--workdir", "/app", $ElixirImage, "bash", "-lc",
-    "mix local.hex --force >/dev/null && mix local.rebar --force >/dev/null && mix deps.get --only prod && mix assets.deploy && mix ecto.create && mix ecto.migrate && mix veejr.import /move.zip --no-reconnect --receipt"
+    "mix local.hex --force >/dev/null && mix local.rebar --force >/dev/null && $prepare && mix ecto.create && mix ecto.migrate && mix veejr.import /move.zip --no-reconnect --receipt"
   )
   return @(Invoke-Docker $args)
 }
@@ -161,7 +169,7 @@ function Invoke-TestJob($Job, [string] $PackagePath, [string] $PackageSha) {
     Invoke-Docker @("run", "--rm", "-v", "${scratch}:/work", "alpine/git:2.47.2", "clone", "--depth", "1", $Repository, "/work/repo") | Out-Null
     $env = Join-Path $scratch "veejr.env"
     Write-InstanceEnvironment $Job $env 4000
-    $output = Invoke-Import $repo (Join-Path $scratch "data") $env $PackagePath
+    $output = Invoke-Import $repo (Join-Path $scratch "data") $env $PackagePath $false
     $receipt = Read-ImportReceipt $output $PackageSha
     Send-Result $Job $true $receipt $null
   } catch {
