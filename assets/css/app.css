@@ -264,6 +264,27 @@
     color: #7a715f;
   }
 
+  /* Message bubbles per the handoff: own messages get a subtle gold-tinted
+     fill with cream text (never solid gold), received messages a gold
+     outline — both stay legible on the dark thread background. */
+  & .veejr-bubble {
+    border-radius: 4px;
+    line-height: 1.6;
+    box-shadow: none;
+  }
+
+  & .veejr-bubble-mine {
+    border: 1px solid #d4af37;
+    background: rgba(212, 175, 55, 0.1);
+    color: #f2e9d8;
+  }
+
+  & .veejr-bubble-peer {
+    border: 1px solid rgba(212, 175, 55, 0.4);
+    background: transparent;
+    color: #e7ddc9;
+  }
+
   /* Staggered entrance for the top-level page blocks. */
   & main > div > * {
     animation: deco-fan-in 0.6s ease-out backwards;
