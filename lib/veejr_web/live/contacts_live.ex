@@ -212,21 +212,24 @@ defmodule VeejrWeb.ContactsLive do
                 :for={conversation <- @conversations}
                 class="flex items-center gap-2 rounded-lg px-2 py-2 transition hover:bg-base-200"
               >
-                <.link
-                  navigate={~p"/messages?conversation=#{conversation.key}"}
-                  class="flex min-w-0 flex-1 items-center gap-3 py-1"
+                <.user_avatar
+                  :if={conversation.avatar_user}
+                  id={"conversation-avatar-#{conversation.key}"}
+                  user={conversation.avatar_user}
+                  class="size-10 text-sm"
+                  on_click="open_profile"
+                />
+                <span
+                  :if={!conversation.avatar_user}
+                  class="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary"
                 >
-                  <.user_avatar
-                    :if={conversation.avatar_user}
-                    user={conversation.avatar_user}
-                    class="size-10 text-sm"
-                  />
-                  <span
-                    :if={!conversation.avatar_user}
-                    class="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary"
-                  >
-                    <.icon name="hero-user-group" class="size-5" />
-                  </span>
+                  <.icon name="hero-user-group" class="size-5" />
+                </span>
+                <.link
+                  id={"open-conversation-#{conversation.key}"}
+                  navigate={~p"/messages?conversation=#{conversation.key}"}
+                  class="flex min-w-0 flex-1 items-center justify-between gap-3 py-1"
+                >
                   <div class="min-w-0">
                     <p class="truncate font-medium">
                       {conversation_title(conversation)}
@@ -238,7 +241,7 @@ defmodule VeejrWeb.ContactsLive do
                       )} UTC
                     </p>
                   </div>
-                  <span class="shrink-0 text-sm font-medium text-primary">Open</span>
+                  <span class="ml-auto shrink-0 text-sm font-medium text-primary">Open</span>
                 </.link>
                 <.auto_open_control
                   :if={conversation.policy_id}
@@ -293,7 +296,12 @@ defmodule VeejrWeb.ContactsLive do
                   class="flex items-center justify-between gap-3 rounded-lg border border-base-300 p-3"
                 >
                   <span class="flex min-w-0 items-center gap-3">
-                    <.user_avatar user={req.requester} class="size-9 text-xs" />
+                    <.user_avatar
+                      id={"request-avatar-#{req.requester.id}"}
+                      user={req.requester}
+                      class="size-9 text-xs"
+                      on_click="open_profile"
+                    />
                     <span>
                       <span class="block font-medium">{req.requester.display_name ||
                         req.requester.username}</span>
@@ -552,7 +560,7 @@ defmodule VeejrWeb.ContactsLive do
       <.profile_dialog
         user={@selected_profile}
         note={profile_note(@contact_notes, @selected_profile)}
-        editable={not is_nil(@selected_profile)}
+        editable={profile_editable?(@friends, @selected_profile)}
       />
     </Layouts.app>
     """
@@ -772,7 +780,14 @@ defmodule VeejrWeb.ContactsLive do
   end
 
   def handle_event("open_profile", %{"id" => id}, socket) do
-    profile = Enum.find(socket.assigns.friends, &(to_string(&1.id) == id))
+    user = socket.assigns.current_scope.user
+
+    profiles =
+      [user | socket.assigns.friends] ++
+        Enum.map(socket.assigns.incoming, & &1.requester) ++
+        Enum.map(socket.assigns.outgoing, & &1.addressee)
+
+    profile = Enum.find(profiles, &(to_string(&1.id) == id))
     {:noreply, assign(socket, :selected_profile, profile)}
   end
 
@@ -961,6 +976,9 @@ defmodule VeejrWeb.ContactsLive do
 
   defp profile_note(_notes, nil), do: ""
   defp profile_note(notes, profile), do: Map.get(notes, profile.id, "")
+
+  defp profile_editable?(_friends, nil), do: false
+  defp profile_editable?(friends, profile), do: Enum.any?(friends, &(&1.id == profile.id))
 
   defp matching_conversation(assigns, friend_ids, include_self) do
     participants =

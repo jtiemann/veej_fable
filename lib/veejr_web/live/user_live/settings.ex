@@ -20,7 +20,12 @@ defmodule VeejrWeb.UserLive.Settings do
         <h2 class="text-lg font-semibold">Profile image</h2>
         <div class="mt-3 flex flex-col gap-4 sm:flex-row sm:items-center">
           <div class="relative size-28 shrink-0">
-            <.user_avatar id="settings-avatar" user={@current_scope.user} class="size-28 text-2xl" />
+            <.user_avatar
+              id="settings-avatar"
+              user={@current_scope.user}
+              class="size-28 text-2xl"
+              on_click="open_profile"
+            />
             <img
               data-role="avatar-preview"
               alt="Selected profile image preview"
@@ -186,6 +191,8 @@ defmodule VeejrWeb.UserLive.Settings do
           Delete my account
         </button>
       </section>
+
+      <.profile_dialog user={@selected_profile} editable={false} />
     </Layouts.app>
     """
   end
@@ -216,6 +223,7 @@ defmodule VeejrWeb.UserLive.Settings do
       |> assign(:password_form, to_form(password_changeset))
       |> assign(:trigger_submit, false)
       |> assign(:instance_admin, Accounts.instance_admin?(user))
+      |> assign(:selected_profile, nil)
       |> assign(:invite_url, nil)
       |> assign(:vapid_key, Veejr.Push.WebPush.vapid_public_key())
       |> assign(:push_devices, Veejr.Push.subscription_count(user))
@@ -239,6 +247,16 @@ defmodule VeejrWeb.UserLive.Settings do
   def handle_event("avatar_uploaded", _params, socket) do
     user = Accounts.get_user!(socket.assigns.current_scope.user.id)
     {:noreply, assign(socket, :current_scope, Accounts.Scope.for_user(user))}
+  end
+
+  def handle_event("open_profile", %{"id" => id}, socket) do
+    user = socket.assigns.current_scope.user
+    profile = if to_string(user.id) == id, do: user
+    {:noreply, assign(socket, :selected_profile, profile)}
+  end
+
+  def handle_event("close_profile", _params, socket) do
+    {:noreply, assign(socket, :selected_profile, nil)}
   end
 
   def handle_event("remove_avatar", _params, socket) do

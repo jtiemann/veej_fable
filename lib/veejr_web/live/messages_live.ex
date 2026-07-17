@@ -98,12 +98,8 @@ defmodule VeejrWeb.MessagesLive do
               No conversations yet.
             </p>
             <div class="space-y-1">
-              <button
+              <div
                 :for={conv <- @conversations}
-                id={"conversation-#{conv.key}"}
-                type="button"
-                phx-click="select_conversation"
-                phx-value-key={conv.key}
                 class={[
                   "flex w-full items-center gap-3 rounded-[22px] px-3 py-3 text-left transition",
                   @selected_conversation_key == conv.key &&
@@ -114,8 +110,10 @@ defmodule VeejrWeb.MessagesLive do
               >
                 <.user_avatar
                   :if={conv.avatar_user}
+                  id={"rail-conversation-avatar-#{conv.key}"}
                   user={conv.avatar_user}
                   class="size-10 text-sm"
+                  on_click="open_profile"
                 />
                 <span
                   :if={!conv.avatar_user}
@@ -123,7 +121,13 @@ defmodule VeejrWeb.MessagesLive do
                 >
                   {conversation_initials(conv)}
                 </span>
-                <span class="min-w-0 flex-1">
+                <button
+                  id={"conversation-#{conv.key}"}
+                  type="button"
+                  phx-click="select_conversation"
+                  phx-value-key={conv.key}
+                  class="min-w-0 flex-1 text-left"
+                >
                   <span class="block truncate text-sm font-medium">
                     {conversation_title(conv)}
                   </span>
@@ -131,8 +135,8 @@ defmodule VeejrWeb.MessagesLive do
                     <span>{conv.message_count} messages</span>
                     <span>{Calendar.strftime(conv.latest.inserted_at, "%b %d")}</span>
                   </span>
-                </span>
-              </button>
+                </button>
+              </div>
             </div>
 
             <div
@@ -143,12 +147,8 @@ defmodule VeejrWeb.MessagesLive do
                 Start new
               </h2>
               <div :if={@available_friends != []} class="space-y-1">
-                <button
+                <div
                   :for={friend <- @available_friends}
-                  id={"start-friend-#{friend.id}"}
-                  type="button"
-                  phx-click="select_friend"
-                  phx-value-id={friend.id}
                   class={[
                     "flex w-full items-center gap-3 rounded-[22px] px-3 py-3 text-left transition",
                     @selected_recipient && @selected_recipient.type == :friend &&
@@ -162,16 +162,23 @@ defmodule VeejrWeb.MessagesLive do
                     id={"message-friend-avatar-#{friend.id}"}
                     user={friend}
                     class="size-10 text-sm"
+                    on_click="open_profile"
                   />
-                  <span class="min-w-0 flex-1">
+                  <button
+                    id={"start-friend-#{friend.id}"}
+                    type="button"
+                    phx-click="select_friend"
+                    phx-value-id={friend.id}
+                    class="min-w-0 flex-1 text-left"
+                  >
                     <span class="block truncate text-sm font-medium">
                       {friend.display_name || friend.username}
                     </span>
                     <span class="block truncate text-xs opacity-70">
                       {Social.Address.handle(friend)}
                     </span>
-                  </span>
-                </button>
+                  </button>
+                </div>
               </div>
 
               <div :if={@available_groups != []} class="mt-3 space-y-1">
@@ -296,6 +303,7 @@ defmodule VeejrWeb.MessagesLive do
               <div class="mx-auto max-w-xl px-6 py-12 text-center">
                 <.user_avatar
                   :if={selected_recipient_user(@selected_recipient)}
+                  id="selected-recipient-avatar"
                   user={selected_recipient_user(@selected_recipient)}
                   class="mx-auto mb-4 size-16 text-lg"
                   on_click="open_profile"
@@ -336,7 +344,7 @@ defmodule VeejrWeb.MessagesLive do
       <.profile_dialog
         user={@selected_profile}
         note={profile_note(@contact_notes, @selected_profile)}
-        editable={profile_editable?(@current_scope.user, @selected_profile)}
+        editable={profile_editable?(@friends, @selected_profile)}
       />
     </Layouts.app>
     """
@@ -469,12 +477,14 @@ defmodule VeejrWeb.MessagesLive do
   def handle_event("open_profile", %{"id" => id}, socket) do
     user = socket.assigns.current_scope.user
 
-    profile =
-      if to_string(user.id) == id do
-        user
-      else
-        Enum.find(socket.assigns.friends, &(to_string(&1.id) == id))
-      end
+    profiles =
+      [user | socket.assigns.friends] ++
+        Enum.map(socket.assigns.pending, & &1.envelope.sender) ++
+        Enum.flat_map(socket.assigns.conversations, fn conversation ->
+          Enum.map(conversation.envelopes, & &1.sender)
+        end)
+
+    profile = Enum.find(profiles, &(to_string(&1.id) == id))
 
     {:noreply, assign(socket, :selected_profile, profile)}
   end
@@ -781,8 +791,8 @@ defmodule VeejrWeb.MessagesLive do
   defp profile_note(_notes, nil), do: ""
   defp profile_note(notes, profile), do: Map.get(notes, profile.id, "")
 
-  defp profile_editable?(_current_user, nil), do: false
-  defp profile_editable?(current_user, profile), do: current_user.id != profile.id
+  defp profile_editable?(_friends, nil), do: false
+  defp profile_editable?(friends, profile), do: Enum.any?(friends, &(&1.id == profile.id))
 
   defp profile_note_error(%Ecto.Changeset{errors: [{_field, {message, _}} | _]}), do: message
   defp profile_note_error(_changeset), do: "Could not save that note."

@@ -131,6 +131,14 @@ defmodule VeejrWeb.ContactsLiveTest do
              "input[name='selection[conversation_keys][]'][value='#{key}']"
            )
 
+    assert has_element?(view, "#open-conversation-#{key} span.ml-auto", "Open")
+
+    view |> element("#conversation-avatar-#{key}") |> render_click()
+    assert has_element?(view, "#profile-dialog", friend.display_name || friend.username)
+
+    view |> element("button[phx-click='close_profile']") |> render_click()
+    refute has_element?(view, "#profile-dialog")
+
     view
     |> form("#conversation-builder-form", %{
       "selection" => %{"conversation_keys" => [key]}

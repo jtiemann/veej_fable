@@ -33,6 +33,16 @@ defmodule VeejrWeb.UserLive.SettingsTest do
       refute Accounts.get_user!(user.id).has_avatar
     end
 
+    test "opens the current user's image consistently", %{conn: conn} do
+      user = user_fixture(%{display_name: "Current Profile"})
+      {:ok, view, _html} = conn |> log_in_user(user) |> live(~p"/users/settings")
+
+      view |> element("#settings-avatar") |> render_click()
+
+      assert has_element?(view, "#profile-dialog", "Current Profile")
+      refute has_element?(view, "#profile-dialog form")
+    end
+
     test "keeps account deletion available to ordinary members", %{conn: conn} do
       _admin = user_fixture()
       member = user_fixture()

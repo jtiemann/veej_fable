@@ -72,7 +72,7 @@ defmodule VeejrWeb.MessagesLiveTest do
     {:ok, _friendship} = Social.accept_friend_request(friend, request.id)
     {:ok, view, _html} = live(conn, "/messages?friend_id=#{friend.id}")
 
-    view |> element("main button[phx-click='open_profile']") |> render_click()
+    view |> element("#selected-recipient-avatar") |> render_click()
 
     assert has_element?(view, "#profile-dialog", "Profile Friend")
     assert has_element?(view, "#profile-dialog img[src='/avatars/#{friend.username}?v=1']")
@@ -86,6 +86,33 @@ defmodule VeejrWeb.MessagesLiveTest do
 
     assert Social.list_contact_notes(user)[friend.id] == "Follow up next Tuesday"
     assert has_element?(view, "#profile-note", "Follow up next Tuesday")
+  end
+
+  test "conversation rail avatar opens the profile instead of selecting the thread", %{
+    conn: conn,
+    user: user
+  } do
+    friend = user_fixture(%{display_name: "Rail Profile"})
+    {:ok, request} = Social.send_friend_request(user, friend.username)
+    {:ok, _friendship} = Social.accept_friend_request(friend, request.id)
+
+    {:ok, _batch_id, []} =
+      Messaging.send_batch(user, "message", [
+        %{"recipient_id" => friend.id, "ciphertext" => "friend", "nonce" => "nonce-1"},
+        %{"recipient_id" => user.id, "ciphertext" => "self", "nonce" => "nonce-2"}
+      ])
+
+    key = Messaging.conversation_key([Social.Address.handle(friend)])
+    {:ok, view, _html} = live(conn, "/messages")
+
+    view |> element("#rail-conversation-avatar-#{key}") |> render_click()
+
+    assert has_element?(view, "#profile-dialog", "Rail Profile")
+    refute has_element?(view, "#thread-#{key}")
+
+    view |> element("button[phx-click='close_profile']") |> render_click()
+    view |> element("#conversation-#{key}") |> render_click()
+    assert has_element?(view, "#thread-#{key}")
   end
 
   test "starts with the newest 50 messages and loads older rows on demand", %{
