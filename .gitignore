@@ -50,6 +50,7 @@ npm-debug.log
 
 # Encrypted attachment blobs uploaded at runtime.
 /priv/uploads/
+/priv/migrations/
 
 # Local-only Claude Code settings.
 .claude/settings.local.json

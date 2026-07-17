@@ -20,8 +20,15 @@ if ($Token.Length -lt 32) { throw "The provisioner token must contain at least 3
 $Headers = @{ Authorization = "Bearer $Token" }
 
 function Invoke-Docker([string[]] $Arguments) {
-  $output = & docker @Arguments 2>&1
-  if ($LASTEXITCODE -ne 0) { throw "docker $($Arguments[0]) failed:`n$($output -join "`n")" }
+  $previousPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    $output = & docker @Arguments 2>&1
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousPreference
+  }
+  if ($exitCode -ne 0) { throw "docker $($Arguments[0]) failed:`n$($output -join "`n")" }
   return $output
 }
 
