@@ -1062,24 +1062,28 @@ The following remain part of the intended v1 contract but may follow the MVP:
 Deferral does not permit an incompatible provisional format. Implemented v1
 endpoints must follow this document.
 
-## 24. Open decisions before implementation
+## 24. Remaining implementation decisions
 
-The following decisions require explicit resolution and a spec update:
+The following product/platform decisions still require explicit resolution and
+a spec update:
 
-1. **FCM operation:** whether every self-hosted instance supplies its own
-   Firebase credentials, uses a shared relay, or ships without push initially.
-2. **Token storage schema:** whether native device sessions extend
-   `user_tokens` or use dedicated device-session and refresh-token tables.
-3. **Map provider:** whether the Android client may depend on Google Play
+1. **Map provider:** whether the Android client may depend on Google Play
    Services or must use an OpenStreetMap-compatible native renderer.
-4. **Minimum Android API:** determines Keystore, biometric, notification, and
+2. **Minimum Android API:** determines Keystore, biometric, notification, and
    media compatibility policy.
-5. **Offline plaintext policy:** v1 recommends memory-only plaintext; any
+3. **Offline plaintext policy:** v1 recommends memory-only plaintext; any
    encrypted local plaintext cache needs a separate threat model.
-6. **Orphan blob cleanup:** retention and explicit deletion semantics for an
-   upload that never becomes referenced by a sent envelope.
-7. **Registration scope:** whether the first Android release supports new
+4. **Registration scope:** whether the first Android release supports new
    accounts or only existing-account login.
+
+Resolved decisions:
+
+- Each self-hosted instance optionally supplies its own FCM service-account
+  credential. Android push is disabled when it is absent.
+- Native device and refresh-token state uses dedicated device-session,
+  refresh-history, and idempotency tables rather than `user_tokens`.
+- New uploads carry explicit batch references. Unreferenced tracked uploads are
+  abandoned after 24 hours, while pre-tracking legacy blobs remain protected.
 
 ## 25. Definition of done
 

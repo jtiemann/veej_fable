@@ -35,6 +35,10 @@ friendship, and consent rules.
 For protocol details, trust boundaries, and data flows, see
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+For a framework- and language-independent specification suitable for recreating
+Veejr in another environment, see
+[docs/REIMPLEMENTATION_SPEC.md](docs/REIMPLEMENTATION_SPEC.md).
+
 For installation and server administration, see:
 
 - [Installation and server setup](docs/INSTALLATION.md)
