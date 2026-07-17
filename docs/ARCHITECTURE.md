@@ -233,13 +233,15 @@ owned encrypted blobs. The manifest includes profile and wrapped keys, friends,
 groups, and decryptable encrypted history with sender-key snapshots. It exposes
 social metadata despite retaining content encryption.
 
-`mix veejr.import export.zip` creates the owner, remote ghost contacts needed
-to identify historical senders, envelopes with original IDs/timestamps, and
-owned blobs. Received envelopes are imported as accepted. It then attempts
-normal federated friend requests to reconnect exported friends. Import does not
-include received attachments because the server cannot discover blob IDs inside
-encrypted payloads. Contact/group notes and newer envelope expiry/edit metadata
-are not currently part of export format version 1.
+`mix veejr.import export.zip` creates the owner, accepted remote friendships,
+remote ghost contacts needed to identify historical senders, envelopes with
+original IDs/timestamps, and owned blobs. Received envelopes are imported as
+accepted. During a managed move, source finalization verifies that the target
+directory publishes the same user key, replaces local address-book references
+with the new remote contact, and sends signed move notices to other federated
+servers. Import does not include received attachments because the server cannot
+discover blob IDs inside encrypted payloads. Contact/group notes and newer
+envelope expiry/edit metadata are not currently part of export format version 1.
 
 Account deletion removes owned blob files and the user row; foreign-key
 cascades remove associated rows, including envelopes sent by that user.

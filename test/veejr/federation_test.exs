@@ -122,6 +122,56 @@ defmodule Veejr.FederationTest do
     end
   end
 
+  describe "account moves" do
+    test "a signed move notice preserves an existing local friendship and address book data" do
+      alice = local_user("alice")
+
+      old_contact =
+        %User{}
+        |> Ecto.Changeset.change(
+          email: "remote+carol@old.example.invalid",
+          username: "carol",
+          host: "old.example",
+          public_key: @carol_key
+        )
+        |> Repo.insert!()
+
+      Req.Test.stub(Veejr.FederationStub, fn conn ->
+        case conn.request_path do
+          "/api/directory/carol" ->
+            Req.Test.json(conn, %{
+              username: "carol",
+              public_key: @carol_key,
+              host: "new.example"
+            })
+
+          "/api/federation/" <> _ ->
+            Req.Test.json(conn, %{ok: true})
+        end
+      end)
+
+      {:ok, request} = Social.receive_remote_friend_request(old_contact, alice)
+      {:ok, _} = Social.accept_friend_request(alice, request.id)
+      {:ok, group} = Social.create_group(alice, %{name: "Travel"})
+      {:ok, _} = Social.add_group_member(alice, group.id, old_contact.id)
+      {:ok, _} = Social.upsert_contact_note(alice, old_contact.id, "Carol moved")
+
+      assert {:ok, %{friendships: 1}} =
+               Federation.handle_account_move(
+                 %{
+                   "from" => %{"username" => "carol", "authority" => "old.example"},
+                   "new_authority" => "new.example"
+                 },
+                 "old.example"
+               )
+
+      replacement = Repo.get_by!(User, username: "carol", host: "new.example")
+      assert Social.friends?(alice.id, replacement.id)
+      assert Enum.map(Social.group_members(alice, group.id), & &1.id) == [replacement.id]
+      assert Social.list_contact_notes(alice)[replacement.id] == "Carol moved"
+    end
+  end
+
   describe "incoming federation requests" do
     test "friend request verifies by callback, then accept notifies origin" do
       alice = local_user("alice")

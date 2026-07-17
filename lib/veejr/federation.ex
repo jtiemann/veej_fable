@@ -147,6 +147,57 @@ defmodule Veejr.Federation do
     :ok
   end
 
+  @doc "Notifies remote friends that a local user has moved to a new authority."
+  def announce_account_move(%User{host: nil} = user, new_authority) do
+    hosts =
+      user
+      |> Veejr.Social.list_friends()
+      |> Enum.map(& &1.host)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    announce_account_move(user, new_authority, hosts)
+  end
+
+  def announce_account_move(%User{host: nil} = user, new_authority, hosts) do
+    Enum.each(hosts, fn host ->
+      Veejr.Federation.Outbox.deliver(host, "/api/federation/account_move", %{
+        from: %{username: user.username, authority: Veejr.instance_authority()},
+        new_authority: new_authority
+      })
+    end)
+
+    :ok
+  end
+
+  @doc "Handles a signed address-change notice for an existing remote friend."
+  def handle_account_move(
+        %{
+          "from" => %{"username" => username, "authority" => old_authority},
+          "new_authority" => new_authority
+        },
+        verified_authority
+      ) do
+    with :ok <- validate_origin(username, old_authority, verified_authority),
+         %User{} = old_contact <-
+           Repo.get_by(User, username: username, host: old_authority) ||
+             {:error, :unknown_recipient},
+         true <- has_local_friend?(old_contact) || {:error, :not_friends},
+         {:ok, replacement} <- ensure_remote_user(username, new_authority),
+         true <- replacement.public_key == old_contact.public_key || {:error, :key_changed},
+         {:ok, summary} <- Veejr.Social.relocate_contact(old_contact, replacement) do
+      {:ok, summary}
+    end
+  end
+
+  def handle_account_move(_, _), do: {:error, :bad_request}
+
+  defp has_local_friend?(contact) do
+    contact
+    |> Veejr.Social.list_friends()
+    |> Enum.any?(&is_nil(&1.host))
+  end
+
   @doc "Handles a key-change announcement from a verified peer."
   def handle_key_update(
         %{

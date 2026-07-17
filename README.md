@@ -358,10 +358,11 @@ Import it into a fresh instance with:
 mix veejr.import path/to/veejr-export.zip
 ```
 
-The import restores the account, history, sender key snapshots, and owned
-blobs, then attempts to reconnect exported friendships. Received attachments
-are not included because their blob identifiers exist only inside encrypted
-payloads.
+The import restores the account, history, sender key snapshots, owned blobs,
+and accepted friendships as contacts at their recorded server addresses. A
+managed account move also replaces the departing source contact with the new
+address when the administrator finalizes it. Received attachments are not
+included because their blob identifiers exist only inside encrypted payloads.
 
 ## Security summary
 

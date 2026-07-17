@@ -31,6 +31,7 @@ defmodule Veejr.Import do
   alias Veejr.Messaging
   alias Veejr.Messaging.{Blob, Envelope, Notification}
   alias Veejr.Repo
+  alias Veejr.Social.Friendship
 
   @supported_versions [1]
 
@@ -40,6 +41,7 @@ defmodule Veejr.Import do
          {:ok, manifest} <- parse_manifest(files) do
       Repo.transaction(fn ->
         owner = create_owner!(manifest)
+        restore_friendships!(owner, manifest["friends"] || [])
         ghosts = create_ghosts!(manifest, owner)
         envelope_count = import_envelopes!(manifest, owner, ghosts)
         blob_count = import_blobs!(files, owner)
@@ -125,6 +127,39 @@ defmodule Veejr.Import do
     end
   end
 
+  @doc "Restores exported accepted friendships idempotently for an imported owner."
+  def restore_friendships!(%User{} = owner, friends) when is_list(friends) do
+    for friend <- friends do
+      contact = import_contact!(friend)
+
+      unless Veejr.Social.get_friendship_between(owner.id, contact.id) do
+        %Friendship{}
+        |> Friendship.changeset(%{
+          requester_id: owner.id,
+          addressee_id: contact.id,
+          status: "accepted"
+        })
+        |> Repo.insert!()
+      end
+    end
+  end
+
+  defp import_contact!(%{"username" => username, "host" => host} = profile) do
+    local = host == Veejr.instance_authority() && Veejr.Accounts.get_user_by_username(username)
+
+    local ||
+      Repo.get_by(User, username: username, host: host) ||
+      Repo.insert!(
+        Changeset.change(%User{},
+          email: "remote+#{username}@#{String.replace(host, ":", ".")}.invalid",
+          username: username,
+          host: host,
+          display_name: profile["display_name"],
+          public_key: profile["public_key"]
+        )
+      )
+  end
+
   # One remote-contact row per distinct envelope sender (keyed by their home
   # instance), so received ciphertext keeps a resolvable sender with a public
   # key to decrypt against. These are ordinary remote users — once federation
@@ -140,8 +175,10 @@ defmodule Veejr.Import do
       username = sender["username"]
       host = sender["host"] || export_host
 
+      local = host == Veejr.instance_authority() && Veejr.Accounts.get_user_by_username(username)
+
       ghost =
-        Repo.get_by(User, username: username, host: host) ||
+        local || Repo.get_by(User, username: username, host: host) ||
           Repo.insert!(
             Changeset.change(%User{},
               email: "remote+#{username}@#{String.replace(host, ":", ".")}.invalid",

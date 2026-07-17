@@ -78,6 +78,7 @@ defmodule Veejr.ExportImportTest do
     assert new_bob.public_key == bob.public_key
     assert new_bob.enc_secret_key == bob.enc_secret_key
     assert new_bob.confirmed_at
+    assert Social.friends?(new_bob.id, alice.id)
 
     # history is back, sender resolves (alice still exists here, so no ghost)
     [restored] = Messaging.list_history(new_bob)

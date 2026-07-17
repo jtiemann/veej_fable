@@ -105,7 +105,11 @@ Account moves are intentionally resumable and are visible on `/admin`:
    creates a fresh final export.
 3. **Provisioning / Target verified**: confirm the new HTTPS site works and the
    moved user can request a login link before selecting **Finalize**.
-4. **Finalized**: the source account and private package have been removed.
+4. **Finalized**: the target directory has been verified against the moved
+   user's pinned public key, source-side friendships and address-book references
+   point to the new server, and the source account and private package have
+   been removed. Signed move notices update established friends on other
+   federated servers.
 
 Test or provision failures preserve the source account and package. Use
 **Retry** after correcting DNS, Docker, storage, SMTP-template, or Caddy errors.

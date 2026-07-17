@@ -3,7 +3,8 @@ defmodule Veejr.AccountMovesTest do
 
   import Veejr.AccountsFixtures
 
-  alias Veejr.{AccountMoves, Accounts, Repo}
+  alias Veejr.{AccountMoves, Accounts, Repo, Social}
+  alias Veejr.Accounts.User
 
   setup do
     old_token = Application.get_env(:veejr, :provisioner_token)
@@ -24,7 +25,22 @@ defmodule Veejr.AccountMovesTest do
   test "administrator completes a verified two-pass account move" do
     admin = user_fixture(%{username: "admin"})
     member = user_fixture(%{username: "moving_member"})
+    friend = user_fixture(%{username: "staying_friend"})
     web_token = Accounts.generate_user_session_token(member)
+
+    {:ok, member} =
+      Accounts.setup_user_keys(member, %{
+        "public_key" => Base.encode64("moving-key"),
+        "enc_secret_key" => Base.encode64("wrapped-moving-key"),
+        "key_salt" => Base.encode64("salt"),
+        "key_nonce" => Base.encode64("nonce")
+      })
+
+    {:ok, request} = Social.send_friend_request(friend, member.username)
+    {:ok, _} = Social.accept_friend_request(member, request.id)
+    {:ok, group} = Social.create_group(friend, %{name: "Close friends"})
+    {:ok, _} = Social.add_group_member(friend, group.id, member.id)
+    {:ok, _} = Social.upsert_contact_note(friend, member.id, "Met at the old server")
 
     assert {:ok, move} =
              AccountMoves.create(admin, member.id, %{
@@ -75,11 +91,31 @@ defmodule Veejr.AccountMovesTest do
 
     assert verified.status == "target_verified"
     assert verified.verified_at
+
+    Req.Test.stub(Veejr.FederationStub, fn conn ->
+      case conn.request_path do
+        "/api/directory/moving_member" ->
+          Req.Test.json(conn, %{
+            username: member.username,
+            public_key: member.public_key,
+            host: "moving.example.com"
+          })
+
+        "/api/federation/" <> _ ->
+          Req.Test.json(conn, %{ok: true})
+      end
+    end)
+
     assert {:ok, completed} = AccountMoves.finalize(admin, move.id)
     assert completed.status == "finalized"
     assert completed.user_id == nil
     refute Accounts.get_user_by_username(member.username)
     refute File.exists?(final_move.export_path)
+
+    moved_contact = Repo.get_by!(User, username: member.username, host: "moving.example.com")
+    assert Social.friends?(friend.id, moved_contact.id)
+    assert Enum.map(Social.group_members(friend, group.id), & &1.id) == [moved_contact.id]
+    assert Social.list_contact_notes(friend)[moved_contact.id] == "Met at the old server"
   end
 
   test "only the administrator can move non-admin local members" do

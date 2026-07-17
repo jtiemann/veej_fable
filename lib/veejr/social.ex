@@ -299,6 +299,115 @@ defmodule Veejr.Social do
     |> Repo.all()
   end
 
+  @doc """
+  Replaces an accepted contact with the same person at a new home instance.
+
+  Only relationships owned by local users are moved. Their accepted friendship,
+  group memberships, private notes, and contact delivery policies keep pointing
+  at the replacement contact.
+  """
+  def relocate_contact(%User{} = old_contact, %User{} = replacement) do
+    Repo.transaction(fn ->
+      friendships =
+        from(f in Friendship,
+          join: other in User,
+          on:
+            (f.requester_id == ^old_contact.id and f.addressee_id == other.id) or
+              (f.addressee_id == ^old_contact.id and f.requester_id == other.id),
+          where: f.status == "accepted" and is_nil(other.host) and other.id != ^old_contact.id,
+          select: {f, other.id}
+        )
+        |> Repo.all()
+
+      Enum.each(friendships, fn {friendship, local_id} ->
+        case get_friendship_between(local_id, replacement.id) do
+          nil ->
+            attrs =
+              if friendship.requester_id == old_contact.id,
+                do: %{requester_id: replacement.id},
+                else: %{addressee_id: replacement.id}
+
+            friendship |> Ecto.Changeset.change(attrs) |> Repo.update!()
+
+          existing ->
+            existing |> Ecto.Changeset.change(status: "accepted") |> Repo.update!()
+            Repo.delete!(friendship)
+        end
+      end)
+
+      relocate_group_memberships(old_contact.id, replacement.id)
+      relocate_contact_notes(old_contact.id, replacement.id)
+      relocate_delivery_policies(old_contact.id, replacement.id)
+
+      %{friendships: length(friendships)}
+    end)
+  end
+
+  defp relocate_group_memberships(old_id, replacement_id) do
+    from(gm in GroupMember,
+      join: g in Group,
+      on: g.id == gm.group_id,
+      join: owner in User,
+      on: owner.id == g.owner_id,
+      where: gm.user_id == ^old_id and is_nil(owner.host) and owner.id != ^old_id
+    )
+    |> Repo.all()
+    |> Enum.each(fn membership ->
+      if Repo.get_by(GroupMember, group_id: membership.group_id, user_id: replacement_id) do
+        Repo.delete!(membership)
+      else
+        membership |> Ecto.Changeset.change(user_id: replacement_id) |> Repo.update!()
+      end
+    end)
+  end
+
+  defp relocate_contact_notes(old_id, replacement_id) do
+    from(n in ContactNote,
+      join: owner in User,
+      on: owner.id == n.owner_id,
+      where: n.contact_id == ^old_id and is_nil(owner.host) and owner.id != ^old_id
+    )
+    |> Repo.all()
+    |> Enum.each(fn note ->
+      case Repo.get_by(ContactNote, owner_id: note.owner_id, contact_id: replacement_id) do
+        nil ->
+          note |> Ecto.Changeset.change(contact_id: replacement_id) |> Repo.update!()
+
+        existing ->
+          if existing.body == "" and note.body != "" do
+            existing |> Ecto.Changeset.change(body: note.body) |> Repo.update!()
+          end
+
+          Repo.delete!(note)
+      end
+    end)
+  end
+
+  defp relocate_delivery_policies(old_id, replacement_id) do
+    from(p in Veejr.Messaging.MessageDeliveryPolicy,
+      join: owner in User,
+      on: owner.id == p.user_id,
+      where:
+        p.subject_id == ^old_id and p.subject_type in ["contact", "conversation"] and
+          is_nil(owner.host) and owner.id != ^old_id
+    )
+    |> Repo.all()
+    |> Enum.each(fn policy ->
+      existing =
+        Repo.get_by(Veejr.Messaging.MessageDeliveryPolicy,
+          user_id: policy.user_id,
+          subject_type: policy.subject_type,
+          subject_id: replacement_id
+        )
+
+      if existing do
+        Repo.delete!(policy)
+      else
+        policy |> Ecto.Changeset.change(subject_id: replacement_id) |> Repo.update!()
+      end
+    end)
+  end
+
   @doc "Personal notes the owner has written about accepted friends, keyed by contact id."
   def list_contact_notes(%User{} = owner) do
     friend_ids =

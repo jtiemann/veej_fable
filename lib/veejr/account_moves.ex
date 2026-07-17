@@ -5,7 +5,7 @@ defmodule Veejr.AccountMoves do
 
   alias Veejr.Accounts.User
   alias Veejr.Admin.{AccountMove, AuditEvent}
-  alias Veejr.{Accounts, Admin, Export, Repo}
+  alias Veejr.{Accounts, Admin, Export, Federation, Repo, Social}
 
   @active_statuses ~w(awaiting_test testing test_verified test_failed awaiting_final_import provisioning target_verified provision_failed)
   @claimable %{"awaiting_test" => "testing", "awaiting_final_import" => "provisioning"}
@@ -109,10 +109,20 @@ defmodule Veejr.AccountMoves do
 
   def finalize(%User{} = actor, move_id) do
     with :ok <- authorize(actor),
-         %AccountMove{status: "target_verified", user: %User{} = user} = move <- get_move(move_id) do
-      Repo.transaction(fn ->
-        case Accounts.delete_user(user) do
-          {:ok, _user} ->
+         %AccountMove{status: "target_verified", user: %User{} = user} = move <- get_move(move_id),
+         {:ok, replacement} <- Federation.ensure_remote_user(user.username, move.target_host),
+         true <- replacement.public_key == user.public_key || {:error, :key_changed} do
+      remote_friend_hosts =
+        user
+        |> Social.list_friends()
+        |> Enum.map(& &1.host)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq()
+
+      result =
+        Repo.transaction(fn ->
+          with {:ok, _summary} <- Social.relocate_contact(user, replacement),
+               {:ok, _user} <- Accounts.delete_user(user) do
             updated =
               move.id
               |> then(&Repo.get!(AccountMove, &1))
@@ -125,11 +135,16 @@ defmodule Veejr.AccountMoves do
             audit!(actor, "account_move.finalized", updated, %{"username" => move.username})
             File.rm(move.export_path)
             updated
+          else
+            {:error, reason} ->
+              Repo.rollback(reason)
+          end
+        end)
 
-          {:error, reason} ->
-            Repo.rollback(reason)
-        end
-      end)
+      with {:ok, _updated} <- result do
+        Federation.announce_account_move(user, move.target_host, remote_friend_hosts)
+        result
+      end
     else
       nil -> {:error, :not_found}
       %AccountMove{} -> {:error, :invalid_state}
