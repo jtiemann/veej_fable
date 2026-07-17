@@ -65,6 +65,29 @@ defmodule VeejrWeb.MessagesLiveTest do
     assert has_element?(view, "main img[src='/avatars/#{friend.username}?v=1']")
   end
 
+  test "opens a contact profile and saves notes from messages", %{conn: conn, user: user} do
+    friend = user_fixture(%{display_name: "Profile Friend"})
+    {:ok, friend} = Accounts.put_user_avatar(friend, jpeg())
+    {:ok, request} = Social.send_friend_request(user, friend.username)
+    {:ok, _friendship} = Social.accept_friend_request(friend, request.id)
+    {:ok, view, _html} = live(conn, "/messages?friend_id=#{friend.id}")
+
+    view |> element("main button[phx-click='open_profile']") |> render_click()
+
+    assert has_element?(view, "#profile-dialog", "Profile Friend")
+    assert has_element?(view, "#profile-dialog img[src='/avatars/#{friend.username}?v=1']")
+
+    view
+    |> form("#profile-dialog form", %{
+      "contact_id" => to_string(friend.id),
+      "body" => "Follow up next Tuesday"
+    })
+    |> render_submit()
+
+    assert Social.list_contact_notes(user)[friend.id] == "Follow up next Tuesday"
+    assert has_element?(view, "#profile-note", "Follow up next Tuesday")
+  end
+
   test "starts with the newest 50 messages and loads older rows on demand", %{
     conn: conn,
     user: user

@@ -93,7 +93,8 @@ Click your username in the header to open the account page. From there you
 can open Settings, manage encryption keys, or open Archived conversations.
 Settings also lets you choose, replace, or remove your profile image. Images
 are center-cropped and resized in the browser before upload, then shown on the
-Contacts and Messages pages.
+Contacts and Messages pages. Click a contact's image to open a larger profile
+view and edit the private notes you keep about that person.
 
 To archive a conversation, open it in `/messages` and choose **Archive** in
 the conversation header. Archiving hides the thread from Messages and

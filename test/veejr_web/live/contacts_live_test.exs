@@ -69,6 +69,35 @@ defmodule VeejrWeb.ContactsLiveTest do
            )
   end
 
+  test "opens a friend's profile and edits private notes", %{
+    conn: conn,
+    user: user,
+    friend: friend
+  } do
+    {:ok, _friend} = Accounts.put_user_avatar(friend, jpeg())
+    {:ok, _note} = Social.upsert_contact_note(user, friend.id, "Met at the lake")
+    {:ok, view, _html} = live(conn, "/contacts")
+
+    view |> element("#friend-avatar-#{friend.id}") |> render_click()
+
+    assert has_element?(view, "#profile-dialog")
+    assert has_element?(view, "#profile-dialog img[src='/avatars/#{friend.username}?v=1']")
+    assert has_element?(view, "#profile-note", "Met at the lake")
+
+    view
+    |> form("#profile-dialog form", %{
+      "contact_id" => to_string(friend.id),
+      "body" => "Prefers weekend calls"
+    })
+    |> render_submit()
+
+    assert Social.list_contact_notes(user)[friend.id] == "Prefers weekend calls"
+    assert has_element?(view, "#profile-note", "Prefers weekend calls")
+
+    view |> element("button[phx-click='close_profile']") |> render_click()
+    refute has_element?(view, "#profile-dialog")
+  end
+
   test "shows and dismisses a joined invitation notice", %{conn: conn, user: user} do
     {:ok, invitation, token} = Accounts.create_invitation(user)
     {:ok, invited} = Accounts.register_user(valid_user_attributes(username: "new_joiner"), token)

@@ -34,6 +34,7 @@ defmodule VeejrWeb.CoreComponents do
   attr :user, :any, required: true
   attr :class, :any, default: "size-10"
   attr :ring, :boolean, default: true
+  attr :on_click, :string, default: nil
   attr :rest, :global
 
   @doc "Renders a user's uploaded avatar or a stable, colorful initials placeholder."
@@ -46,7 +47,41 @@ defmodule VeejrWeb.CoreComponents do
       |> assign(:palette, avatar_palette(assigns.user))
 
     ~H"""
+    <button
+      :if={@on_click}
+      type="button"
+      phx-click={@on_click}
+      phx-value-id={@user.id}
+      title={"Open #{@user.display_name || @user.username || "profile"} profile"}
+      class={[
+        "relative inline-flex shrink-0 overflow-hidden rounded-full transition hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+        @ring && "ring-2 ring-base-100 shadow-sm",
+        @class
+      ]}
+      {@rest}
+    >
+      <img
+        :if={@url}
+        src={@url}
+        alt={@label}
+        loading="lazy"
+        draggable="false"
+        class="size-full object-cover"
+      />
+      <span
+        :if={!@url}
+        role="img"
+        aria-label={@label}
+        class={[
+          "flex size-full items-center justify-center font-semibold uppercase",
+          @palette
+        ]}
+      >
+        {@initials}
+      </span>
+    </button>
     <span
+      :if={!@on_click}
       class={[
         "relative inline-flex shrink-0 overflow-hidden rounded-full",
         @ring && "ring-2 ring-base-100 shadow-sm",
@@ -74,6 +109,69 @@ defmodule VeejrWeb.CoreComponents do
         {@initials}
       </span>
     </span>
+    """
+  end
+
+  attr :user, :any, default: nil
+  attr :note, :string, default: ""
+  attr :editable, :boolean, default: false
+  attr :close_event, :string, default: "close_profile"
+  attr :save_event, :string, default: "save_profile_note"
+
+  @doc "Renders an enlarged profile image and the viewer's private contact note."
+  def profile_dialog(assigns) do
+    ~H"""
+    <div
+      :if={@user}
+      id="profile-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="profile-dialog-title"
+      phx-window-keydown={@close_event}
+      phx-key="Escape"
+      class="fixed inset-0 z-[1000] flex items-center justify-center bg-black/65 p-4"
+    >
+      <section
+        phx-click-away={@close_event}
+        class="relative max-h-[92svh] w-full max-w-lg overflow-y-auto rounded-lg bg-base-100 p-5 text-base-content shadow-2xl sm:p-7"
+      >
+        <button
+          type="button"
+          phx-click={@close_event}
+          title="Close profile"
+          aria-label="Close profile"
+          class="absolute right-3 top-3 flex size-9 items-center justify-center rounded-full hover:bg-base-200"
+        >
+          <.icon name="hero-x-mark" class="size-5" />
+        </button>
+
+        <div class="flex flex-col items-center text-center">
+          <.user_avatar user={@user} class="size-48 text-5xl sm:size-56" ring={false} />
+          <h2 id="profile-dialog-title" class="mt-5 text-xl font-semibold">
+            {@user.display_name || @user.username}
+          </h2>
+          <p class="mt-1 text-sm opacity-65">{Veejr.Social.Address.handle(@user)}</p>
+        </div>
+
+        <form :if={@editable} phx-submit={@save_event} class="mt-6">
+          <input type="hidden" name="contact_id" value={@user.id} />
+          <label for="profile-note" class="text-sm font-semibold">Personal notes</label>
+          <textarea
+            id="profile-note"
+            name="body"
+            rows="5"
+            maxlength="4000"
+            class="textarea textarea-bordered mt-2 w-full resize-y"
+            placeholder="Private notes about this contact"
+          >{@note}</textarea>
+          <div class="mt-3 flex justify-end">
+            <button type="submit" class="btn btn-primary btn-sm">
+              <.icon name="hero-check" class="size-4" /> Save note
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
     """
   end
 

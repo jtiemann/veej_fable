@@ -215,6 +215,7 @@ defmodule VeejrWeb.MessagesLive do
                     :if={@selected_conversation.avatar_user}
                     user={@selected_conversation.avatar_user}
                     class="size-11 text-sm"
+                    on_click="open_profile"
                   />
                   <span
                     :if={!@selected_conversation.avatar_user}
@@ -267,6 +268,7 @@ defmodule VeejrWeb.MessagesLive do
                   envelope={envelope}
                   user={@current_scope.user}
                   mine={envelope.sender_id == @current_scope.user.id}
+                  profile_click="open_profile"
                 />
                 <div data-role="thread-end" aria-hidden="true" class="h-px shrink-0" />
               </div>
@@ -296,6 +298,7 @@ defmodule VeejrWeb.MessagesLive do
                   :if={selected_recipient_user(@selected_recipient)}
                   user={selected_recipient_user(@selected_recipient)}
                   class="mx-auto mb-4 size-16 text-lg"
+                  on_click="open_profile"
                 />
                 <div
                   :if={!selected_recipient_user(@selected_recipient)}
@@ -329,6 +332,12 @@ defmodule VeejrWeb.MessagesLive do
           </main>
         </section>
       </div>
+
+      <.profile_dialog
+        user={@selected_profile}
+        note={profile_note(@contact_notes, @selected_profile)}
+        editable={profile_editable?(@current_scope.user, @selected_profile)}
+      />
     </Layouts.app>
     """
   end
@@ -342,6 +351,7 @@ defmodule VeejrWeb.MessagesLive do
        selected_conversation_key: nil,
        selected_recipient_type: nil,
        selected_recipient_id: nil,
+       selected_profile: nil,
        message_limit: @message_page_size
      )
      |> refresh()}
@@ -456,6 +466,40 @@ defmodule VeejrWeb.MessagesLive do
      |> refresh()}
   end
 
+  def handle_event("open_profile", %{"id" => id}, socket) do
+    user = socket.assigns.current_scope.user
+
+    profile =
+      if to_string(user.id) == id do
+        user
+      else
+        Enum.find(socket.assigns.friends, &(to_string(&1.id) == id))
+      end
+
+    {:noreply, assign(socket, :selected_profile, profile)}
+  end
+
+  def handle_event("close_profile", _params, socket) do
+    {:noreply, assign(socket, :selected_profile, nil)}
+  end
+
+  def handle_event(
+        "save_profile_note",
+        %{"contact_id" => contact_id, "body" => body},
+        socket
+      ) do
+    case Social.upsert_contact_note(socket.assigns.current_scope.user, contact_id, body) do
+      {:ok, _note} ->
+        {:noreply, socket |> put_flash(:info, "Contact note saved.") |> refresh()}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, put_flash(socket, :error, profile_note_error(changeset))}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Could not save that note.")}
+    end
+  end
+
   def handle_event("load_more_messages", _params, socket) do
     limit = socket.assigns.message_limit + @message_page_size
     {:noreply, socket |> assign(:message_limit, limit) |> refresh()}
@@ -564,6 +608,7 @@ defmodule VeejrWeb.MessagesLive do
       pending_count: length(pending),
       friends: friends,
       groups: groups,
+      contact_notes: Social.list_contact_notes(user),
       available_friends: available_friends(friends, conversations),
       available_groups: available_groups(groups, conversations),
       conversations: conversations,
@@ -732,6 +777,15 @@ defmodule VeejrWeb.MessagesLive do
 
   defp selected_recipient_user(%{user: user}), do: user
   defp selected_recipient_user(_), do: nil
+
+  defp profile_note(_notes, nil), do: ""
+  defp profile_note(notes, profile), do: Map.get(notes, profile.id, "")
+
+  defp profile_editable?(_current_user, nil), do: false
+  defp profile_editable?(current_user, profile), do: current_user.id != profile.id
+
+  defp profile_note_error(%Ecto.Changeset{errors: [{_field, {message, _}} | _]}), do: message
+  defp profile_note_error(_changeset), do: "Could not save that note."
 
   defp composer_submit_label(_conversation), do: "Send"
 

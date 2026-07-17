@@ -467,6 +467,7 @@ defmodule VeejrWeb.MessagingComponents do
   attr :envelope, Envelope, required: true, doc: "sender preloaded"
   attr :user, User, required: true
   attr :mine, :boolean, required: true
+  attr :profile_click, :string, default: nil
 
   def message_bubble(assigns) do
     ~H"""
@@ -479,6 +480,7 @@ defmodule VeejrWeb.MessagingComponents do
         :if={!@mine}
         user={@envelope.sender}
         class="mt-5 size-8 text-xs"
+        on_click={@profile_click}
       />
       <div class={[
         "flex min-w-0 flex-1 flex-col",

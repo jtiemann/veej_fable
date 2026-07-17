@@ -336,6 +336,7 @@ defmodule VeejrWeb.ContactsLive do
                       id={"friend-avatar-#{friend.id}"}
                       user={friend}
                       class="size-12 text-sm"
+                      on_click="open_profile"
                     />
                     <span class="min-w-0">
                       <span class="block truncate font-medium">{friend.display_name || friend.username}</span>
@@ -456,7 +457,12 @@ defmodule VeejrWeb.ContactsLive do
 
                 <div class="mt-3 flex flex-wrap gap-2">
                   <span :for={member <- group.members} class="badge badge-outline h-8 gap-1 pl-1">
-                    <.user_avatar user={member} class="size-6 text-[0.6rem]" ring={false} />
+                    <.user_avatar
+                      user={member}
+                      class="size-6 text-[0.6rem]"
+                      ring={false}
+                      on_click="open_profile"
+                    />
                     {member.display_name || member.username}
                     <button
                       phx-click="remove_member"
@@ -542,13 +548,22 @@ defmodule VeejrWeb.ContactsLive do
           </form>
         </section>
       </div>
+
+      <.profile_dialog
+        user={@selected_profile}
+        note={profile_note(@contact_notes, @selected_profile)}
+        editable={not is_nil(@selected_profile)}
+      />
     </Layouts.app>
     """
   end
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, socket |> assign(add_username: "", page_title: "Contacts") |> refresh()}
+    {:ok,
+     socket
+     |> assign(add_username: "", page_title: "Contacts", selected_profile: nil)
+     |> refresh()}
   end
 
   @impl true
@@ -756,6 +771,32 @@ defmodule VeejrWeb.ContactsLive do
     end
   end
 
+  def handle_event("open_profile", %{"id" => id}, socket) do
+    profile = Enum.find(socket.assigns.friends, &(to_string(&1.id) == id))
+    {:noreply, assign(socket, :selected_profile, profile)}
+  end
+
+  def handle_event("close_profile", _params, socket) do
+    {:noreply, assign(socket, :selected_profile, nil)}
+  end
+
+  def handle_event(
+        "save_profile_note",
+        %{"contact_id" => contact_id, "body" => body},
+        socket
+      ) do
+    case Social.upsert_contact_note(socket.assigns.current_scope.user, contact_id, body) do
+      {:ok, _note} ->
+        {:noreply, socket |> put_flash(:info, "Contact note saved.") |> refresh()}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, put_flash(socket, :error, error_from(changeset))}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Could not save that note.")}
+    end
+  end
+
   def handle_event("save_group_note", %{"group_id" => group_id, "body" => body}, socket) do
     case Social.upsert_group_note(socket.assigns.current_scope.user, group_id, body) do
       {:ok, _note} ->
@@ -917,6 +958,9 @@ defmodule VeejrWeb.ContactsLive do
       _ -> []
     end
   end
+
+  defp profile_note(_notes, nil), do: ""
+  defp profile_note(notes, profile), do: Map.get(notes, profile.id, "")
 
   defp matching_conversation(assigns, friend_ids, include_self) do
     participants =
