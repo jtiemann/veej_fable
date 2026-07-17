@@ -351,12 +351,21 @@ pending --accept--> accepted --fetch/display--> accepted
 - A display count increments only after authenticated decryption and actual
   rendering, not background indexing, migration, rotation, or failed display.
 
-### 8.4 Conversation archives
+### 8.4 Conversation threads and archives
 
-- Archiving hides a conversation without deleting envelopes.
-- An archive records participant identity, exact envelope IDs, archive time,
-  and the conversation start timestamp.
-- The start timestamp is part of archival uniqueness so unarchiving cannot
+- Every envelope copy carries a materialized thread key computed at insert
+  from its viewer's perspective: a received copy threads by the sender's
+  handle, a self-copy by the sorted handles of the batch's other recipients
+  (or a notes-to-self sentinel). Conversation lists and pages are database
+  queries over this key; no ciphertext is loaded to group history.
+- Archiving hides a conversation without deleting envelopes: the member
+  envelopes are stamped with a distinct instance key derived from the
+  participant key, the conversation start timestamp, and the first envelope
+  ID. Later messages with the same participants start a fresh thread under
+  the original participant key.
+- An archive record stores the instance key, participant identity, start
+  timestamp, and archived state.
+- The start timestamp is part of the instance key so unarchiving cannot
   overwrite or merge an unrelated later conversation with the same people.
 - Archived conversations are restored from the account archive view.
 
@@ -588,11 +597,11 @@ represent these entities and constraints.
 | Group member | Group and user; pair unique. |
 | Contact note | Owner, contact, body; owner/contact unique. |
 | Group note | Owner, group, body; owner/group unique. |
-| Envelope | Public ID, batch ID, kind, ciphertext, nonce, sender, recipient, sender-key snapshot, delivered/edited/expiry times, max/display count, resealed flag, timestamps. Public ID unique; batch/recipient unique. |
+| Envelope | Public ID, batch ID, kind, ciphertext, nonce, sender, recipient, sender-key snapshot, delivered/edited/expiry times, max/display count, resealed flag, thread key and participant-handle list, timestamps. Public ID unique; batch/recipient unique; recipient/thread-key indexed. |
 | Notification | Envelope, recipient user, pending/accepted/declined state; one per relevant envelope/user. |
 | Conversation window | User, peer, active-until; pair unique. |
 | Delivery policy | User, subject type/id, acceptance and notification behavior; subject tuple unique. |
-| Conversation archive | User, unique conversation key, participant key/list, envelope IDs, start time, archived state, timestamps. |
+| Conversation archive | User, unique conversation (instance) key, participant key/list, start time, archived state, timestamps. Membership lives on the envelopes' thread keys. |
 | Blob | Random public ID, owner, exact byte size, storage key/path, reference-tracking flag, timestamps. Public ID unique. |
 | Blob reference | Blob and batch ID; pair unique. |
 

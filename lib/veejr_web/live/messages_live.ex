@@ -410,34 +410,18 @@ defmodule VeejrWeb.MessagesLive do
   end
 
   def handle_event("archive_conversation", %{"key" => key}, socket) do
-    case Enum.find(socket.assigns.conversations, &(&1.key == key)) do
-      %{
-        participants: participants,
-        envelope_ids: envelope_ids,
-        started_at: started_at
-      } ->
-        case Messaging.archive_conversation(
-               socket.assigns.current_scope.user,
-               key,
-               participants,
-               envelope_ids,
-               started_at
-             ) do
-          {:ok, _archive} ->
-            {:noreply,
-             socket
-             |> assign(:selected_conversation_key, nil)
-             |> reset_message_limit()
-             |> clear_selected_recipient()
-             |> put_flash(:info, "Conversation archived.")
-             |> refresh()}
+    case Messaging.archive_conversation(socket.assigns.current_scope.user, key) do
+      {:ok, _archive} ->
+        {:noreply,
+         socket
+         |> assign(:selected_conversation_key, nil)
+         |> reset_message_limit()
+         |> clear_selected_recipient()
+         |> put_flash(:info, "Conversation archived.")
+         |> refresh()}
 
-          {:error, _} ->
-            {:noreply, put_flash(socket, :error, "Could not archive that conversation.")}
-        end
-
-      nil ->
-        {:noreply, put_flash(socket, :error, "Conversation not found.")}
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Could not archive that conversation.")}
     end
   end
 
@@ -477,12 +461,16 @@ defmodule VeejrWeb.MessagesLive do
   def handle_event("open_profile", %{"id" => id}, socket) do
     user = socket.assigns.current_scope.user
 
+    thread_senders =
+      case socket.assigns.selected_conversation do
+        %{envelopes: envelopes} -> Enum.map(envelopes, & &1.sender)
+        _ -> []
+      end
+
     profiles =
       [user | socket.assigns.friends] ++
         Enum.map(socket.assigns.pending, & &1.envelope.sender) ++
-        Enum.flat_map(socket.assigns.conversations, fn conversation ->
-          Enum.map(conversation.envelopes, & &1.sender)
-        end)
+        thread_senders
 
     profile = Enum.find(profiles, &(to_string(&1.id) == id))
 
@@ -596,10 +584,24 @@ defmodule VeejrWeb.MessagesLive do
     message_limit = socket.assigns[:message_limit] || @message_page_size
     selected_key = socket.assigns[:selected_conversation_key]
 
-    {conversations, has_more_messages} =
-      build_conversations(user, friends, message_limit, selected_key)
+    conversations = build_conversations(user, friends)
 
-    selected_conversation = Enum.find(conversations, &(&1.key == selected_key))
+    selected_conversation =
+      case Enum.find(conversations, &(&1.key == selected_key)) do
+        nil ->
+          nil
+
+        conversation ->
+          %{
+            conversation
+            | envelopes:
+                Messaging.list_thread_envelopes(user, conversation.key, limit: message_limit)
+          }
+      end
+
+    has_more_messages =
+      selected_conversation != nil and selected_conversation.message_count > message_limit
+
     selected_key = if selected_conversation, do: selected_key
     selected_recipient = selected_recipient(socket, friends, groups)
 
@@ -887,55 +889,49 @@ defmodule VeejrWeb.MessagesLive do
     |> Enum.sort()
   end
 
-  # Groups history by participant set: what you sent to {@alice, @bob} and
-  # what @alice sent you form separate threads (a received group message
-  # lands in the sender's thread — the server can't see its other
-  # recipients; the decrypted payload shows them).
-  defp build_conversations(user, friends, limit, selected_key) do
+  # One entry per thread, from the materialized thread keys: what you sent
+  # to {@alice, @bob} and what @alice sent you form separate threads (a
+  # received group message lands in the sender's thread — the server can't
+  # see its other recipients; the decrypted payload shows them). Only the
+  # selected conversation loads envelope ciphertext, in refresh/1.
+  defp build_conversations(user, friends) do
     handle_to_friend = Map.new(friends, &{Veejr.Social.Address.handle(&1), &1})
+    archives = Messaging.list_thread_archives(user)
 
-    # Conversation keys are derived from participants, so history must be
-    # grouped before applying the per-conversation display window. Limiting
-    # this query first would let newer messages in another thread hide older
-    # messages from the selected conversation.
-    envelopes =
-      user
-      |> Messaging.list_history(kind: "message")
-
-    conversations =
-      envelopes
-      |> then(&Messaging.conversation_threads(user, &1))
-      |> Enum.map(fn thread ->
-        envelopes = thread.envelopes
-        participants = thread.participants
-        message_count = length(envelopes)
-
-        Map.merge(thread, %{
-          envelopes: Enum.take(envelopes, -limit),
-          message_count: message_count,
-          reply_ids:
-            participants
-            |> Enum.map(&handle_to_friend[&1])
-            |> Enum.reject(&is_nil/1)
-            |> Enum.map(& &1.id)
-            |> Enum.join(","),
-          avatar_user:
-            case participants do
-              ["notes to yourself"] -> user
-              [handle] -> handle_to_friend[handle]
-              _ -> nil
-            end
-        })
-      end)
-      |> Enum.sort_by(& &1.latest.id, :desc)
-
-    has_more? =
-      case Enum.find(conversations, &(&1.key == selected_key)) do
-        %{message_count: count} -> count > limit
+    user
+    |> Messaging.list_conversation_summaries()
+    |> Enum.reject(fn summary ->
+      case archives[summary.key] do
+        %{archived: true} -> true
         _ -> false
       end
+    end)
+    |> Enum.map(fn summary ->
+      archive = archives[summary.key]
+      participants = summary.participants
 
-    {conversations, has_more?}
+      %{
+        key: summary.key,
+        participants: participants,
+        message_count: summary.message_count,
+        envelopes: [],
+        latest: %{id: summary.latest_id, inserted_at: summary.latest_at},
+        started_at: (archive && archive.started_at) || summary.started_at,
+        preserved: archive != nil,
+        reply_ids:
+          participants
+          |> Enum.map(&handle_to_friend[&1])
+          |> Enum.reject(&is_nil/1)
+          |> Enum.map(& &1.id)
+          |> Enum.join(","),
+        avatar_user:
+          case participants do
+            ["notes to yourself"] -> user
+            [handle] -> handle_to_friend[handle]
+            _ -> nil
+          end
+      }
+    end)
   end
 
   defp conversation_title(conversation) do

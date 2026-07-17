@@ -19,6 +19,11 @@ defmodule Veejr.Messaging.Envelope do
     field :sender_public_key, :string
     # re-encrypted to the recipient's own key during their rotation
     field :resealed, :boolean, default: false
+    # conversation identity, materialized at insert so threads are queryable:
+    # the stable key of `participants` (a JSON-encoded sorted handle list),
+    # rewritten to an instance key when the viewer archives the conversation
+    field :thread_key, :string
+    field :participants, :string
 
     belongs_to :sender, Veejr.Accounts.User
     belongs_to :recipient, Veejr.Accounts.User

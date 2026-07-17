@@ -7,12 +7,18 @@ defmodule VeejrWeb.UserLive.ArchivesTest do
 
   test "lists and unarchives a conversation", %{conn: conn} do
     user = user_fixture()
-    participants = ["@alice@example.test"]
-    key = Messaging.conversation_key(participants)
-    started_at = ~U[2026-07-01 09:30:00Z]
 
-    assert {:ok, archive} =
-             Messaging.archive_conversation(user, key, participants, ["message-1"], started_at)
+    {:ok, batch_id, []} =
+      Messaging.send_batch(user, "message", [
+        %{"recipient_id" => user.id, "ciphertext" => "ct", "nonce" => "nonce"}
+      ])
+
+    Veejr.Repo.get_by!(Veejr.Messaging.Envelope, batch_id: batch_id, recipient_id: user.id)
+    |> Ecto.Changeset.change(inserted_at: ~U[2026-07-01 09:30:00Z])
+    |> Veejr.Repo.update!()
+
+    key = Messaging.conversation_key(["notes to yourself"])
+    assert {:ok, archive} = Messaging.archive_conversation(user, key)
 
     archive_key = archive.conversation_key
 
@@ -21,7 +27,7 @@ defmodule VeejrWeb.UserLive.ArchivesTest do
       |> log_in_user(user)
       |> live(~p"/account/archives")
 
-    assert html =~ "@alice@example.test"
+    assert html =~ "notes to yourself"
     assert html =~ "Started Jul 01, 2026"
     assert has_element?(view, "#archive-#{archive_key}")
 

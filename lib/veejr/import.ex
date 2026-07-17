@@ -218,13 +218,19 @@ defmodule Veejr.Import do
     |> Enum.map(fn entry ->
       sender = entry["sender"]
 
-      sender_id =
+      {sender_id, sender_struct} =
         if sender["username"] == owner.username,
-          do: owner.id,
-          else: ghosts[{sender["username"], sender["host"] || export_host}].id
+          do: {owner.id, owner},
+          else:
+            (
+              ghost = ghosts[{sender["username"], sender["host"] || export_host}]
+              {ghost.id, ghost}
+            )
 
       {:ok, inserted_at, _} = DateTime.from_iso8601(entry["inserted_at"])
       inserted_at = DateTime.truncate(inserted_at, :second)
+
+      participants = import_participants(entry, sender_id == owner.id, sender_struct, export_host)
 
       envelope =
         Repo.insert!(%Envelope{
@@ -237,6 +243,8 @@ defmodule Veejr.Import do
           nonce: entry["nonce"],
           sender_public_key: entry["sender"]["public_key"],
           resealed: entry["resealed"] || false,
+          thread_key: Messaging.conversation_key(participants),
+          participants: Jason.encode!(participants),
           inserted_at: inserted_at,
           updated_at: inserted_at
         })
@@ -252,6 +260,39 @@ defmodule Veejr.Import do
       envelope
     end)
     |> length()
+  end
+
+  # Thread identity for a restored envelope. Received copies thread by the
+  # (ghost) sender's handle on this instance. Self-copies thread by the
+  # exported recipient handles, qualified with the export host so they stay
+  # meaningful away from the origin instance — better than the pre-thread-key
+  # behavior, which collapsed all imported sent history into notes-to-self
+  # because the other copies of each batch are never exported.
+  defp import_participants(entry, self_copy?, sender_struct, export_host) do
+    if self_copy? do
+      (entry["recipients"] || [])
+      |> Enum.map(&qualify_handle(&1, export_host))
+      |> Enum.sort()
+      |> case do
+        [] -> ["notes to yourself"]
+        handles -> handles
+      end
+    else
+      [Veejr.Social.Address.handle(sender_struct)]
+    end
+  end
+
+  defp qualify_handle(handle, export_host) do
+    case handle |> to_string() |> String.trim_leading("@") |> String.split("@", parts: 2) do
+      [username] -> local_or_remote_handle(username, export_host)
+      [username, host] -> local_or_remote_handle(username, host)
+    end
+  end
+
+  defp local_or_remote_handle(username, host) do
+    if host == Veejr.instance_authority(),
+      do: "@#{username}",
+      else: "@#{username}@#{host}"
   end
 
   defp import_blobs!(files, owner) do
