@@ -136,7 +136,10 @@ function Wait-PublicEndpoint([string] $HostName, [int] $Attempts = 24) {
 function Send-Result($Job, [bool] $Success, $Receipt, [string] $ErrorMessage) {
   $body = @{ phase = $Job.phase; success = $Success }
   if ($Receipt) { $body.receipt = $Receipt }
-  if ($ErrorMessage) { $body.error = $ErrorMessage.Substring(0, [Math]::Min(2000, $ErrorMessage.Length)) }
+  if ($ErrorMessage) {
+    $start = [Math]::Max(0, $ErrorMessage.Length - 2000)
+    $body.error = $ErrorMessage.Substring($start)
+  }
   Invoke-RestMethod -Method Post -Uri "$SourceUrl/api/provisioner/v1/moves/$($Job.id)/result" -Headers $Headers -ContentType "application/json" -Body ($body | ConvertTo-Json -Depth 8) | Out-Null
 }
 
@@ -162,6 +165,7 @@ function Invoke-TestJob($Job, [string] $PackagePath, [string] $PackageSha) {
     $receipt = Read-ImportReceipt $output $PackageSha
     Send-Result $Job $true $receipt $null
   } catch {
+    Write-Warning "Test job $($Job.id) failed: $($_.Exception.Message)"
     Send-Result $Job $false $null $_.Exception.Message
   } finally {
     Remove-TestWorkspace $scratch
@@ -225,6 +229,7 @@ function Invoke-FinalJob($Job, [string] $PackagePath, [string] $PackageSha) {
     $receipt | Add-Member -NotePropertyName url -NotePropertyValue ("https://" + $Job.target_host)
     Send-Result $Job $true $receipt $null
   } catch {
+    Write-Warning "Final job $($Job.id) failed: $($_.Exception.Message)"
     Send-Result $Job $false $null $_.Exception.Message
   }
 }
