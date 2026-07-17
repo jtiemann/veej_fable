@@ -284,7 +284,9 @@ New-Item -ItemType Directory -Force $CaddyDir
 $Domain {
   reverse_proxy host.docker.internal:4000
 }
-"@ | Set-Content "$CaddyDir\Caddyfile" -Encoding utf8NoBOM
+"@ | ForEach-Object {
+  [IO.File]::WriteAllText("$CaddyDir\Caddyfile", $_, [Text.UTF8Encoding]::new($false))
+}
 
 docker volume create veej_caddy_data
 docker volume create veej_caddy_config

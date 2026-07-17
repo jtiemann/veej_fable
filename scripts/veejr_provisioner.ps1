@@ -49,8 +49,13 @@ function Get-FreePort([int] $Start) {
 
 function New-SecretKeyBase {
   $bytes = [byte[]]::new(64)
-  [Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+  $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+  try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
   return [Convert]::ToBase64String($bytes)
+}
+
+function Write-Utf8NoBom([string] $Path, [string[]] $Lines) {
+  [IO.File]::WriteAllLines($Path, $Lines, [Text.UTF8Encoding]::new($false))
 }
 
 function Write-InstanceEnvironment($Job, [string] $Path, [int] $Port) {
@@ -67,7 +72,8 @@ function Write-InstanceEnvironment($Job, [string] $Path, [int] $Port) {
   $values["VEEJR_MIGRATION_DIR"] = "/var/lib/veejr/migrations"
   $values["SECRET_KEY_BASE"] = New-SecretKeyBase
   $values.Remove("VEEJR_PROVISIONER_TOKEN")
-  $values.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" } | Set-Content -LiteralPath $Path -Encoding utf8NoBOM
+  $lines = @($values.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" })
+  Write-Utf8NoBom $Path $lines
 }
 
 function Read-ImportReceipt([string[]] $Output, [string] $PackageSha) {
@@ -98,12 +104,12 @@ function Add-CaddyRoute([string] $HostName, [int] $Port, [string] $ServiceName) 
   $caddy = Get-Content -Raw -LiteralPath $Caddyfile
   if ($caddy -match [regex]::Escape("# veejr-managed:$ServiceName")) { return }
   $block = "`r`n# veejr-managed:$ServiceName`r`n$HostName {`r`n  reverse_proxy host.docker.internal:$Port`r`n}`r`n"
-  Add-Content -LiteralPath $Caddyfile -Value $block -Encoding utf8NoBOM
+  [IO.File]::AppendAllText($Caddyfile, $block, [Text.UTF8Encoding]::new($false))
   try {
     Invoke-Docker @("run", "--rm", "-v", "${Caddyfile}:/etc/caddy/Caddyfile:ro", "caddy:2", "caddy", "validate", "--config", "/etc/caddy/Caddyfile") | Out-Null
     Invoke-Docker @("exec", $CaddyContainer, "caddy", "reload", "--config", "/etc/caddy/Caddyfile") | Out-Null
   } catch {
-    $caddy | Set-Content -LiteralPath $Caddyfile -Encoding utf8NoBOM
+    [IO.File]::WriteAllText($Caddyfile, $caddy, [Text.UTF8Encoding]::new($false))
     throw
   }
 }
@@ -190,7 +196,11 @@ function Invoke-FinalJob($Job, [string] $PackagePath, [string] $PackageSha) {
     $data = Join-Path $instance "data"
     $output = Invoke-Import $repo $data $env $PackagePath
     $receipt = Read-ImportReceipt $output $PackageSha
-    $receipt | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $receiptFile -Encoding utf8NoBOM
+    [IO.File]::WriteAllText(
+      $receiptFile,
+      ($receipt | ConvertTo-Json -Depth 8),
+      [Text.UTF8Encoding]::new($false)
+    )
 
     Invoke-Docker @(
       "service", "create", "--name", $service, "--replicas", "1", "--env-file", $env,
