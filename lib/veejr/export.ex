@@ -66,8 +66,10 @@ defmodule Veejr.Export do
     files =
       [{~c"export.json", Jason.encode!(manifest, pretty: true)}] ++
         avatar_files ++
-        for blob <- blobs, File.exists?(blob.path) do
-          {String.to_charlist("blobs/#{blob.public_id}.bin"), File.read!(blob.path)}
+        for blob <- blobs,
+            path = Veejr.Messaging.blob_file_path(blob),
+            File.exists?(path) do
+          {String.to_charlist("blobs/#{blob.public_id}.bin"), File.read!(path)}
         end
 
     {:ok, {_name, zip_binary}} = :zip.create(~c"veejr-export.zip", files, [:memory])

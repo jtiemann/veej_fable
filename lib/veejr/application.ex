@@ -18,6 +18,8 @@ defmodule Veejr.Application do
       {Veejr.Federation.Outbox, []},
       # Persists and retries browser and Android push delivery.
       {Veejr.Push.Outbox, []},
+      # Periodic cleanup (abandoned attachment uploads).
+      {Veejr.Janitor, []},
       {Task.Supervisor, name: Veejr.TaskSupervisor},
       # Start to serve requests, typically the last entry
       VeejrWeb.Endpoint

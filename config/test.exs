@@ -6,8 +6,13 @@ config :bcrypt_elixir, :log_rounds, 1
 # Route federation HTTP through Req.Test so tests can stub remote instances.
 config :veejr, :federation_req_options, plug: {Req.Test, Veejr.FederationStub}
 
-# The outbox never ticks on its own in tests; process_due/0 is driven directly.
+# The outbox never ticks (or reacts to kicks) on its own in tests;
+# process_due/0 is driven directly.
 config :veejr, :outbox_tick_ms, :never
+
+# The janitor never sweeps on its own in tests; purge_abandoned_blobs/0 is
+# driven directly.
+config :veejr, :janitor_interval_ms, :never
 
 # No spontaneous Web Push sends from tests; Veejr.Push.notify/1 is called directly.
 config :veejr, :push_enabled, false

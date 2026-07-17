@@ -3,17 +3,20 @@ defmodule Veejr.Federation do
   Instance-to-instance protocol. The community server and personal instances
   are peers speaking exactly this — there is no special role.
 
-  ## Trust model (MVP)
+  ## Trust model
 
-  Incoming requests claim an origin (`from.username` + `from.authority`).
-  Nothing in the payload is trusted for identity: the receiving instance
-  always calls back to the claimed authority's public directory
-  (`/api/directory/:username`) and uses *that* public key, pinned on first
-  contact. Impersonating `alice@A` therefore requires controlling A (or its
-  DNS/TLS), not just sending a request. Envelope URLs are never taken from
-  payloads either — they are constructed from the claimed authority and the
-  envelope's public id. Signed requests (per-instance keys) are the next
-  hardening step.
+  Every federation write is signed with the sending instance's Ed25519 key
+  and verified by `VeejrWeb.FederationAuth` against the peer key pinned on
+  first contact (`Veejr.Federation.Peers`). Handlers additionally require the
+  payload's origin claim (`from.username` + `from.authority`) to match the
+  authority whose signature was verified — a signed request from B cannot
+  speak for users of C. User identity is never taken from payloads either:
+  the receiving instance calls back to the claimed authority's public
+  directory (`/api/directory/:username`) and uses *that* public key, pinned
+  on first contact. Impersonating `alice@A` therefore requires controlling A
+  (or its DNS/TLS), not just sending a request. Envelope URLs are likewise
+  constructed from the pinned authority and the envelope's public id, never
+  accepted from a payload.
 
   ## Delivery model
 
@@ -133,7 +136,7 @@ defmodule Veejr.Federation do
 
   def deliver_friend_response(%User{host: nil} = from, %User{host: authority} = to, action)
       when is_binary(authority) and action in ["accepted", "declined"] do
-    Veejr.Federation.Outbox.deliver(authority, "/api/federation/friend_response", %{
+    queue_delivery(authority, "/api/federation/friend_response", %{
       from: %{username: from.username, authority: Veejr.instance_authority()},
       to: to.username,
       action: action
@@ -141,12 +144,15 @@ defmodule Veejr.Federation do
   end
 
   @doc """
-  Announces an envelope to a remote recipient's instance. Unreachable peers
-  get the notify parked in the outbox and retried automatically.
+  Queues a content-free envelope announcement for the remote recipient's
+  instance. Only a row insert happens here, so this is safe inside the send
+  transaction; the caller kicks `Veejr.Federation.Outbox` after commit and
+  the outbox retries unreachable peers automatically.
   """
-  def deliver_notify(envelope, %User{host: authority} = recipient) when is_binary(authority) do
-    Veejr.Federation.Outbox.deliver(authority, "/api/federation/notify", %{
-      from: %{username: envelope.sender.username, authority: Veejr.instance_authority()},
+  def enqueue_notify(%User{host: nil} = sender, envelope, %User{host: authority} = recipient)
+      when is_binary(authority) do
+    Veejr.Federation.Outbox.enqueue(authority, "/api/federation/notify", %{
+      from: %{username: sender.username, authority: Veejr.instance_authority()},
       to: recipient.username,
       kind: envelope.kind,
       public_id: envelope.public_id
@@ -179,7 +185,7 @@ defmodule Veejr.Federation do
       |> Enum.uniq()
 
     for host <- hosts do
-      Veejr.Federation.Outbox.deliver(host, "/api/federation/key_update", %{
+      queue_delivery(host, "/api/federation/key_update", %{
         from: %{username: user.username, authority: Veejr.instance_authority()},
         public_key: user.public_key
       })
@@ -202,13 +208,22 @@ defmodule Veejr.Federation do
 
   def announce_account_move(%User{host: nil} = user, new_authority, hosts) do
     Enum.each(hosts, fn host ->
-      Veejr.Federation.Outbox.deliver(host, "/api/federation/account_move", %{
+      queue_delivery(host, "/api/federation/account_move", %{
         from: %{username: user.username, authority: Veejr.instance_authority()},
         new_authority: new_authority
       })
     end)
 
     :ok
+  end
+
+  # Enqueue-and-kick for fire-and-forget deliveries made outside a send
+  # transaction (friend responses, key updates, account moves). Blocked
+  # peers are dropped silently, matching the previous behavior.
+  defp queue_delivery(authority, path, payload) do
+    with :ok <- Veejr.Federation.Outbox.enqueue(authority, path, payload) do
+      Veejr.Federation.Outbox.kick()
+    end
   end
 
   @doc "Handles a signed address-change notice for an existing remote friend."

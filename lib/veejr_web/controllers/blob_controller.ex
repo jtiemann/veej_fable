@@ -47,7 +47,7 @@ defmodule VeejrWeb.BlobController do
         conn
         |> put_resp_content_type("application/octet-stream")
         |> put_resp_header("cache-control", "private, max-age=31536000, immutable")
-        |> send_file(200, blob.path)
+        |> send_file(200, Messaging.blob_file_path(blob))
     end
   end
 
@@ -71,7 +71,7 @@ defmodule VeejrWeb.BlobController do
         conn
         |> put_resp_content_type("application/octet-stream")
         |> put_resp_header("cache-control", "public, max-age=31536000, immutable")
-        |> send_file(200, blob.path)
+        |> send_file(200, Messaging.blob_file_path(blob))
     end
   end
 end

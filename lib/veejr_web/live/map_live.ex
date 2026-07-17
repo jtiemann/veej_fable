@@ -108,17 +108,9 @@ defmodule VeejrWeb.MapLive do
     opts = Map.take(params, ["attachment_ids"])
 
     case Messaging.send_batch(socket.assigns.current_scope.user, kind, envelopes, opts) do
-      {:ok, _batch_id, []} ->
+      {:ok, _batch_id, _queued} ->
         {:reply, %{ok: true},
          put_flash(socket, :info, "Shared. It will appear on the map after a refresh.")}
-
-      {:ok, _batch_id, queued} ->
-        {:reply, %{ok: true},
-         put_flash(
-           socket,
-           :info,
-           "Shared. #{Enum.join(queued, ", ")}: instance unreachable — notification queued for retry."
-         )}
 
       {:error, _} ->
         {:reply, %{error: "Sharing failed — are all recipients still your friends?"}, socket}

@@ -26,6 +26,8 @@ Veejr.Supervisor
 ├── DNSCluster
 ├── Phoenix.PubSub (Veejr.PubSub)
 ├── Veejr.Federation.Outbox
+├── Veejr.Push.Outbox
+├── Veejr.Janitor
 ├── Veejr.TaskSupervisor
 └── VeejrWeb.Endpoint (Bandit)
 ```
@@ -189,10 +191,14 @@ first contact against an external source such as DNSSEC or a transparency log.
 ### Reliability
 
 Friend requests are synchronous so the initiator immediately learns whether an
-address resolves. Notifications and friend responses use
-`Veejr.Federation.Outbox`: transient failures are stored in
-`outbound_deliveries` and retried with exponential backoff (30 seconds to six
-hours) for roughly a week. Definitive 4xx responses are not retried.
+address resolves. Envelope notifies, friend responses, key updates, and
+account-move notices go through `Veejr.Federation.Outbox` enqueue-first: the
+delivery row is written in the same database transaction as the local state it
+announces (no network I/O inside the transaction, and a crash cannot lose the
+announcement), then the outbox process is kicked after commit to attempt
+delivery immediately. Failures are retried with exponential backoff (30
+seconds to six hours) for roughly a week. Definitive 4xx responses are not
+retried.
 
 ## Web Push
 
