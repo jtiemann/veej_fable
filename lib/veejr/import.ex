@@ -29,7 +29,7 @@ defmodule Veejr.Import do
   alias Ecto.Changeset
   alias Veejr.Accounts.User
   alias Veejr.Messaging
-  alias Veejr.Messaging.{Blob, Envelope, Notification}
+  alias Veejr.Messaging.{Blob, BlobReference, Envelope, Notification}
   alias Veejr.Repo
   alias Veejr.Social.Friendship
 
@@ -46,6 +46,7 @@ defmodule Veejr.Import do
         ghosts = create_ghosts!(manifest, owner)
         envelope_count = import_envelopes!(manifest, owner, ghosts)
         blob_count = import_blobs!(files, owner)
+        restore_blob_references!(manifest, owner)
 
         %{
           owner: owner.username,
@@ -276,6 +277,46 @@ defmodule Veejr.Import do
       })
     end)
     |> length()
+  end
+
+  defp restore_blob_references!(manifest, owner) do
+    public_ids = Enum.map(manifest["blob_references"] || [], & &1["public_id"])
+
+    owned_batch_ids =
+      Repo.all(from(e in Envelope, where: e.sender_id == ^owner.id, select: e.batch_id))
+      |> MapSet.new()
+
+    blob_ids =
+      Repo.all(
+        from(b in Blob,
+          where: b.owner_id == ^owner.id and b.public_id in ^public_ids,
+          select: {b.public_id, b.id}
+        )
+      )
+      |> Map.new()
+
+    now = DateTime.utc_now(:second)
+
+    rows =
+      for %{"public_id" => public_id, "batch_id" => batch_id} <-
+            manifest["blob_references"] || [],
+          blob_id = blob_ids[public_id],
+          is_integer(blob_id),
+          MapSet.member?(owned_batch_ids, batch_id) do
+        %{blob_id: blob_id, batch_id: batch_id, inserted_at: now, updated_at: now}
+      end
+
+    Repo.insert_all(BlobReference, rows,
+      on_conflict: :nothing,
+      conflict_target: [:blob_id, :batch_id]
+    )
+
+    tracked_blob_ids = Enum.map(rows, & &1.blob_id)
+
+    from(b in Blob, where: b.id in ^tracked_blob_ids)
+    |> Repo.update_all(set: [reference_tracking: true])
+
+    :ok
   end
 
   defp blob_id(name), do: name |> Path.basename() |> Path.rootname(".bin")

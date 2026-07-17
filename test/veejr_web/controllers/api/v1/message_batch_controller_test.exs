@@ -3,7 +3,8 @@ defmodule VeejrWeb.Api.V1.MessageBatchControllerTest do
 
   import Veejr.AccountsFixtures
 
-  alias Veejr.{Accounts, Messaging, Social}
+  alias Veejr.{Accounts, Messaging, Repo, Social}
+  alias Veejr.Messaging.BlobReference
 
   setup %{conn: conn} do
     alice = keyed_user("alice") |> set_password()
@@ -98,6 +99,25 @@ defmodule VeejrWeb.Api.V1.MessageBatchControllerTest do
     assert recipient_id == to_string(alice.id)
     assert [%{batch_id: batch_id}] = Messaging.list_history(alice, limit: 1)
     assert batch_id == response["batch_id"]
+  end
+
+  test "links uploaded attachment IDs through the API batch", %{
+    conn: conn,
+    alice: alice,
+    bob: bob,
+    tokens: tokens
+  } do
+    {:ok, blob} = Messaging.create_blob(alice, "encrypted-video")
+    params = Map.put(batch_params(alice, bob), "attachment_ids", [blob.public_id])
+
+    response =
+      conn
+      |> authorize(tokens["access_token"])
+      |> put_req_header("idempotency-key", String.duplicate("v", 22))
+      |> post("/api/v1/message-batches", params)
+      |> json_response(201)
+
+    assert Repo.get_by!(BlobReference, blob_id: blob.id, batch_id: response["batch_id"])
   end
 
   test "rejects reuse with another request and batches without a self-copy", %{

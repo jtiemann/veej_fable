@@ -99,9 +99,15 @@ defmodule VeejrWeb.MapLive do
      socket}
   end
 
-  def handle_event("send_batch", %{"kind" => kind, "envelopes" => envelopes}, socket)
+  def handle_event(
+        "send_batch",
+        %{"kind" => kind, "envelopes" => envelopes} = params,
+        socket
+      )
       when kind in ["location", "note"] do
-    case Messaging.send_batch(socket.assigns.current_scope.user, kind, envelopes) do
+    opts = Map.take(params, ["attachment_ids"])
+
+    case Messaging.send_batch(socket.assigns.current_scope.user, kind, envelopes, opts) do
       {:ok, _batch_id, []} ->
         {:reply, %{ok: true},
          put_flash(socket, :info, "Shared. It will appear on the map after a refresh.")}

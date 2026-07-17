@@ -87,6 +87,7 @@ defmodule VeejrWeb.Api.V1.MessageBatchController do
         opts = [
           expires_at: params["expires_at"],
           max_displays: params["max_displays"],
+          attachment_ids: params["attachment_ids"],
           defer_notifications: true
         ]
 

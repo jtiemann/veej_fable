@@ -150,6 +150,35 @@ defmodule Veejr.ExportImportTest do
              ["enc_secret_key", "key_nonce", "key_salt", "public_key"]
   end
 
+  test "export and import preserve attachment references for later deletion" do
+    _admin = user_with_keys("portable_admin")
+    user = user_with_keys("portable_attachment_owner")
+    {:ok, blob} = Messaging.create_blob(user, "portable-video-ciphertext")
+
+    assert {:ok, _batch_id, []} =
+             Messaging.send_batch(
+               user,
+               "message",
+               [%{"recipient_id" => user.id, "ciphertext" => "ct", "nonce" => "nonce"}],
+               attachment_ids: [blob.public_id]
+             )
+
+    {:ok, _, zip} = Export.build(user)
+    {:ok, _} = Accounts.delete_user(user)
+    {:ok, _summary} = Import.from_zip(zip)
+
+    restored_user = Accounts.get_user_by_username("portable_attachment_owner")
+    restored_blob = Messaging.get_blob(blob.public_id)
+    assert restored_blob
+    [restored_envelope] = Messaging.list_history(restored_user)
+
+    assert {:ok, {:deleted, 1}} =
+             Messaging.delete_envelope(restored_user, restored_envelope.public_id)
+
+    refute Messaging.get_blob(blob.public_id)
+    refute File.exists?(restored_blob.path)
+  end
+
   test "delete_user withdraws sent envelopes from recipients" do
     bob = user_with_keys("bob")
     alice = user_with_keys("alice")

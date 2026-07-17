@@ -1,7 +1,8 @@
 defmodule Veejr.MessagingSendTest do
   use Veejr.DataCase
 
-  alias Veejr.Messaging
+  alias Veejr.{Messaging, Repo, Social}
+  alias Veejr.Messaging.BlobReference
   import Veejr.AccountsFixtures
 
   test "rejects duplicate copies for the same recipient" do
@@ -16,5 +17,112 @@ defmodule Veejr.MessagingSendTest do
              Messaging.send_batch(user, "message", envelopes)
 
     assert Messaging.list_history(user) == []
+  end
+
+  test "sender deletion frees a batch's tracked attachment" do
+    user = user_fixture()
+    {:ok, blob} = Messaging.create_blob(user, "encrypted-video")
+
+    assert {:ok, batch_id, []} =
+             Messaging.send_batch(
+               user,
+               "message",
+               [%{"recipient_id" => user.id, "ciphertext" => "ct", "nonce" => "nonce"}],
+               attachment_ids: [blob.public_id]
+             )
+
+    assert Repo.get_by!(BlobReference, blob_id: blob.id, batch_id: batch_id)
+    assert File.exists?(blob.path)
+
+    [envelope] = Messaging.list_history(user)
+    assert {:ok, {:deleted, 1}} = Messaging.delete_envelope(user, envelope.public_id)
+    refute Messaging.get_blob(blob.public_id)
+    refute File.exists?(blob.path)
+  end
+
+  test "recipient hide retains the sender's attachment" do
+    alice = user_fixture(%{username: "attachment_alice"})
+    bob = user_fixture(%{username: "attachment_bob"})
+    befriend(alice, bob)
+    {:ok, blob} = Messaging.create_blob(alice, "encrypted-video")
+
+    assert {:ok, _batch_id, []} =
+             Messaging.send_batch(
+               alice,
+               "message",
+               [
+                 %{"recipient_id" => bob.id, "ciphertext" => "bob", "nonce" => "nonce"},
+                 %{"recipient_id" => alice.id, "ciphertext" => "self", "nonce" => "nonce"}
+               ],
+               attachment_ids: [blob.public_id]
+             )
+
+    [notification] = Messaging.list_pending_notifications(bob)
+    {:ok, _} = Messaging.accept_notification(bob, notification.id)
+    [received] = Messaging.list_history(bob)
+    assert {:ok, :hidden} = Messaging.delete_envelope(bob, received.public_id)
+    assert Messaging.get_blob(blob.public_id)
+    assert File.exists?(blob.path)
+  end
+
+  test "a reused attachment is freed only after its final batch is deleted" do
+    user = user_fixture()
+    {:ok, blob} = Messaging.create_blob(user, "shared-ciphertext")
+
+    for ciphertext <- ["first", "second"] do
+      assert {:ok, _batch_id, []} =
+               Messaging.send_batch(
+                 user,
+                 "message",
+                 [%{"recipient_id" => user.id, "ciphertext" => ciphertext, "nonce" => "nonce"}],
+                 attachment_ids: [blob.public_id]
+               )
+    end
+
+    [first, second] = Messaging.list_history(user) |> Enum.sort_by(& &1.inserted_at)
+    assert {:ok, {:deleted, 1}} = Messaging.delete_envelope(user, first.public_id)
+    assert Messaging.get_blob(blob.public_id)
+    assert {:ok, {:deleted, 1}} = Messaging.delete_envelope(user, second.public_id)
+    refute Messaging.get_blob(blob.public_id)
+  end
+
+  test "a sender cannot attach another user's blob" do
+    owner = user_fixture()
+    sender = user_fixture()
+    {:ok, blob} = Messaging.create_blob(owner, "private-ciphertext")
+
+    assert {:error, :invalid_attachments} =
+             Messaging.send_batch(
+               sender,
+               "message",
+               [%{"recipient_id" => sender.id, "ciphertext" => "ct", "nonce" => "nonce"}],
+               attachment_ids: [blob.public_id]
+             )
+
+    assert Messaging.get_blob(blob.public_id)
+    assert Messaging.list_history(sender) == []
+  end
+
+  test "stale unattached tracked uploads are purged without touching legacy blobs" do
+    user = user_fixture()
+    {:ok, abandoned} = Messaging.create_blob(user, "abandoned")
+    {:ok, legacy} = Messaging.create_blob(user, "legacy")
+    old = DateTime.add(DateTime.utc_now(:second), -25, :hour)
+
+    abandoned |> Ecto.Changeset.change(inserted_at: old) |> Repo.update!()
+
+    legacy
+    |> Ecto.Changeset.change(inserted_at: old, reference_tracking: false)
+    |> Repo.update!()
+
+    assert %{files: 1, bytes: 9} = Messaging.purge_abandoned_blobs()
+    refute Messaging.get_blob(abandoned.public_id)
+    assert Messaging.get_blob(legacy.public_id)
+    assert File.exists?(legacy.path)
+  end
+
+  defp befriend(a, b) do
+    {:ok, request} = Social.send_friend_request(a, b.username)
+    {:ok, _} = Social.accept_friend_request(b, request.id)
   end
 end

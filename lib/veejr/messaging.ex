@@ -15,6 +15,7 @@ defmodule Veejr.Messaging do
 
   alias Veejr.Messaging.{
     Blob,
+    BlobReference,
     ConversationArchive,
     ConversationWindow,
     Envelope,
@@ -130,6 +131,9 @@ defmodule Veejr.Messaging do
 
     result =
       Repo.transaction(fn ->
+        attachment_ids = normalize_attachment_ids(opt(opts, :attachment_ids))
+        link_batch_blobs!(sender, batch_id, attachment_ids)
+
         recipient_ids =
           Enum.map(envelopes, fn attrs ->
             case parse_id(attrs["recipient_id"] || attrs[:recipient_id]) do
@@ -1076,13 +1080,16 @@ defmodule Veejr.Messaging do
         {:error, :not_found}
 
       envelope.sender_id == user_id ->
-        {count, _} =
-          from(e in Envelope,
-            where: e.sender_id == ^user_id and e.batch_id == ^envelope.batch_id
-          )
-          |> Repo.delete_all()
+        Repo.transaction(fn ->
+          {count, _} =
+            from(e in Envelope,
+              where: e.sender_id == ^user_id and e.batch_id == ^envelope.batch_id
+            )
+            |> Repo.delete_all()
 
-        {:ok, {:deleted, count}}
+          release_batch_blobs!(user_id, envelope.batch_id)
+          {:deleted, count}
+        end)
 
       envelope.recipient_id == user_id and not is_nil(envelope.notification) ->
         envelope.notification
@@ -1178,6 +1185,8 @@ defmodule Veejr.Messaging do
   message envelope.
   """
   def create_blob(%User{} = owner, binary) when is_binary(binary) do
+    purge_abandoned_blobs()
+
     cond do
       byte_size(binary) > max_blob_size() ->
         {:error, :too_large}
@@ -1192,12 +1201,20 @@ defmodule Veejr.Messaging do
         path = Path.join(dir, public_id <> ".bin")
         File.write!(path, binary)
 
-        Repo.insert(%Blob{
-          public_id: public_id,
-          owner_id: owner.id,
-          size: byte_size(binary),
-          path: path
-        })
+        case Repo.insert(%Blob{
+               public_id: public_id,
+               owner_id: owner.id,
+               size: byte_size(binary),
+               path: path,
+               reference_tracking: true
+             }) do
+          {:ok, blob} ->
+            {:ok, blob}
+
+          {:error, _changeset} = error ->
+            File.rm(path)
+            error
+        end
     end
   end
 
@@ -1215,6 +1232,102 @@ defmodule Veejr.Messaging do
   """
   def get_blob(public_id) do
     Repo.get_by(Blob, public_id: public_id)
+  end
+
+  @doc "Purges tracked uploads left unattached for more than 24 hours. Legacy blobs are excluded."
+  def purge_abandoned_blobs do
+    cutoff = DateTime.add(DateTime.utc_now(:second), -24, :hour)
+    referenced_blob_ids = from(r in BlobReference, select: r.blob_id)
+
+    blobs =
+      Repo.all(
+        from(b in Blob,
+          where:
+            b.reference_tracking == true and b.inserted_at < ^cutoff and
+              b.id not in subquery(referenced_blob_ids)
+        )
+      )
+
+    Enum.reduce(blobs, %{files: 0, bytes: 0}, fn blob, totals ->
+      case File.rm(blob.path) do
+        :ok ->
+          Repo.delete!(blob)
+          %{files: totals.files + 1, bytes: totals.bytes + blob.size}
+
+        {:error, :enoent} ->
+          Repo.delete!(blob)
+          %{files: totals.files + 1, bytes: totals.bytes + blob.size}
+
+        {:error, _reason} ->
+          totals
+      end
+    end)
+  end
+
+  defp normalize_attachment_ids(nil), do: []
+
+  defp normalize_attachment_ids(ids) when is_list(ids) and length(ids) <= 20 do
+    if Enum.all?(ids, &(is_binary(&1) and byte_size(&1) >= 16 and byte_size(&1) <= 100)) and
+         length(Enum.uniq(ids)) == length(ids) do
+      ids
+    else
+      Repo.rollback(:invalid_attachments)
+    end
+  end
+
+  defp normalize_attachment_ids(_), do: Repo.rollback(:invalid_attachments)
+
+  defp link_batch_blobs!(_owner, _batch_id, []), do: :ok
+
+  defp link_batch_blobs!(%User{id: owner_id}, batch_id, public_ids) do
+    blobs =
+      Repo.all(
+        from(b in Blob,
+          where: b.owner_id == ^owner_id and b.public_id in ^public_ids
+        )
+      )
+
+    if length(blobs) != length(public_ids), do: Repo.rollback(:invalid_attachments)
+
+    now = DateTime.utc_now(:second)
+
+    Repo.insert_all(
+      BlobReference,
+      Enum.map(blobs, fn blob ->
+        %{blob_id: blob.id, batch_id: batch_id, inserted_at: now, updated_at: now}
+      end),
+      on_conflict: :nothing,
+      conflict_target: [:blob_id, :batch_id]
+    )
+
+    :ok
+  end
+
+  defp release_batch_blobs!(owner_id, batch_id) do
+    blobs =
+      Repo.all(
+        from(b in Blob,
+          join: r in BlobReference,
+          on: r.blob_id == b.id,
+          where: r.batch_id == ^batch_id and b.owner_id == ^owner_id
+        )
+      )
+
+    blob_ids = Enum.map(blobs, & &1.id)
+
+    Repo.delete_all(
+      from(r in BlobReference, where: r.batch_id == ^batch_id and r.blob_id in ^blob_ids)
+    )
+
+    Enum.each(blobs, fn blob ->
+      unless Repo.exists?(from(r in BlobReference, where: r.blob_id == ^blob.id)) do
+        case File.rm(blob.path) do
+          :ok -> Repo.delete!(blob)
+          {:error, :enoent} -> Repo.delete!(blob)
+          {:error, _reason} -> :ok
+        end
+      end
+    end)
   end
 
   @doc """

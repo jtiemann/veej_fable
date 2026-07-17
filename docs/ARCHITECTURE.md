@@ -99,13 +99,20 @@ enforced by server queries/fetches. They remove normal application access after
 the limit; they cannot revoke plaintext or ciphertext a recipient already
 copied. Sender edits replace every ciphertext copy in the owned batch after the
 browser re-encrypts the revised payload for each recipient. Sender deletion
-removes the owned envelope or batch data through normal database cascades.
+removes the owned envelope batch and its no-longer-referenced attachment bytes.
 
 ### Attachments
 
 The browser encrypts each file once with a random `nacl.secretbox` key. The
 opaque blob is uploaded separately; its `{blob_id, key, nonce, name, mime,
 size}` descriptor is included inside every encrypted envelope payload.
+The send request also carries only the opaque blob IDs outside the ciphertext.
+The server validates that the sender owns them and records batch references in
+the same transaction as the envelopes. Sender deletion removes a blob after
+its final batch reference disappears; recipient hide does not. Uploads created
+after reference tracking was introduced are reclaimed if still unattached
+after 24 hours. Legacy blobs remain untracked and protected from automatic
+deletion because their references cannot be recovered from ciphertext.
 
 Authenticated blob routes serve local application users. `/api/blobs/:id` is
 an unauthenticated capability endpoint used for federation: possession of the

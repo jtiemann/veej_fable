@@ -129,6 +129,12 @@ history, and blobs they own. Received attachment blobs cannot be discovered from
 ciphertext and therefore cannot be copied automatically. This limitation is
 shown in the export documentation and should be explained before cutover.
 
+Attachment reference tracking applies to uploads created after its migration.
+Sender batch deletion frees tracked blobs after their final reference; hidden
+recipient copies do not. Unattached tracked uploads older than 24 hours are
+reclaimed opportunistically on the next upload. Legacy blobs are deliberately
+excluded because their message references are inside unreadable ciphertext.
+
 ## Backups
 
 A complete backup contains:

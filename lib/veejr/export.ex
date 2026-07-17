@@ -27,7 +27,7 @@ defmodule Veejr.Export do
   alias Veejr.{Accounts, Repo}
   alias Veejr.Accounts.User
   alias Veejr.Messaging
-  alias Veejr.Messaging.Blob
+  alias Veejr.Messaging.{Blob, BlobReference}
   alias Veejr.Social
 
   @format_version 1
@@ -51,7 +51,8 @@ defmodule Veejr.Export do
       },
       friends: export_friends(user),
       groups: export_groups(user),
-      envelopes: export_envelopes(user)
+      envelopes: export_envelopes(user),
+      blob_references: export_blob_references(user)
     }
 
     blobs = Repo.all(from(b in Blob, where: b.owner_id == ^user.id))
@@ -117,5 +118,16 @@ defmodule Veejr.Export do
         recipients: recipients
       }
     end
+  end
+
+  defp export_blob_references(user) do
+    Repo.all(
+      from(r in BlobReference,
+        join: b in Blob,
+        on: b.id == r.blob_id,
+        where: b.owner_id == ^user.id,
+        select: %{public_id: b.public_id, batch_id: r.batch_id}
+      )
+    )
   end
 end

@@ -658,6 +658,7 @@ result. Reusing it with a different body returns 409 `idempotency_conflict`.
   "kind": "message",
   "expires_at": null,
   "max_displays": null,
+  "attachment_ids": ["opaque-capability"],
   "envelopes": [
     {
       "recipient_id": "7",
@@ -689,6 +690,9 @@ Success:
 The server MUST atomically validate that every recipient is the sender or an
 accepted friend. It MUST reject the entire batch on failure. It MUST require
 exactly one sender self-copy in v1. It MUST NOT synthesize encrypted copies.
+Each `attachment_ids` entry MUST identify a blob owned by the sender. The
+server links those opaque IDs to the batch atomically without learning file
+names, media types, keys, or other encrypted descriptor fields.
 
 Allowed kinds are `message`, `location`, and `note`. `max_displays` is either
 null or 1 through 100. `expires_at` is null or a future timestamp within the
@@ -727,6 +731,9 @@ content already retained by a client.
 - `DELETE /api/v1/envelopes/{public_id}` deletes the complete batch when called
   by its sender; for a recipient it hides only that recipient's copy by
   declining its notification.
+
+Sender batch deletion releases its blob references and removes each encrypted
+blob whose final reference disappeared. Recipient hide never removes blobs.
 
 Clients MUST decrypt and re-encrypt edits locally for every copy. The initial
 web client does not edit messages containing attachments; v1 clients SHOULD
@@ -866,9 +873,10 @@ requires `Idempotency-Key`. The body is already encrypted.
 ```
 
 The server enforces its advertised maximum ciphertext size. A client SHOULD
-upload blobs before sending the batch and SHOULD track unreferenced uploads for
-later cleanup. A future protocol revision may add an explicit reservation and
-garbage-collection contract.
+upload blobs before sending the batch and MUST include every successful upload
+ID in the batch's `attachment_ids`. New unreferenced uploads are treated as
+abandoned after 24 hours. Servers MUST preserve legacy blobs whose references
+predate explicit tracking.
 
 ### 16.2 Download
 

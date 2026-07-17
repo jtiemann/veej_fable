@@ -1242,6 +1242,9 @@ export const Composer = {
       const ttl = parseInt(form.querySelector("[data-role=ttl]")?.value || "", 10)
       const maxDisplays = parseInt(form.querySelector("[data-role=max-displays]")?.value || "", 10)
       const messageOptions = {}
+      if (attachments.length > 0) {
+        messageOptions.attachment_ids = attachments.map((attachment) => attachment.id)
+      }
       if (Number.isInteger(ttl) && ttl > 0) {
         messageOptions.expires_at = new Date(Date.now() + ttl * 1000).toISOString()
       }
