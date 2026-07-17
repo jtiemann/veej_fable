@@ -141,7 +141,7 @@ function attachmentMime(att) {
 
 function previewableMedia(att) {
   const mime = attachmentMime(att)
-  return mime.startsWith("image/") || mime.startsWith("video/") || mime === "application/pdf"
+  return mime.startsWith("image/") || mime === "application/pdf"
 }
 
 function showMediaModal({blob, title, mime}) {
@@ -180,17 +180,6 @@ function showMediaModal({blob, title, mime}) {
     img.draggable = false
     img.className = "mx-auto max-h-[78vh] max-w-full object-contain"
     body.appendChild(img)
-  } else if ((mime || "").startsWith("video/")) {
-    const video = document.createElement("video")
-    video.src = url
-    video.controls = true
-    video.autoplay = true
-    video.playsInline = true
-    video.controlsList = "nodownload noplaybackrate"
-    video.disablePictureInPicture = true
-    video.disableRemotePlayback = true
-    video.className = "mx-auto max-h-[78vh] max-w-full bg-black object-contain"
-    body.appendChild(video)
   } else {
     const frame = document.createElement("iframe")
     frame.src = `${url}#toolbar=0&navpanes=0&scrollbar=1`
@@ -1307,6 +1296,7 @@ export const Decrypt = {
     this.displayRecorded = false
     this.expired = false
     this.expiryTimer = null
+    this.mediaCleanups = []
     this.render()
   },
 
@@ -1371,12 +1361,19 @@ export const Decrypt = {
     }
 
     for (const att of payload.attachments || []) {
+      const mime = attachmentMime(att)
+
+      if (mime.startsWith("video/")) {
+        this.renderVideoAttachment(att, mime)
+        continue
+      }
+
       if (previewableMedia(att)) {
         this.renderMediaAttachment(att)
         continue
       }
 
-      if ((att.mime || "").startsWith("audio/")) {
+      if (mime.startsWith("audio/")) {
         this.renderAudioAttachment(att)
         continue
       }
@@ -1399,7 +1396,7 @@ export const Decrypt = {
     btn.type = "button"
     btn.className = "btn btn-outline btn-xs mt-1 mr-1"
     const mime = attachmentMime(att)
-    const kind = mime.startsWith("image/") ? "Image" : mime.startsWith("video/") ? "Video" : "PDF"
+    const kind = mime.startsWith("image/") ? "Image" : "PDF"
     btn.textContent = `View ${kind}: ${att.name || "attachment"}`
     btn.addEventListener("click", async () => {
       if (this.expired) return
@@ -1418,6 +1415,78 @@ export const Decrypt = {
       }
     })
     this.el.appendChild(btn)
+  },
+
+  renderVideoAttachment(att, mime) {
+    const wrap = document.createElement("div")
+    wrap.className = "mt-2 w-full max-w-lg overflow-hidden rounded-lg bg-black/5 p-2"
+    wrap.addEventListener("contextmenu", (event) => event.preventDefault())
+
+    const label = document.createElement("p")
+    label.className = "mb-2 truncate text-xs opacity-70"
+    const duration = att.duration_ms ? ` · ${Math.ceil(att.duration_ms / 1000)} sec` : ""
+    label.textContent = `${att.name || "Video message"} (${Math.ceil((att.size || 0) / 1024)} KB${duration})`
+
+    const play = document.createElement("button")
+    play.type = "button"
+    play.className = "btn btn-primary btn-sm"
+    play.textContent = "Play video"
+    play.addEventListener("click", async () => {
+      if (this.expired) return
+      play.disabled = true
+      play.textContent = "Decrypting video..."
+
+      try {
+        const blob = await decryptAttachmentBlob(att)
+        if (this.expired) throw new Error("This message has expired.")
+
+        const url = URL.createObjectURL(blob)
+        const video = document.createElement("video")
+        video.controls = true
+        video.playsInline = true
+        video.preload = "metadata"
+        video.controlsList = "nodownload noplaybackrate"
+        video.disablePictureInPicture = true
+        video.disableRemotePlayback = true
+        video.setAttribute("aria-label", att.name || "Video message")
+        video.className = "aspect-video w-full rounded bg-black object-contain"
+
+        const source = document.createElement("source")
+        source.src = url
+        source.type = mime || blob.type || "video/webm"
+        video.appendChild(source)
+
+        let cleanedUp = false
+        const cleanup = () => {
+          if (cleanedUp) return
+          cleanedUp = true
+          video.pause()
+          URL.revokeObjectURL(url)
+        }
+        this.mediaCleanups.push(cleanup)
+
+        video.addEventListener(
+          "error",
+          () => {
+            play.disabled = false
+            play.textContent = "This browser cannot play this video format."
+            if (!play.isConnected) video.replaceWith(play)
+            cleanup()
+          },
+          {once: true}
+        )
+
+        play.replaceWith(video)
+        video.play().catch(() => {})
+
+      } catch (err) {
+        play.disabled = false
+        play.textContent = `Could not play video: ${err.message}`
+      }
+    })
+
+    wrap.append(label, play)
+    this.el.appendChild(wrap)
   },
 
   renderAudioAttachment(att) {
@@ -1479,14 +1548,7 @@ export const Decrypt = {
 
     status.remove()
     wrap.appendChild(audio)
-
-    this.el.addEventListener(
-      "phx:remove",
-      () => {
-        URL.revokeObjectURL(url)
-      },
-      {once: true}
-    )
+    this.mediaCleanups.push(() => URL.revokeObjectURL(url))
   },
 
   audioDownloadButton(att) {
@@ -1534,6 +1596,7 @@ export const Decrypt = {
   expire() {
     if (this.expired) return
     this.expired = true
+    this.cleanupMedia()
     this.el.veejrPayload = null
     this.el.textContent = ""
 
@@ -1545,6 +1608,12 @@ export const Decrypt = {
 
   destroyed() {
     if (this.expiryTimer) clearTimeout(this.expiryTimer)
+    this.cleanupMedia()
+  },
+
+  cleanupMedia() {
+    this.mediaCleanups.forEach((cleanup) => cleanup())
+    this.mediaCleanups = []
   },
 }
 
