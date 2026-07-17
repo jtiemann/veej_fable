@@ -369,6 +369,8 @@ Run it through Task Scheduler or another service manager for automatic restart.
 Restrict the token, environment template, generated instance directories, and
 Caddyfile to host administrators. The target hostname must already resolve to
 this host before final provisioning so Caddy can obtain its certificate.
+The provisioner verifies readiness through local Caddy with the target TLS
+hostname, so installations with split DNS or without NAT loopback are supported.
 
 The workflow intentionally requires two administrator decisions. A disposable
 database must first import and verify the package. Approving cutover then

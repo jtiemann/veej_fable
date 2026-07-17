@@ -131,11 +131,13 @@ function Add-CaddyRoute([string] $HostName, [int] $Port, [string] $ServiceName) 
 
 function Wait-PublicEndpoint([string] $HostName, [int] $Attempts = 24) {
   for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
-    try {
-      $response = Invoke-WebRequest -Method Head -Uri ("https://" + $HostName + "/") -TimeoutSec 10
-      if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 400) { return }
-    } catch {
-      if ($attempt -eq $Attempts) { throw "The new public HTTPS endpoint did not become ready: $($_.Exception.Message)" }
+    $status = & curl.exe --silent --output NUL --write-out "%{http_code}" `
+      --resolve "${HostName}:443:127.0.0.1" "https://${HostName}/" 2>$null
+    if ($LASTEXITCODE -eq 0 -and [int]$status -ge 200 -and [int]$status -lt 400) {
+      return
+    }
+    if ($attempt -eq $Attempts) {
+      throw "The new HTTPS endpoint did not become ready through local Caddy (last status: $status)."
     }
     Start-Sleep -Seconds 5
   }
