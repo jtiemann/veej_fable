@@ -348,7 +348,8 @@ upgrade order, backup procedure, and troubleshooting steps are documented in
 ## Account portability
 
 Settings can export a zip containing the profile image, profile, wrapped key
-material, friends, groups, encrypted envelope history, and blobs uploaded by the user.
+material, friends, groups, encrypted envelope history, and blobs uploaded by
+the user.
 The export remains encrypted at the content level but exposes social metadata,
 so treat it as private.
 

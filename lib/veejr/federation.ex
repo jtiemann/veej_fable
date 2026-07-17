@@ -50,10 +50,11 @@ defmodule Veejr.Federation do
           user
           |> Ecto.Changeset.change(public_key: entry["public_key"])
           |> Repo.update()
+          |> sync_remote_profile(entry)
 
         %User{public_key: pinned} = user ->
           if pinned == entry["public_key"] do
-            {:ok, user}
+            sync_remote_profile({:ok, user}, entry)
           else
             Logger.warning("federation: pinned key mismatch for #{username}@#{authority}")
             {:error, :key_changed}
@@ -65,11 +66,12 @@ defmodule Veejr.Federation do
   defp create_remote_user(username, authority, entry) do
     %User{}
     |> Ecto.Changeset.change(
-      email: "remote+#{username}@#{String.replace(authority, ":", ".")}.invalid",
-      username: username,
-      host: authority,
-      display_name: entry["display_name"],
-      public_key: entry["public_key"]
+      [
+        email: "remote+#{username}@#{String.replace(authority, ":", ".")}.invalid",
+        username: username,
+        host: authority,
+        public_key: entry["public_key"]
+      ] ++ remote_profile_attrs(entry)
     )
     |> Ecto.Changeset.unique_constraint(:username, name: :users_username_host_index)
     |> Repo.insert()
@@ -79,6 +81,45 @@ defmodule Veejr.Federation do
       {:error, _} -> {:ok, Repo.get_by!(User, username: username, host: authority)}
     end
   end
+
+  defp sync_remote_profile({:ok, user}, entry) do
+    user |> Ecto.Changeset.change(remote_profile_attrs(entry)) |> Repo.update()
+  end
+
+  defp sync_remote_profile(error, _entry), do: error
+
+  defp remote_profile_attrs(entry) do
+    avatar_url = entry["avatar_url"]
+    has_avatar = entry["has_avatar"] == true or is_binary(avatar_url)
+
+    version =
+      entry["avatar_version"] || avatar_version_from_url(avatar_url) ||
+        if(has_avatar, do: 1, else: 0)
+
+    [display_name: entry["display_name"], has_avatar: has_avatar, avatar_version: version]
+  end
+
+  defp avatar_version_from_url(url) when is_binary(url) do
+    url
+    |> URI.parse()
+    |> Map.get(:query)
+    |> URI.decode_query()
+    |> Map.get("v")
+    |> case do
+      nil ->
+        nil
+
+      value ->
+        case Integer.parse(value) do
+          {version, ""} when version > 0 -> version
+          _ -> nil
+        end
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp avatar_version_from_url(_), do: nil
 
   ## Outgoing deliveries
 

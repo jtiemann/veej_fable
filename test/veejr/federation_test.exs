@@ -36,6 +36,9 @@ defmodule Veejr.FederationTest do
           Req.Test.json(conn, %{
             username: "carol",
             display_name: "Carol",
+            has_avatar: true,
+            avatar_version: 3,
+            avatar_url: "https://remote.example/avatars/carol?v=3",
             public_key: @carol_key,
             host: @remote_host
           })
@@ -74,6 +77,10 @@ defmodule Veejr.FederationTest do
       assert fr.status == "pending"
       assert fr.addressee.host == @remote_host
       assert fr.addressee.public_key == @carol_key
+      assert fr.addressee.has_avatar
+
+      assert Accounts.avatar_url(fr.addressee) ==
+               "https://remote.example/avatars/carol?v=3"
 
       # repeat is rejected
       assert {:error, :already_requested} =

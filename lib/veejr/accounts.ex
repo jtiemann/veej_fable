@@ -103,6 +103,17 @@ defmodule Veejr.Accounts do
     "/avatars/#{URI.encode(username)}?v=#{version}"
   end
 
+  def avatar_url(%User{
+        host: host,
+        has_avatar: true,
+        avatar_version: version,
+        username: username
+      })
+      when is_binary(host) and is_integer(version) and version > 0 do
+    Veejr.Federation.Client.base_url(host) <>
+      "/avatars/#{URI.encode(username)}?v=#{version}"
+  end
+
   def avatar_url(_user), do: nil
 
   @doc "Stores a browser-normalized 512px JPEG as the user's public avatar."

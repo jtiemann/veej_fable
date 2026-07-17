@@ -32,6 +32,8 @@ defmodule VeejrWeb.InstanceController do
           username: user.username,
           display_name: user.display_name,
           avatar_url: absolute_avatar_url(user),
+          has_avatar: user.has_avatar,
+          avatar_version: user.avatar_version,
           public_key: public_key,
           host: Veejr.instance_authority()
         })

@@ -138,14 +138,16 @@ every message in an active conversation.
 
 An instance is identified by its authority (`host` or `host:port`), and a user
 by `username@authority`. Remote contacts are rows in `users` with `host` set;
-they have no usable local credentials.
+they have no usable local credentials. Directory lookups synchronize public
+display names and avatar metadata; avatar images remain hosted by the user's
+home instance.
 
 ### API
 
 | Method and path | Purpose |
 | --- | --- |
 | `GET /api/instance` | Instance identity and signing key discovery. |
-| `GET /api/directory/:username` | Local-user public-key discovery. |
+| `GET /api/directory/:username` | Local-user public key, display name, and avatar discovery. |
 | `POST /api/federation/friend_request` | Mirror a remote friend request. |
 | `POST /api/federation/friend_response` | Accept or decline a request. |
 | `POST /api/federation/notify` | Announce an available envelope without sending its ciphertext. |
@@ -229,13 +231,14 @@ inside the database transaction.
 ## Account portability
 
 `GET /export` builds an in-memory zip containing `export.json`, the user's
-normalized profile image when present, and owned encrypted blobs. The manifest includes profile and wrapped keys, friends,
-groups, and decryptable encrypted history with sender-key snapshots. It exposes
-social metadata despite retaining content encryption.
+normalized profile image when present, and owned encrypted blobs. The manifest
+includes profile and wrapped keys, friends, groups, and decryptable encrypted
+history with sender-key snapshots. It exposes social metadata despite retaining
+content encryption.
 
 `mix veejr.import export.zip` creates the owner, restores their profile image,
-accepted remote friendships,
-remote ghost contacts needed to identify historical senders, envelopes with
+accepted remote friendships, remote ghost contacts needed to identify
+historical senders, envelopes with
 original IDs/timestamps, and owned blobs. Received envelopes are imported as
 accepted. During a managed move, source finalization verifies that the target
 directory publishes the same user key, replaces local address-book references
