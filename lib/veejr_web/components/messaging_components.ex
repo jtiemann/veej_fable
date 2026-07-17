@@ -544,9 +544,10 @@ defmodule VeejrWeb.MessagingComponents do
           {Veejr.Social.Address.handle(@envelope.sender)}
         </div>
         <div class={[
-          "max-w-[78%] rounded-[22px] px-4 py-2 text-[0.95rem] leading-relaxed shadow-sm",
-          @mine && "rounded-br-md bg-primary text-primary-content",
-          !@mine && "rounded-bl-md bg-base-100 text-base-content ring-1 ring-base-300"
+          "veejr-bubble max-w-[78%] rounded-[22px] px-4 py-2 text-[0.95rem] leading-relaxed shadow-sm",
+          @mine && "veejr-bubble-mine rounded-br-md bg-primary text-primary-content",
+          !@mine &&
+            "veejr-bubble-peer rounded-bl-md bg-base-100 text-base-content ring-1 ring-base-300"
         ]}>
           <div
             id={"env-#{@envelope.public_id}"}
