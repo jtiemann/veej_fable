@@ -56,12 +56,13 @@ defmodule Veejr.Messaging do
   end
 
   @doc """
-  Broadcasts notifications created for a batch after its surrounding
+  Broadcasts notifications created for a batch, and kicks the federation
+  outbox for any remote notifies it enqueued, after the surrounding
   transaction has committed.
 
   API callers use this when idempotency handling wraps `send_batch/4` in a
-  larger transaction, preventing subscribers from refreshing against
-  uncommitted message data.
+  larger transaction: subscribers must not refresh against uncommitted
+  message data, and the outbox cannot see uncommitted delivery rows.
   """
   def broadcast_batch_notifications(%User{id: sender_id}, batch_id) do
     notifications =
@@ -73,6 +74,7 @@ defmodule Veejr.Messaging do
       |> Repo.preload([:user, envelope: [:sender]])
 
     Enum.each(notifications, &broadcast_notification/1)
+    Veejr.Federation.Outbox.kick()
     :ok
   end
 
@@ -201,29 +203,34 @@ defmodule Veejr.Messaging do
 
               {envelope, notification}
 
-            # Remote recipient: the envelope stays here; their instance gets a
-            # content-free notify after commit. The auto-accept decision happens
-            # on their instance in receive_remote_notify/4.
+            # Remote recipient: the envelope stays here; a content-free notify
+            # is enqueued in this same transaction (crash-safe, no network I/O)
+            # and delivered by the outbox after commit. The auto-accept
+            # decision happens on their instance in receive_remote_notify/4.
             true ->
               touch_conversation(sender.id, recipient.id)
-              {envelope, {:remote, recipient}}
+              status = Veejr.Federation.enqueue_notify(sender, envelope, recipient)
+              {envelope, {:remote, recipient, status}}
           end
         end
       end)
 
     with {:ok, pairs} <- result do
+      queued =
+        for {_envelope, {:remote, recipient, :ok}} <- pairs do
+          Veejr.Social.Address.handle(recipient)
+        end
+
+      # With `:defer_notifications` the caller's own transaction is still
+      # open; it broadcasts and kicks via broadcast_batch_notifications/2
+      # after committing.
       unless opt(opts, :defer_notifications) do
         for {_envelope, %Notification{} = notification} <- pairs do
           broadcast_notification(Repo.preload(notification, [:user, envelope: [:sender]]))
         end
-      end
 
-      queued =
-        for {envelope, {:remote, recipient}} <- pairs,
-            envelope = Repo.preload(envelope, :sender),
-            {:queued, _} <- [Veejr.Federation.deliver_notify(envelope, recipient)] do
-          Veejr.Social.Address.handle(recipient)
-        end
+        if queued != [], do: Veejr.Federation.Outbox.kick()
+      end
 
       {:ok, batch_id, queued}
     end
@@ -512,11 +519,13 @@ defmodule Veejr.Messaging do
       is_nil(envelope) ->
         {:error, :not_found}
 
-      envelope.recipient_id == user_id and envelope.sender_id == user_id ->
-        {:ok, envelope}
-
+      # Expiry/display limits apply to every copy, including the sender's
+      # own — checked before ownership so a self-copy cannot outlive them.
       expired?(envelope) ->
         {:error, :not_found}
+
+      envelope.recipient_id == user_id and envelope.sender_id == user_id ->
+        {:ok, envelope}
 
       envelope.recipient_id == user_id and accepted?(envelope.notification) ->
         {:ok, mark_delivered(envelope)}
@@ -1185,8 +1194,6 @@ defmodule Veejr.Messaging do
   message envelope.
   """
   def create_blob(%User{} = owner, binary) when is_binary(binary) do
-    purge_abandoned_blobs()
-
     cond do
       byte_size(binary) > max_blob_size() ->
         {:error, :too_large}
@@ -1234,6 +1241,18 @@ defmodule Veejr.Messaging do
     Repo.get_by(Blob, public_id: public_id)
   end
 
+  @doc """
+  Filesystem location of a blob's encrypted bytes. Files are always written
+  as `<public_id>.bin` inside `blob_dir/0`, so the path is derived from the
+  *current* directory setting — relocating `VEEJR_BLOB_DIR` keeps existing
+  rows servable. The recorded absolute path is only a fallback for files
+  that were not moved along with the directory.
+  """
+  def blob_file_path(%Blob{} = blob) do
+    derived = Path.join(blob_dir(), blob.public_id <> ".bin")
+    if File.exists?(derived), do: derived, else: blob.path
+  end
+
   @doc "Purges tracked uploads left unattached for more than 24 hours. Legacy blobs are excluded."
   def purge_abandoned_blobs do
     cutoff = DateTime.add(DateTime.utc_now(:second), -24, :hour)
@@ -1249,7 +1268,7 @@ defmodule Veejr.Messaging do
       )
 
     Enum.reduce(blobs, %{files: 0, bytes: 0}, fn blob, totals ->
-      case File.rm(blob.path) do
+      case File.rm(blob_file_path(blob)) do
         :ok ->
           Repo.delete!(blob)
           %{files: totals.files + 1, bytes: totals.bytes + blob.size}
@@ -1321,7 +1340,7 @@ defmodule Veejr.Messaging do
 
     Enum.each(blobs, fn blob ->
       unless Repo.exists?(from(r in BlobReference, where: r.blob_id == ^blob.id)) do
-        case File.rm(blob.path) do
+        case File.rm(blob_file_path(blob)) do
           :ok -> Repo.delete!(blob)
           {:error, :enoent} -> Repo.delete!(blob)
           {:error, _reason} -> :ok
@@ -1336,7 +1355,7 @@ defmodule Veejr.Messaging do
   """
   def purge_blob_files(%User{id: id}) do
     for blob <- Repo.all(from(b in Blob, where: b.owner_id == ^id)) do
-      File.rm(blob.path)
+      File.rm(blob_file_path(blob))
     end
 
     :ok

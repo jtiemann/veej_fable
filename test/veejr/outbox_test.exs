@@ -20,15 +20,29 @@ defmodule Veejr.OutboxTest do
     end)
   end
 
-  test "successful delivery leaves no queue entry" do
+  test "enqueue parks a delivery due immediately, without any network I/O" do
+    # no stub installed: an HTTP attempt here would crash
+    assert :ok = Outbox.enqueue(@authority, "/api/federation/notify", @payload)
+    assert Outbox.pending_count() == 1
+
+    [delivery] = Repo.all(Delivery)
+    assert delivery.attempts == 0
+    assert DateTime.compare(delivery.next_attempt_at, DateTime.utc_now()) != :gt
+  end
+
+  test "a due delivery is processed to success and removed" do
     stub_up()
-    assert :ok = Outbox.deliver(@authority, "/api/federation/notify", @payload)
+    assert :ok = Outbox.enqueue(@authority, "/api/federation/notify", @payload)
+
+    assert {1, 0} = Outbox.process_due()
     assert Outbox.pending_count() == 0
   end
 
   test "failed delivery is parked and later retried to success" do
     stub_down()
-    assert {:queued, _} = Outbox.deliver(@authority, "/api/federation/notify", @payload)
+    assert :ok = Outbox.enqueue(@authority, "/api/federation/notify", @payload)
+
+    assert {0, 1} = Outbox.process_due()
     assert Outbox.pending_count() == 1
 
     [delivery] = Repo.all(Delivery)
@@ -51,7 +65,8 @@ defmodule Veejr.OutboxTest do
 
   test "still-failing deliveries back off exponentially" do
     stub_down()
-    Outbox.deliver(@authority, "/api/federation/notify", @payload)
+    Outbox.enqueue(@authority, "/api/federation/notify", @payload)
+    assert {0, 1} = Outbox.process_due()
 
     [delivery] = Repo.all(Delivery)
 
@@ -68,18 +83,11 @@ defmodule Veejr.OutboxTest do
   end
 
   test "a definitive rejection from the peer drops the delivery" do
-    stub_down()
-    Outbox.deliver(@authority, "/api/federation/notify", @payload)
+    Outbox.enqueue(@authority, "/api/federation/notify", @payload)
 
     Req.Test.stub(Veejr.FederationStub, fn conn ->
       Plug.Conn.send_resp(conn, 403, "not friends")
     end)
-
-    [delivery] = Repo.all(Delivery)
-
-    delivery
-    |> Ecto.Changeset.change(next_attempt_at: DateTime.utc_now(:second))
-    |> Repo.update!()
 
     assert {0, 1} = Outbox.process_due()
     assert Outbox.pending_count() == 0
@@ -87,7 +95,7 @@ defmodule Veejr.OutboxTest do
 
   test "gives up after max attempts" do
     stub_down()
-    Outbox.deliver(@authority, "/api/federation/notify", @payload)
+    Outbox.enqueue(@authority, "/api/federation/notify", @payload)
 
     [delivery] = Repo.all(Delivery)
 

@@ -248,6 +248,8 @@ defmodule Veejr.FederationTest do
 
       [request] = Social.list_incoming_requests(alice)
       {:ok, fr} = Social.accept_friend_request(alice, request.id)
+      # deliver the queued friend_response so tests start with an empty outbox
+      {1, 0} = Veejr.Federation.Outbox.process_due()
       %{alice: alice, carol: fr.requester}
     end
 
@@ -290,11 +292,16 @@ defmodule Veejr.FederationTest do
 
     test "sending to a remote friend keeps the envelope here and notifies them",
          %{alice: alice, carol: carol} do
-      assert {:ok, batch_id, []} =
+      assert {:ok, batch_id, ["@carol@" <> _]} =
                Messaging.send_batch(alice, "message", [
                  %{"recipient_id" => carol.id, "ciphertext" => "ct-carol", "nonce" => "n"},
                  %{"recipient_id" => alice.id, "ciphertext" => "ct-self", "nonce" => "n"}
                ])
+
+      # the notify was enqueued transactionally; the outbox delivers it
+      assert Veejr.Federation.Outbox.pending_count() == 1
+      assert {1, 0} = Veejr.Federation.Outbox.process_due()
+      assert Veejr.Federation.Outbox.pending_count() == 0
 
       # no local notification rows for remote recipients
       assert Repo.aggregate(Veejr.Messaging.Notification, :count) == 0
@@ -316,7 +323,7 @@ defmodule Veejr.FederationTest do
       assert Messaging.batch_recipients(alice, batch_id) == ["@carol@#{@remote_host}"]
     end
 
-    test "unreachable instances are reported as delivery failures",
+    test "sends to unreachable instances stay parked for retry",
          %{alice: alice, carol: carol} do
       Req.Test.stub(Veejr.FederationStub, fn conn ->
         Plug.Conn.send_resp(conn, 503, "down")
@@ -326,6 +333,11 @@ defmodule Veejr.FederationTest do
                Messaging.send_batch(alice, "message", [
                  %{"recipient_id" => carol.id, "ciphertext" => "ct", "nonce" => "n"}
                ])
+
+      # the failed attempt backs off instead of dropping the notify
+      assert Veejr.Federation.Outbox.pending_count() == 1
+      assert {0, 1} = Veejr.Federation.Outbox.process_due()
+      assert Veejr.Federation.Outbox.pending_count() == 1
     end
   end
 

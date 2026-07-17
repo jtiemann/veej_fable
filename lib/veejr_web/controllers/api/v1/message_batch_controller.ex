@@ -92,14 +92,17 @@ defmodule VeejrWeb.Api.V1.MessageBatchController do
         ]
 
         case Messaging.send_batch(user, "message", envelopes, opts) do
-          {:ok, batch_id, queued} ->
+          {:ok, batch_id, _queued} ->
+            # Remote notifies are now enqueued for background delivery, so no
+            # recipient is known-unreachable at request time. The field is
+            # kept (always empty) for protocol v1 compatibility.
             response = %{
               batch_id: batch_id,
               copies:
                 user
                 |> Messaging.list_batch_copies(batch_id)
                 |> Enum.map(&Map.update!(&1, :recipient_id, fn id -> to_string(id) end)),
-              queued_recipients: queued
+              queued_recipients: []
             }
 
             %ApiIdempotencyKey{

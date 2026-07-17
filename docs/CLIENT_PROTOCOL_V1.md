@@ -687,6 +687,11 @@ Success:
 }
 ```
 
+`queued_recipients` is always an empty list: notifications to remote
+instances are queued for background delivery with automatic retries, so no
+recipient is known-unreachable at request time. The field is retained for v1
+compatibility and clients MUST tolerate entries appearing in it.
+
 The server MUST atomically validate that every recipient is the sender or an
 accepted friend. It MUST reject the entire batch on failure. It MUST require
 exactly one sender self-copy in v1. It MUST NOT synthesize encrypted copies.

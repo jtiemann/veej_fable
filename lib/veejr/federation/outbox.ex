@@ -1,16 +1,19 @@
 defmodule Veejr.Federation.Outbox do
   @moduledoc """
-  Retry queue for federation deliveries.
+  Delivery queue for federation operations.
 
-  When a peer instance is unreachable, the delivery is parked in
-  `outbound_deliveries` and retried with exponential backoff (30s doubling
-  up to a 6-hour cap) for up to a week, then dropped. The envelope itself is
-  never at risk — it lives on this instance regardless; only the content-free
-  notification is being retried.
+  Deliveries are enqueued first — `enqueue/3` only inserts a row, so it is
+  safe inside a database transaction and never blocks the caller on network
+  I/O — and performed by this process in the background. Callers `kick/0`
+  after their transaction commits so the first attempt happens immediately;
+  failures are retried with exponential backoff (30s doubling up to a 6-hour
+  cap) for up to a week, then dropped. The envelope itself is never at risk —
+  it lives on this instance regardless; only the content-free notification is
+  being retried.
 
-  A single GenServer ticks every 30 seconds. `process_due/0` is a plain
-  function so tests can drive it synchronously (ticking is disabled in the
-  test env via `:outbox_tick_ms`).
+  A single GenServer ticks every 30 seconds as a fallback for missed kicks.
+  `process_due/0` is a plain function so tests can drive it synchronously
+  (ticking and kicks are disabled in the test env via `:outbox_tick_ms`).
   """
 
   use GenServer
@@ -49,20 +52,40 @@ defmodule Veejr.Federation.Outbox do
   end
 
   @doc """
-  Attempts a delivery immediately; parks it for retry if the peer is
-  unreachable. Returns `:ok` or `{:queued, reason}`.
-  """
-  def deliver(authority, path, payload) do
-    with :ok <- Peers.allow(authority) do
-      case Client.post_json(authority, path, payload) do
-        {:ok, _} ->
-          :ok
+  Parks a delivery, due immediately. No network I/O happens here, so this is
+  safe inside a database transaction — the row commits or rolls back with the
+  caller's other writes. Call `kick/0` after commit for prompt delivery.
 
-        {:error, reason} ->
-          enqueue(authority, path, payload, reason)
-          {:queued, reason}
-      end
+  Returns `:ok`, or `{:error, :peer_blocked}` without enqueuing.
+  """
+  def enqueue(authority, path, payload) do
+    with :ok <- Peers.allow(authority) do
+      Repo.insert!(%Delivery{
+        authority: authority,
+        path: path,
+        payload: Jason.encode!(payload),
+        attempts: 0,
+        next_attempt_at: DateTime.utc_now(:second)
+      })
+
+      :ok
     end
+  end
+
+  @doc """
+  Nudges the background process to run a delivery pass now instead of waiting
+  for the next tick. Must be called outside any transaction that enqueued the
+  work — the delivery process cannot see uncommitted rows. No-op when ticking
+  is disabled (tests drive `process_due/0` synchronously instead).
+  """
+  def kick do
+    with ms when is_integer(ms) and ms > 0 <-
+           Application.get_env(:veejr, :outbox_tick_ms, 30_000),
+         pid when is_pid(pid) <- Process.whereis(__MODULE__) do
+      send(pid, :kick)
+    end
+
+    :ok
   end
 
   @doc "Processes all due deliveries once. Returns `{succeeded, failed}` counts."
@@ -112,6 +135,13 @@ defmodule Veejr.Federation.Outbox do
     {:noreply, state}
   end
 
+  # A kick runs one pass without scheduling another tick (the regular tick
+  # chain keeps itself alive independently).
+  def handle_info(:kick, state) do
+    process_due()
+    {:noreply, state}
+  end
+
   defp schedule_tick do
     case Application.get_env(:veejr, :outbox_tick_ms, 30_000) do
       ms when is_integer(ms) and ms > 0 -> Process.send_after(self(), :tick, ms)
@@ -120,17 +150,6 @@ defmodule Veejr.Federation.Outbox do
   end
 
   ## Internals
-
-  defp enqueue(authority, path, payload, reason) do
-    Repo.insert!(%Delivery{
-      authority: authority,
-      path: path,
-      payload: Jason.encode!(payload),
-      attempts: 1,
-      next_attempt_at: next_attempt(1),
-      last_error: inspect(reason)
-    })
-  end
 
   defp attempt(%Delivery{} = delivery) do
     case Peers.allow(delivery.authority) do

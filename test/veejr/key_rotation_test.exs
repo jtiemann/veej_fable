@@ -147,6 +147,8 @@ defmodule Veejr.KeyRotationTest do
 
       [request] = Social.list_incoming_requests(alice)
       {:ok, fr} = Social.accept_friend_request(alice, request.id)
+      # deliver the queued friend_response so tests start with an empty outbox
+      {1, 0} = Veejr.Federation.Outbox.process_due()
       %{alice: alice, carol: fr.requester}
     end
 
@@ -196,7 +198,9 @@ defmodule Veejr.KeyRotationTest do
         })
 
       assert :ok = Federation.announce_key_update(alice)
-      # delivered immediately via the stub → nothing left queued
+      # queued transactionally; the outbox delivers via the stub
+      assert Veejr.Federation.Outbox.pending_count() == 1
+      assert {1, 0} = Veejr.Federation.Outbox.process_due()
       assert Veejr.Federation.Outbox.pending_count() == 0
     end
   end
