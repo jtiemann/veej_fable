@@ -26,7 +26,9 @@ if config_env() == :prod do
   config :veejr,
     instance_mode:
       if(System.get_env("VEEJR_MODE") == "personal", do: :personal, else: :community),
-    blob_dir: System.get_env("VEEJR_BLOB_DIR") || "/var/lib/veejr/uploads"
+    blob_dir: System.get_env("VEEJR_BLOB_DIR") || "/var/lib/veejr/uploads",
+    migration_dir: System.get_env("VEEJR_MIGRATION_DIR") || "/var/lib/veejr/migrations",
+    provisioner_token: System.get_env("VEEJR_PROVISIONER_TOKEN")
 
   database_path =
     System.get_env("DATABASE_PATH") ||

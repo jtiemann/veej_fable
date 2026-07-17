@@ -26,6 +26,19 @@ defmodule VeejrWeb.Router do
     plug VeejrWeb.FederationAuth
   end
 
+  pipeline :provisioner do
+    plug :accepts, ["json"]
+    plug VeejrWeb.ProvisionerAuth
+  end
+
+  scope "/api/provisioner/v1", VeejrWeb do
+    pipe_through :provisioner
+
+    post "/jobs/claim", ProvisionerController, :claim
+    get "/moves/:public_id/package", ProvisionerController, :package
+    post "/moves/:public_id/result", ProvisionerController, :result
+  end
+
   scope "/", VeejrWeb do
     pipe_through :browser
 

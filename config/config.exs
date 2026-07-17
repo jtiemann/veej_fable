@@ -23,6 +23,8 @@ config :veejr, :scopes,
 config :veejr,
   ecto_repos: [Veejr.Repo],
   generators: [timestamp_type: :utc_datetime],
+  migration_dir: Path.expand("../priv/migrations", __DIR__),
+  provisioner_token: nil,
   # :community (open registration) or :personal (single-owner instance)
   instance_mode: :community,
   mail_from: {"Veejr", "hello@example.invalid"}

@@ -263,6 +263,139 @@ defmodule VeejrWeb.AdminLive do
         </div>
       </section>
 
+      <section id="admin-account-moves" aria-labelledby="admin-account-moves-heading">
+        <div>
+          <h2 id="admin-account-moves-heading" class="text-lg font-semibold">Account moves</h2>
+          <p class="text-sm opacity-60">Test and move a member into a separately managed instance</p>
+        </div>
+
+        <div :if={!@account_moves_enabled} class="alert alert-warning mt-3 text-sm">
+          <.icon name="hero-exclamation-triangle" class="size-5" />
+          <span>Account moves are disabled until the host provisioner token is configured.</span>
+        </div>
+
+        <.form
+          :if={@account_moves_enabled and movable_account_options(@accounts) != []}
+          for={@move_form}
+          id="account-move-form"
+          phx-submit="create_account_move"
+          class="mt-3 grid gap-3 border-y border-base-300 py-4 md:grid-cols-2 lg:grid-cols-5"
+        >
+          <.input
+            field={@move_form[:user_id]}
+            type="select"
+            label="Member"
+            prompt="Choose a member"
+            options={movable_account_options(@accounts)}
+            required
+          />
+          <.input
+            field={@move_form[:target_host]}
+            label="New hostname"
+            placeholder="alice.example.com"
+            required
+          />
+          <.input
+            field={@move_form[:instance_name]}
+            label="Instance name"
+            placeholder="Alice's Veejr"
+            required
+          />
+          <.input
+            field={@move_form[:instance_mode]}
+            type="select"
+            label="Mode"
+            options={[{"Personal", "personal"}, {"Community", "community"}]}
+          />
+          <div class="flex items-end">
+            <button type="submit" class="btn btn-primary btn-sm w-full">
+              <.icon name="hero-arrow-right-start-on-rectangle" class="size-4" /> Start test
+            </button>
+          </div>
+        </.form>
+
+        <p :if={@account_moves == []} class="mt-3 border-y border-base-300 py-5 text-sm opacity-60">
+          No account moves have been started.
+        </p>
+
+        <div :if={@account_moves != []} class="mt-3 overflow-x-auto border-y border-base-300">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>Member</th><th>Target</th><th>Status</th><th>Export</th><th>
+                  <span class="sr-only">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={move <- @account_moves} id={"account-move-#{move.id}"}>
+                <td class="font-medium">@{move.username}</td>
+                <td>
+                  <div>{move.instance_name}</div><div class="text-xs opacity-60">
+                    {move.target_host}
+                  </div>
+                </td>
+                <td>
+                  <span class={["badge badge-sm whitespace-nowrap", move_status_class(move.status)]}>{move_status_label(
+                    move.status
+                  )}</span><div :if={move.error} class="mt-1 max-w-72 text-xs text-error">
+                    {move.error}
+                  </div>
+                </td>
+                <td class="whitespace-nowrap text-xs">
+                  {move.expected_envelopes} items / {move.expected_blobs} files
+                </td>
+                <td class="whitespace-nowrap text-right">
+                  <button
+                    :if={move.status == "test_verified"}
+                    phx-click="approve_account_move"
+                    phx-value-id={move.id}
+                    data-confirm={"Suspend @#{move.username}, sign them out, and begin final provisioning?"}
+                    class="btn btn-primary btn-xs"
+                  >Approve cutover</button>
+                  <button
+                    :if={
+                      move.status in ["test_failed", "provision_failed", "testing", "provisioning"]
+                    }
+                    phx-click="retry_account_move"
+                    phx-value-id={move.id}
+                    data-confirm={
+                      if move.status in ["testing", "provisioning"],
+                        do:
+                          "Retry only after confirming the host provisioner is no longer processing this job. Continue?",
+                        else: nil
+                    }
+                    class="btn btn-outline btn-xs"
+                  >Retry</button>
+                  <button
+                    :if={move.status == "target_verified"}
+                    phx-click="finalize_account_move"
+                    phx-value-id={move.id}
+                    data-confirm={"Permanently delete @#{move.username} from this instance? Confirm the new site works first. This cannot be undone."}
+                    class="btn btn-error btn-xs"
+                  >Finalize</button>
+                  <button
+                    :if={
+                      move.status in [
+                        "awaiting_test",
+                        "test_verified",
+                        "test_failed",
+                        "awaiting_final_import",
+                        "provision_failed"
+                      ]
+                    }
+                    phx-click="cancel_account_move"
+                    phx-value-id={move.id}
+                    data-confirm="Cancel this move? A member suspended for cutover will be reactivated."
+                    class="btn btn-ghost btn-xs"
+                  >Cancel</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <section id="admin-invitations" aria-labelledby="admin-invitations-heading">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -664,6 +797,62 @@ defmodule VeejrWeb.AdminLive do
     {:noreply, load_dashboard(socket)}
   end
 
+  def handle_event(
+        "create_account_move",
+        %{"account_move" => %{"user_id" => user_id} = params},
+        socket
+      ) do
+    case Veejr.AccountMoves.create(socket.assigns.current_scope.user, user_id, params) do
+      {:ok, _move} ->
+        {:noreply, socket |> put_flash(:info, "The test import is queued.") |> load_dashboard()}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, assign(socket, move_form: to_form(changeset, as: "account_move"))}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, account_move_error(reason))}
+    end
+  end
+
+  def handle_event("approve_account_move", %{"id" => id}, socket) do
+    case Veejr.AccountMoves.approve_cutover(socket.assigns.current_scope.user, id) do
+      {:ok, %{sessions: sessions}} ->
+        VeejrWeb.UserAuth.disconnect_sessions(sessions.web_tokens)
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "The member is suspended and final provisioning is queued.")
+         |> load_dashboard()}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, account_move_error(reason))}
+    end
+  end
+
+  def handle_event("retry_account_move", %{"id" => id}, socket) do
+    account_move_action(
+      socket,
+      Veejr.AccountMoves.retry(socket.assigns.current_scope.user, id),
+      "The move was queued again."
+    )
+  end
+
+  def handle_event("cancel_account_move", %{"id" => id}, socket) do
+    account_move_action(
+      socket,
+      Veejr.AccountMoves.cancel(socket.assigns.current_scope.user, id),
+      "The account move was cancelled."
+    )
+  end
+
+  def handle_event("finalize_account_move", %{"id" => id}, socket) do
+    account_move_action(
+      socket,
+      Veejr.AccountMoves.finalize(socket.assigns.current_scope.user, id),
+      "The source account was deleted. The move is complete."
+    )
+  end
+
   def handle_event("block_peer", %{"id" => id}, socket) do
     socket =
       case Admin.block_peer(socket.assigns.current_scope.user, id) do
@@ -764,6 +953,12 @@ defmodule VeejrWeb.AdminLive do
     assign(socket,
       snapshot: Admin.snapshot(),
       accounts: Admin.list_local_accounts(),
+      account_moves: Veejr.AccountMoves.list_account_moves(),
+      account_moves_enabled: Veejr.AccountMoves.enabled?(),
+      move_form:
+        to_form(Veejr.AccountMoves.change_account_move(%{"instance_mode" => "personal"}),
+          as: "account_move"
+        ),
       invitations: Admin.list_invitations(),
       audit_events: Admin.list_audit_events(),
       peers: Admin.list_peers(),
@@ -797,6 +992,14 @@ defmodule VeejrWeb.AdminLive do
 
   defp audit_action_label("account.reactivated"), do: "Account reactivated"
   defp audit_action_label("account.suspended"), do: "Account suspended"
+  defp audit_action_label("account_move.cancelled"), do: "Account move cancelled"
+  defp audit_action_label("account_move.created"), do: "Account move started"
+  defp audit_action_label("account_move.cutover_approved"), do: "Account move cutover approved"
+  defp audit_action_label("account_move.failed"), do: "Account move failed"
+  defp audit_action_label("account_move.finalized"), do: "Account move finalized"
+  defp audit_action_label("account_move.retried"), do: "Account move retried"
+  defp audit_action_label("account_move.target_verified"), do: "Account move target verified"
+  defp audit_action_label("account_move.test_verified"), do: "Account move test verified"
   defp audit_action_label("federation.retried"), do: "Federation retried"
   defp audit_action_label("instance.mail_tested"), do: "Mail tested"
   defp audit_action_label("instance.settings_updated"), do: "Settings updated"
@@ -822,6 +1025,13 @@ defmodule VeejrWeb.AdminLive do
 
   defp audit_target_label(%{target_type: "instance"}), do: "Instance"
 
+  defp audit_target_label(%{target_type: "account_move", target_id: id, details: details}) do
+    case details["username"] do
+      username when is_binary(username) -> "@#{username} to #{details["target_host"]}"
+      _ -> "Account move ##{id}"
+    end
+  end
+
   defp audit_session_count(%{details: details}) do
     web = details["web_sessions"] || 0
     devices = details["device_sessions"] || 0
@@ -843,4 +1053,38 @@ defmodule VeejrWeb.AdminLive do
   defp format_bytes(bytes) when bytes < 1_024, do: "#{bytes} B"
   defp format_bytes(bytes) when bytes < 1_048_576, do: "#{Float.round(bytes / 1_024, 1)} KB"
   defp format_bytes(bytes), do: "#{Float.round(bytes / 1_048_576, 1)} MB"
+
+  defp movable_account_options(accounts) do
+    for %{user: user} <- accounts,
+        not Accounts.instance_admin?(user),
+        do: {"@#{user.username}", user.id}
+  end
+
+  defp move_status_label(status), do: status |> String.replace("_", " ") |> String.capitalize()
+
+  defp move_status_class(status) when status in ["test_verified", "target_verified", "finalized"],
+    do: "badge-success"
+
+  defp move_status_class(status) when status in ["test_failed", "provision_failed"],
+    do: "badge-error"
+
+  defp move_status_class(status) when status in ["testing", "provisioning"], do: "badge-info"
+  defp move_status_class(_status), do: "badge-neutral"
+
+  defp account_move_action(socket, {:ok, _move}, message),
+    do: {:noreply, socket |> put_flash(:info, message) |> load_dashboard()}
+
+  defp account_move_action(socket, {:error, reason}, _message),
+    do: {:noreply, put_flash(socket, :error, account_move_error(reason))}
+
+  defp account_move_error(:provisioner_disabled),
+    do: "Configure the host provisioner before starting a move."
+
+  defp account_move_error(:protected_admin), do: "The instance administrator cannot be moved."
+  defp account_move_error(:move_in_progress), do: "That member already has an active move."
+
+  defp account_move_error(:invalid_state),
+    do: "That move has already advanced or cannot be changed now."
+
+  defp account_move_error(_reason), do: "The account move could not be updated."
 end

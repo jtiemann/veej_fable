@@ -5,7 +5,7 @@ defmodule Mix.Tasks.Veejr.Import do
   Restores an account export (downloaded from another veejr instance via
   `/export`) into this instance's database:
 
-      mix veejr.import path/to/veejr-alice-export.zip
+      mix veejr.import path/to/veejr-alice-export.zip [--no-reconnect] [--receipt]
 
   Intended for seeding a fresh personal instance. See `Veejr.Import` for
   exactly what is restored. After importing, request a login link with your
@@ -16,7 +16,16 @@ defmodule Mix.Tasks.Veejr.Import do
   @requirements ["app.start"]
 
   @impl Mix.Task
-  def run([path]) do
+  def run(args) do
+    {opts, paths, invalid} =
+      OptionParser.parse(args, strict: [no_reconnect: :boolean, receipt: :boolean])
+
+    if invalid != [] or length(paths) != 1 do
+      Mix.raise("Usage: mix veejr.import path/to/export.zip [--no-reconnect] [--receipt]")
+    end
+
+    [path] = paths
+
     zip =
       case File.read(path) do
         {:ok, zip} -> zip
@@ -34,7 +43,23 @@ defmodule Mix.Tasks.Veejr.Import do
           attachments:    #{summary.blobs} blobs restored
         """)
 
-        if summary.friends != [] do
+        owner_admin = Veejr.Accounts.instance_admin?(summary.owner_user)
+
+        if opts[:receipt] do
+          receipt = %{
+            owner: summary.owner,
+            owner_admin: owner_admin,
+            envelopes: summary.envelopes,
+            ghost_contacts: summary.ghost_contacts,
+            blobs: summary.blobs,
+            friends: length(summary.friends)
+          }
+
+          encoded = receipt |> Jason.encode!() |> Base.url_encode64(padding: false)
+          Mix.shell().info("VEEJR_IMPORT_RECEIPT=#{encoded}")
+        end
+
+        if summary.friends != [] and not opts[:no_reconnect] do
           Mix.shell().info(
             "Reconnecting with #{length(summary.friends)} friends over federation:"
           )
@@ -57,8 +82,6 @@ defmodule Mix.Tasks.Veejr.Import do
         Mix.raise("Import failed: #{inspect(reason)}")
     end
   end
-
-  def run(_args), do: Mix.raise("Usage: mix veejr.import path/to/export.zip")
 
   defp describe(:request_sent), do: "friend request sent — they'll see it on their instance"
   defp describe(:already_friends), do: "already friends"

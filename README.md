@@ -18,13 +18,15 @@ friendship, and consent rules.
   five-minute auto-accept window for that peer.
 - Local and federated friends addressed as `username@authority`.
 - Encrypted attachments, expiring/view-limited messages, sender-side edits and
-  deletion, conversations, location sharing, and geo-notes.
+  deletion, recorded voice/video messages, conversations, location sharing,
+  and geo-notes.
 - Personal contact and group notes. These notes are server-side plaintext and
   are not part of the end-to-end encrypted message system.
 - Public profile images with colorful initials placeholders and browser-side
   cropping for consistent contact and conversation avatars.
-- Account export/import, key rewrap/rotation/reset, installable PWA support,
-  browser notifications, and encrypted Web Push.
+- Account export/import, administrator-controlled moves into newly provisioned
+  instances, key rewrap/rotation/reset, installable PWA support, browser
+  notifications, and encrypted Web Push.
 - A native Jetpack Compose Android client with portable-key unlock, consent,
   conversation messaging, filtered history, contact/group policy controls, and
   private notes. See [veejr-android](https://github.com/veejr/veejr-android).
@@ -32,6 +34,11 @@ friendship, and consent rules.
 
 For protocol details, trust boundaries, and data flows, see
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+For installation and server administration, see:
+
+- [Installation and server setup](docs/INSTALLATION.md)
+- [Production operations, upgrades, and recovery](docs/OPERATIONS.md)
 
 ## Technology
 
@@ -159,6 +166,8 @@ That assignment cannot be changed or deleted. The administrator can open
   through them.
 - Review local-account operational metadata, revoke web and Android sessions,
   and suspend or reactivate members without deleting their data.
+- Test and provision a separate instance for a non-admin member, verify the
+  encrypted export import, and explicitly finalize removal from the source.
 - Inspect pinned federation peers, block or unblock their traffic, and retry
   queued federation deliveries.
 - Review an append-only audit trail of administrator actions. Audit and
@@ -174,8 +183,13 @@ behavior without changing its federation identity.
 
 ## Production configuration
 
-The release runs database migrations automatically at startup. Set
-`PHX_SERVER=true` when starting a release and provide these required variables:
+A `mix release` deployment runs database migrations automatically at startup.
+The current source-mounted Docker service runs `mix phx.server` and must run
+`mix ecto.migrate` explicitly during installation and upgrades. See
+[docs/INSTALLATION.md](docs/INSTALLATION.md) for the complete, tested setup.
+
+Set `PHX_SERVER=true` when starting a release and provide these required
+variables:
 
 | Variable | Purpose |
 | --- | --- |
@@ -238,11 +252,9 @@ Get-Content -Raw C:\ProgramData\Veejr\secrets\fcm-service-account.json |
   docker secret create fcm_service_account_json -
 ```
 
-Migrate only the Phoenix application from the existing `veej_fable` container
-to a Swarm service named `veej_fable`. Preserve every existing production
-environment variable from the container, add the two FCM settings below, keep
-the current project bind mount and TCP 4000 publication, and use an
-`unless-stopped`-equivalent Swarm restart policy:
+The current `veej_fable` Swarm service already mounts this secret and has the
+following configuration. New installations should attach it while creating
+the service as described in [docs/INSTALLATION.md](docs/INSTALLATION.md):
 
 ```text
 secret: fcm_service_account_json → /run/secrets/fcm_service_account_json
@@ -250,10 +262,8 @@ environment: FCM_SERVICE_ACCOUNT_JSON_FILE=/run/secrets/fcm_service_account_json
 restart policy: on-failure, no maximum retry count
 ```
 
-After the replacement service is healthy, remove the old standalone
-`veej_fable` container. Leave `veej_caddy` and `veej_postfix` unchanged: Caddy
-continues proxying `host.docker.internal:4000` and Postfix remains the internal
-SMTP relay. Verify the deployment without exposing secret material:
+Do not print or inspect the secret contents. Verify the running service without
+exposing secret material:
 
 ```powershell
 docker service ls
@@ -271,7 +281,8 @@ To rotate the Firebase key, generate a replacement in Firebase, create a new
 Docker secret with a versioned name, update the service to remove the old secret
 and add the new one at the same target path, verify the capability, then revoke
 the old Firebase key and remove the old Docker secret. Docker secrets are
-immutable, so they cannot be overwritten in place.
+immutable, so they cannot be overwritten in place. The full rotation and
+recovery procedures are in [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 Terminate TLS at a reverse proxy or configure HTTPS before exposing an
 instance. Back up both `DATABASE_PATH` and `VEEJR_BLOB_DIR`; the database also
@@ -279,19 +290,21 @@ contains instance federation-signing and VAPID credentials.
 
 ### Current Docker deployment
 
-The currently operated instance uses three Docker containers on the Windows
-host at `192.168.0.251`:
+The currently operated instance uses one Docker Swarm service and two
+standalone supporting containers on the Windows host at `192.168.0.251`:
 
-| Container | Role | Published ports |
+| Service/container | Role | Published ports |
 | --- | --- | --- |
-| `veej_fable` | Phoenix application (`MIX_ENV=prod`) | TCP 4000 |
+| `veej_fable` | Single-replica Phoenix Swarm service (`MIX_ENV=prod`) | TCP 4000, host mode |
 | `veej_caddy` | TLS termination and reverse proxy | TCP/UDP 443 |
-| `veej_postfix` | SMTP relay used for authentication email | Internal TCP 587 |
+| `veej_postfix` | Available local SMTP relay; not currently used by Phoenix | Internal TCP 587 |
 
 Caddy serves `https://veejr.dyndns-server.com` and proxies requests to
 `host.docker.internal:4000`. The router forwards public HTTPS to this host;
 Windows Firewall allows Caddy on TCP/UDP 443 and the Phoenix listener on TCP
-4000. Production forces HTTPS, so a request to a raw HTTP address such as
+4000. Phoenix currently sends authentication email directly through an
+external authenticated SMTP provider. Production forces HTTPS, so a request
+to a raw HTTP address such as
 `http://192.168.0.251:4000` redirects to the public hostname.
 
 The router does not provide NAT loopback. For the production URL to work from
@@ -313,19 +326,24 @@ when the router cannot provide split DNS:
 Useful operational commands:
 
 ```sh
-docker ps
-docker restart veej_fable veej_caddy veej_postfix
-docker logs --tail 100 veej_fable
+docker service ls --filter name=veej_fable
+docker service ps veej_fable --no-trunc
+docker service logs --tail 100 veej_fable
+docker service update --force veej_fable
+docker ps --filter name=veej_caddy
 docker logs --tail 100 veej_caddy
-docker logs --tail 100 veej_postfix
 ```
 
-The containers currently bind-mount the project and start the application with
+The Swarm service bind-mounts the project and starts the application with
 `mix phx.server`; this is operationally convenient but is not an immutable
-release deployment. Their Docker restart policy is currently `no`, so they do
-not automatically return after a Docker daemon or host restart. A future
-deployment should use a built release/image, persistent database/blob/Caddy
-volumes, and an `unless-stopped` restart policy.
+release deployment. Swarm restarts the Phoenix task on failure. The standalone
+Caddy and Postfix containers currently have no restart policy, so they must be
+started after a Docker daemon or host restart. A future deployment should use
+a built release image and configure all supporting containers with persistent
+volumes and an `unless-stopped` restart policy. The exact current installation,
+upgrade order, backup procedure, and troubleshooting steps are documented in
+[docs/INSTALLATION.md](docs/INSTALLATION.md) and
+[docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ## Account portability
 
