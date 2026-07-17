@@ -3,8 +3,6 @@ defmodule VeejrWeb.ContactsLive do
 
   alias Veejr.{Accounts, Messaging, Social}
 
-  @conversation_limit 100
-
   @impl true
   def render(assigns) do
     ~H"""
@@ -235,7 +233,7 @@ defmodule VeejrWeb.ContactsLive do
                       {conversation_title(conversation)}
                     </p>
                     <p class="text-xs opacity-70">
-                      {length(conversation.envelopes)} messages · latest {Calendar.strftime(
+                      {conversation.message_count} messages · latest {Calendar.strftime(
                         conversation.latest.inserted_at,
                         "%b %d, %H:%M"
                       )} UTC
@@ -927,12 +925,19 @@ defmodule VeejrWeb.ContactsLive do
 
   defp build_conversations(user, friends) do
     handle_to_friend = Map.new(friends, &{Social.Address.handle(&1), &1})
+    archives = Messaging.list_thread_archives(user)
 
     user
-    |> Messaging.list_history(kind: "message", limit: @conversation_limit)
-    |> then(&Messaging.conversation_threads(user, &1))
-    |> Enum.map(fn thread ->
-      participants = thread.participants
+    |> Messaging.list_conversation_summaries()
+    |> Enum.reject(fn summary ->
+      case archives[summary.key] do
+        %{archived: true} -> true
+        _ -> false
+      end
+    end)
+    |> Enum.map(fn summary ->
+      archive = archives[summary.key]
+      participants = summary.participants
 
       reply_ids =
         participants
@@ -947,13 +952,18 @@ defmodule VeejrWeb.ContactsLive do
           _ -> nil
         end
 
-      Map.merge(thread, %{
+      %{
+        key: summary.key,
+        participants: participants,
+        message_count: summary.message_count,
+        latest: %{id: summary.latest_id, inserted_at: summary.latest_at},
+        started_at: (archive && archive.started_at) || summary.started_at,
+        preserved: archive != nil,
         reply_ids: Enum.join(reply_ids, ","),
         policy_id: if(length(reply_ids) == 1, do: List.first(reply_ids)),
         avatar_user: avatar_user
-      })
+      }
     end)
-    |> Enum.sort_by(& &1.latest.id, :desc)
   end
 
   defp conversation_title(conversation) do

@@ -30,6 +30,10 @@ defmodule Veejr.Messaging do
   @window_seconds 5 * 60
   @max_expiry_seconds 60 * 60 * 24 * 30
 
+  # Participant sentinel for a batch with no recipients besides the sender.
+  # Part of stored conversation keys — do not change.
+  @self_thread ["notes to yourself"]
+
   ## PubSub
 
   def subscribe(%User{id: id}), do: Phoenix.PubSub.subscribe(Veejr.PubSub, topic(id))
@@ -148,19 +152,33 @@ defmodule Veejr.Messaging do
           Repo.rollback(:duplicate_recipients)
         end
 
-        for {attrs, recipient_id} <- Enum.zip(envelopes, recipient_ids) do
-          recipient = Repo.get(User, recipient_id) || Repo.rollback({:no_such_user, recipient_id})
+        recipients =
+          Enum.map(recipient_ids, fn recipient_id ->
+            Repo.get(User, recipient_id) || Repo.rollback({:no_such_user, recipient_id})
+          end)
 
+        self_participants = self_copy_participants(sender, recipients)
+
+        for {attrs, recipient} <- Enum.zip(envelopes, recipients) do
           unless recipient.id == sender.id or Social.friends?(sender.id, recipient.id) do
             Repo.rollback({:not_a_friend, recipient.id})
           end
+
+          # Thread identity from this copy's viewer: the self-copy groups by
+          # who the batch went to, a received copy groups by who sent it.
+          participants =
+            if recipient.id == sender.id,
+              do: self_participants,
+              else: [Social.Address.handle(sender)]
 
           envelope =
             %Envelope{
               sender_id: sender.id,
               public_id: random_id(),
               batch_id: batch_id,
-              sender_public_key: sender.public_key
+              sender_public_key: sender.public_key,
+              thread_key: conversation_key(participants),
+              participants: Jason.encode!(participants)
             }
             |> Envelope.changeset(%{
               recipient_id: recipient.id,
@@ -233,6 +251,17 @@ defmodule Veejr.Messaging do
       end
 
       {:ok, batch_id, queued}
+    end
+  end
+
+  defp self_copy_participants(%User{} = sender, recipients) do
+    recipients
+    |> Enum.reject(&(&1.id == sender.id))
+    |> Enum.map(&Social.Address.handle/1)
+    |> Enum.sort()
+    |> case do
+      [] -> @self_thread
+      handles -> handles
     end
   end
 
@@ -426,6 +455,8 @@ defmodule Veejr.Messaging do
         {:ok, :duplicate}
 
       true ->
+        participants = [Social.Address.handle(remote_sender)]
+
         envelope =
           Repo.insert!(%Envelope{
             public_id: public_id,
@@ -435,7 +466,9 @@ defmodule Veejr.Messaging do
             kind: kind,
             ciphertext: "",
             nonce: "",
-            sender_public_key: remote_sender.public_key
+            sender_public_key: remote_sender.public_key,
+            thread_key: conversation_key(participants),
+            participants: Jason.encode!(participants)
           })
 
         # Active conversation: fetch the ciphertext now and auto-accept so it
@@ -561,16 +594,9 @@ defmodule Veejr.Messaging do
   end
 
   @doc "Lists the current user's archived conversations, newest archive first."
-  def list_archived_conversations(%User{} = user) do
-    user
-    |> list_conversation_boundaries()
-    |> Enum.filter(& &1.archived)
-  end
-
-  @doc "Lists the saved boundaries that keep conversation instances distinct."
-  def list_conversation_boundaries(%User{id: user_id}) do
+  def list_archived_conversations(%User{id: user_id}) do
     from(a in ConversationArchive,
-      where: a.user_id == ^user_id,
+      where: a.user_id == ^user_id and a.archived,
       order_by: [desc: a.updated_at]
     )
     |> Repo.all()
@@ -579,7 +605,6 @@ defmodule Veejr.Messaging do
         key: archive.conversation_key,
         participant_key: archive.participant_key,
         participants: decode_participants(archive.participants),
-        envelope_ids: decode_envelope_ids(archive.envelope_ids),
         started_at: archive.started_at,
         archived: archive.archived,
         archived_at: archive.updated_at
@@ -587,51 +612,64 @@ defmodule Veejr.Messaging do
     end)
   end
 
-  @doc "Returns the current user's archived conversation keys."
-  def archived_conversation_keys(%User{id: user_id}) do
-    from(a in ConversationArchive,
-      where: a.user_id == ^user_id and a.archived,
-      select: a.conversation_key
-    )
+  @doc "The user's conversation-instance records, keyed by conversation key."
+  def list_thread_archives(%User{id: user_id}) do
+    from(a in ConversationArchive, where: a.user_id == ^user_id)
     |> Repo.all()
-    |> MapSet.new()
+    |> Map.new(&{&1.conversation_key, &1})
   end
 
-  @doc "Archives one conversation instance without hiding later messages from the same people."
-  def archive_conversation(%User{id: user_id}, key, participants, envelope_ids, started_at)
-      when is_binary(key) and is_list(participants) and is_list(envelope_ids) do
-    participant_key = conversation_key(participants)
+  @doc """
+  Archives one conversation instance without hiding later messages from the
+  same people. A current conversation is frozen by stamping its member
+  envelopes with a fresh instance key, so a future exchange with the same
+  participants starts a new thread under the original participant key.
+  """
+  def archive_conversation(%User{id: user_id}, key) when is_binary(key) do
+    case Repo.get_by(ConversationArchive, user_id: user_id, conversation_key: key) do
+      %ConversationArchive{} = archive ->
+        archive
+        |> ConversationArchive.changeset(%{archived: true})
+        |> Repo.update()
 
-    cond do
-      participants == [] or envelope_ids == [] or is_nil(started_at) ->
-        {:error, :invalid_conversation}
+      nil ->
+        Repo.transaction(fn ->
+          first =
+            from(e in Envelope,
+              where: e.recipient_id == ^user_id and e.thread_key == ^key and e.kind == "message",
+              order_by: [asc: e.id],
+              limit: 1
+            )
+            |> Repo.one()
 
-      archive = Repo.get_by(ConversationArchive, user_id: user_id, conversation_key: key) ->
-        if archive.participant_key == participant_key do
+          if is_nil(first), do: Repo.rollback(:invalid_conversation)
+
+          archive_key = archived_conversation_key(key, first.inserted_at, [first.public_id])
+
+          archive =
+            %ConversationArchive{}
+            |> ConversationArchive.changeset(%{
+              user_id: user_id,
+              conversation_key: archive_key,
+              participant_key: key,
+              participants: first.participants,
+              envelope_ids: "[]",
+              started_at: first.inserted_at,
+              archived: true
+            })
+            |> Repo.insert()
+            |> case do
+              {:ok, archive} -> archive
+              {:error, changeset} -> Repo.rollback(changeset)
+            end
+
+          from(e in Envelope,
+            where: e.recipient_id == ^user_id and e.thread_key == ^key and e.kind == "message"
+          )
+          |> Repo.update_all(set: [thread_key: archive_key])
+
           archive
-          |> ConversationArchive.changeset(%{archived: true})
-          |> Repo.update()
-        else
-          {:error, :invalid_conversation}
-        end
-
-      key == participant_key ->
-        archive_key = archived_conversation_key(participant_key, started_at, envelope_ids)
-
-        %ConversationArchive{}
-        |> ConversationArchive.changeset(%{
-          user_id: user_id,
-          conversation_key: archive_key,
-          participant_key: participant_key,
-          participants: Jason.encode!(participants),
-          envelope_ids: Jason.encode!(envelope_ids),
-          started_at: started_at,
-          archived: true
-        })
-        |> Repo.insert()
-
-      true ->
-        {:error, :invalid_conversation}
+        end)
     end
   end
 
@@ -654,46 +692,64 @@ defmodule Veejr.Messaging do
     end
   end
 
-  @doc "Splits history into current and preserved conversation instances."
-  def conversation_threads(%User{} = user, envelopes) when is_list(envelopes) do
-    grouped = Enum.group_by(envelopes, &conversation_participants(user, &1))
+  @doc """
+  Conversation summaries for the current user, newest activity first — one
+  row per thread, computed in the database without loading any ciphertext.
+  Includes archived instances; callers overlay `list_thread_archives/1` to
+  filter or label them.
+  """
+  def list_conversation_summaries(%User{id: id}) do
+    now = DateTime.utc_now(:second)
 
-    boundaries =
-      user
-      |> list_conversation_boundaries()
-      |> Enum.map(&resolve_legacy_boundary(&1, grouped))
-
-    claimed_ids =
-      boundaries
-      |> Enum.flat_map(& &1.envelope_ids)
-      |> MapSet.new()
-
-    preserved_threads =
-      boundaries
-      |> Enum.reject(& &1.archived)
-      |> Enum.map(&boundary_thread(&1, envelopes))
-      |> Enum.reject(&is_nil/1)
-
-    current_threads =
-      envelopes
-      |> Enum.reject(&MapSet.member?(claimed_ids, &1.public_id))
-      |> Enum.group_by(&conversation_participants(user, &1))
-      |> Enum.map(fn {participants, thread_envelopes} ->
-        build_thread(conversation_key(participants), participants, thread_envelopes)
-      end)
-
-    preserved_threads ++ current_threads
+    from(e in Envelope,
+      left_join: n in assoc(e, :notification),
+      where:
+        e.recipient_id == ^id and e.kind == "message" and not is_nil(e.thread_key) and
+          (e.sender_id == ^id or n.state == "accepted") and
+          (is_nil(e.expires_at) or e.expires_at > ^now) and
+          (is_nil(e.max_displays) or e.display_count < e.max_displays),
+      group_by: [e.thread_key, e.participants],
+      order_by: [desc: max(e.id)],
+      select: %{
+        key: e.thread_key,
+        participants: e.participants,
+        message_count: count(e.id),
+        latest_id: max(e.id),
+        latest_at: type(max(e.inserted_at), :utc_datetime),
+        started_at: type(min(e.inserted_at), :utc_datetime)
+      }
+    )
+    |> Repo.all()
+    |> Enum.map(&%{&1 | participants: decode_participants(&1.participants)})
   end
 
-  def conversation_participants(%User{} = user, envelope) do
-    if envelope.sender_id == user.id do
-      case batch_recipients(user, envelope.batch_id) do
-        [] -> ["notes to yourself"]
-        handles -> Enum.sort(handles)
+  @doc """
+  The newest page of one conversation's envelopes, returned oldest-first for
+  display. `:limit` bounds the page; older rows load by raising it.
+  """
+  def list_thread_envelopes(%User{id: id}, thread_key, opts \\ [])
+      when is_binary(thread_key) do
+    now = DateTime.utc_now(:second)
+
+    query =
+      from(e in Envelope,
+        left_join: n in assoc(e, :notification),
+        where:
+          e.recipient_id == ^id and e.thread_key == ^thread_key and e.kind == "message" and
+            (e.sender_id == ^id or n.state == "accepted") and
+            (is_nil(e.expires_at) or e.expires_at > ^now) and
+            (is_nil(e.max_displays) or e.display_count < e.max_displays),
+        preload: [:sender],
+        order_by: [desc: e.id]
+      )
+
+    query =
+      case opts[:limit] do
+        nil -> query
+        limit -> limit(query, ^limit)
       end
-    else
-      [Social.Address.handle(envelope.sender)]
-    end
+
+    query |> Repo.all() |> Enum.reverse()
   end
 
   @doc """
@@ -763,14 +819,11 @@ defmodule Veejr.Messaging do
     end
   end
 
-  defp decode_envelope_ids(value) do
-    case Jason.decode(value || "[]") do
-      {:ok, envelope_ids} when is_list(envelope_ids) -> envelope_ids
-      _ -> []
-    end
-  end
-
-  defp archived_conversation_key(participant_key, started_at, [first_envelope_id | _]) do
+  @doc false
+  # Instance key for an archived conversation: the participant key plus the
+  # thread's start time and a digest of its first envelope id. Also used by
+  # the thread-key backfill migration.
+  def archived_conversation_key(participant_key, started_at, [first_envelope_id | _]) do
     date = Calendar.strftime(started_at, "%Y%m%dT%H%M%S")
 
     suffix =
@@ -779,45 +832,6 @@ defmodule Veejr.Messaging do
       |> Base.url_encode64(padding: false)
 
     "#{participant_key}-#{date}-#{suffix}"
-  end
-
-  defp resolve_legacy_boundary(%{envelope_ids: []} = boundary, grouped) do
-    envelope_ids =
-      grouped
-      |> Map.get(boundary.participants, [])
-      |> Enum.filter(&(DateTime.compare(&1.inserted_at, boundary.archived_at) != :gt))
-      |> Enum.map(& &1.public_id)
-
-    %{boundary | envelope_ids: envelope_ids}
-  end
-
-  defp resolve_legacy_boundary(boundary, _grouped), do: boundary
-
-  defp boundary_thread(boundary, envelopes) do
-    envelope_ids = MapSet.new(boundary.envelope_ids)
-    thread_envelopes = Enum.filter(envelopes, &MapSet.member?(envelope_ids, &1.public_id))
-
-    if thread_envelopes == [] do
-      nil
-    else
-      boundary.key
-      |> build_thread(boundary.participants, thread_envelopes)
-      |> Map.put(:preserved, true)
-    end
-  end
-
-  defp build_thread(key, participants, envelopes) do
-    envelopes = Enum.sort_by(envelopes, & &1.id)
-
-    %{
-      key: key,
-      participants: participants,
-      envelopes: envelopes,
-      envelope_ids: Enum.map(envelopes, & &1.public_id),
-      started_at: hd(envelopes).inserted_at,
-      latest: List.last(envelopes),
-      preserved: false
-    }
   end
 
   ## Message delivery policies

@@ -228,7 +228,8 @@ message plaintext. Push services still observe endpoint and timing metadata.
 | `friendships` | Canonical user pair and `pending`/`accepted` state. |
 | `groups`, `group_members` | Owner-local organization of accepted friends. |
 | `contact_notes`, `group_notes` | Owner-private but server-readable plaintext notes. |
-| `envelopes` | Per-recipient ciphertext, nonce, sender-key snapshot, delivery/edit/expiry/display metadata. |
+| `envelopes` | Per-recipient ciphertext, nonce, sender-key snapshot, delivery/edit/expiry/display metadata, and a materialized per-viewer thread key so conversation lists and pages are index queries that load no ciphertext. |
+| `conversation_archives` | Archived/preserved conversation instances; archiving stamps member envelopes with the instance key. |
 | `notifications` | Per-envelope consent state. |
 | `conversation_windows` | Rolling user/peer auto-accept expiry. |
 | `blobs` | Opaque encrypted file location, owner, size, and public capability ID. |

@@ -233,18 +233,9 @@ defmodule VeejrWeb.MessagesLiveTest do
         recipient_id: user.id
       )
 
-    participants = ["notes to yourself"]
-    current_key = Messaging.conversation_key(participants)
+    current_key = Messaging.conversation_key(["notes to yourself"])
 
-    assert {:ok, archive} =
-             Messaging.archive_conversation(
-               user,
-               current_key,
-               participants,
-               [envelope.public_id],
-               envelope.inserted_at
-             )
-
+    assert {:ok, archive} = Messaging.archive_conversation(user, current_key)
     assert :ok = Messaging.unarchive_conversation(user, archive.conversation_key)
 
     {:ok, _view, html} = live(conn, "/messages?conversation=#{archive.conversation_key}")
