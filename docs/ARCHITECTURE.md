@@ -228,12 +228,13 @@ inside the database transaction.
 
 ## Account portability
 
-`GET /export` builds an in-memory zip containing `export.json` and the user's
-owned encrypted blobs. The manifest includes profile and wrapped keys, friends,
+`GET /export` builds an in-memory zip containing `export.json`, the user's
+normalized profile image when present, and owned encrypted blobs. The manifest includes profile and wrapped keys, friends,
 groups, and decryptable encrypted history with sender-key snapshots. It exposes
 social metadata despite retaining content encryption.
 
-`mix veejr.import export.zip` creates the owner, accepted remote friendships,
+`mix veejr.import export.zip` creates the owner, restores their profile image,
+accepted remote friendships,
 remote ghost contacts needed to identify historical senders, envelopes with
 original IDs/timestamps, and owned blobs. Received envelopes are imported as
 accepted. During a managed move, source finalization verifies that the target

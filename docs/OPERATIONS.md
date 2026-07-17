@@ -124,8 +124,8 @@ failures deliberately keep their instance directory for diagnosis. After
 confirming no useful target service exists, rename that directory as a backup
 before retrying; do not recursively delete it as a first response.
 
-The import currently includes the user's encrypted envelope history and blobs
-they own. Received attachment blobs cannot be discovered from server-side
+The import currently includes the user's profile image, encrypted envelope
+history, and blobs they own. Received attachment blobs cannot be discovered from server-side
 ciphertext and therefore cannot be copied automatically. This limitation is
 shown in the export documentation and should be explained before cutover.
 

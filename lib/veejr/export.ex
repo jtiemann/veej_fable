@@ -24,7 +24,7 @@ defmodule Veejr.Export do
 
   import Ecto.Query, warn: false
 
-  alias Veejr.Repo
+  alias Veejr.{Accounts, Repo}
   alias Veejr.Accounts.User
   alias Veejr.Messaging
   alias Veejr.Messaging.Blob
@@ -56,8 +56,15 @@ defmodule Veejr.Export do
 
     blobs = Repo.all(from(b in Blob, where: b.owner_id == ^user.id))
 
+    avatar_files =
+      case Accounts.get_user_avatar_image(user) do
+        image when is_binary(image) -> [{~c"avatar.jpg", image}]
+        nil -> []
+      end
+
     files =
       [{~c"export.json", Jason.encode!(manifest, pretty: true)}] ++
+        avatar_files ++
         for blob <- blobs, File.exists?(blob.path) do
           {String.to_charlist("blobs/#{blob.public_id}.bin"), File.read!(blob.path)}
         end

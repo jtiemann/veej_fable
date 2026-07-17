@@ -347,8 +347,8 @@ upgrade order, backup procedure, and troubleshooting steps are documented in
 
 ## Account portability
 
-Settings can export a zip containing the profile, wrapped key material,
-friends, groups, encrypted envelope history, and blobs uploaded by the user.
+Settings can export a zip containing the profile image, profile, wrapped key
+material, friends, groups, encrypted envelope history, and blobs uploaded by the user.
 The export remains encrypted at the content level but exposes social metadata,
 so treat it as private.
 
@@ -358,7 +358,7 @@ Import it into a fresh instance with:
 mix veejr.import path/to/veejr-export.zip
 ```
 
-The import restores the account, history, sender key snapshots, owned blobs,
+The import restores the account, profile image, history, sender key snapshots, owned blobs,
 and accepted friendships as contacts at their recorded server addresses. A
 managed account move also replaces the departing source contact with the new
 address when the administrator finalizes it. Received attachments are not

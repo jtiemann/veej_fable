@@ -30,6 +30,8 @@ defmodule Veejr.ExportImportTest do
     alice = user_with_keys("alice")
     bob = user_with_keys("bob")
     befriend(alice, bob)
+    avatar = jpeg(512, 512)
+    {:ok, bob} = Accounts.put_user_avatar(bob, avatar)
 
     # alice sends bob a message (with her self-copy)
     {:ok, _batch, []} =
@@ -61,6 +63,7 @@ defmodule Veejr.ExportImportTest do
     assert envelope_entry["sender"]["username"] == "alice"
     assert envelope_entry["sender"]["public_key"] == alice.public_key
     assert files["blobs/#{blob.public_id}.bin"] == "encrypted-bytes"
+    assert files["avatar.jpg"] == avatar
 
     # bob leaves the community server
     {:ok, _} = Accounts.delete_user(bob)
@@ -73,11 +76,15 @@ defmodule Veejr.ExportImportTest do
     assert summary.owner == "bob"
     assert summary.envelopes == 1
     assert summary.blobs == 1
+    assert summary.avatar
 
     new_bob = Accounts.get_user_by_username("bob")
     assert new_bob.public_key == bob.public_key
     assert new_bob.enc_secret_key == bob.enc_secret_key
     assert new_bob.confirmed_at
+    assert new_bob.has_avatar
+    assert new_bob.avatar_version == 1
+    assert Accounts.get_user_avatar_image(new_bob) == avatar
     assert Social.friends?(new_bob.id, alice.id)
 
     # history is back, sender resolves (alice still exists here, so no ghost)
@@ -162,5 +169,24 @@ defmodule Veejr.ExportImportTest do
     # sender owns the data: deletion withdraws it everywhere
     assert Messaging.list_history(bob) == []
     assert Repo.aggregate(User, :count) == 1
+  end
+
+  defp jpeg(width, height) do
+    component_data = :binary.copy(<<0>>, 12)
+
+    <<
+      0xFF,
+      0xD8,
+      0xFF,
+      0xC0,
+      0x00,
+      0x11,
+      0x08,
+      height::16,
+      width::16,
+      component_data::binary,
+      0xFF,
+      0xD9
+    >>
   end
 end

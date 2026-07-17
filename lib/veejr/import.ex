@@ -41,6 +41,7 @@ defmodule Veejr.Import do
          {:ok, manifest} <- parse_manifest(files) do
       Repo.transaction(fn ->
         owner = create_owner!(manifest)
+        avatar_restored = restore_avatar!(files, owner)
         restore_friendships!(owner, manifest["friends"] || [])
         ghosts = create_ghosts!(manifest, owner)
         envelope_count = import_envelopes!(manifest, owner, ghosts)
@@ -49,6 +50,7 @@ defmodule Veejr.Import do
         %{
           owner: owner.username,
           owner_user: owner,
+          avatar: avatar_restored,
           friends: manifest["friends"] || [],
           ghost_contacts: map_size(ghosts),
           envelopes: envelope_count,
@@ -126,6 +128,15 @@ defmodule Veejr.Import do
       {:error, changeset} -> Repo.rollback({:owner_invalid, changeset})
     end
   end
+
+  defp restore_avatar!(%{"avatar.jpg" => image}, owner) do
+    case Veejr.Accounts.put_user_avatar(owner, image) do
+      {:ok, _owner} -> true
+      {:error, reason} -> Repo.rollback({:avatar_invalid, reason})
+    end
+  end
+
+  defp restore_avatar!(_files, _owner), do: false
 
   @doc "Restores exported accepted friendships idempotently for an imported owner."
   def restore_friendships!(%User{} = owner, friends) when is_list(friends) do
