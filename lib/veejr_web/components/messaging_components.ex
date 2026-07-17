@@ -374,9 +374,33 @@ defmodule VeejrWeb.MessagingComponents do
           data-role="audio-toggle"
           title="Record voice message"
           aria-label="Record voice message"
+          aria-pressed="false"
           class="order-1 flex size-11 shrink-0 items-center justify-center rounded-full bg-base-200 opacity-70 transition hover:bg-base-300 hover:opacity-100 sm:order-none"
         >
           <.icon name="hero-microphone" class="size-5" />
+        </button>
+
+        <button
+          :if={@show_files && @surface == "messages"}
+          type="button"
+          data-role="video-toggle"
+          title="Record video message"
+          aria-label="Record video message"
+          aria-pressed="false"
+          class="order-1 flex size-11 shrink-0 items-center justify-center rounded-full bg-base-200 opacity-70 transition hover:bg-base-300 hover:opacity-100 sm:order-none"
+        >
+          <.icon name="hero-video-camera" class="size-5" />
+        </button>
+
+        <button
+          :if={@show_files && @surface == "messages"}
+          type="button"
+          data-role="video-facing-toggle"
+          title="Switch camera for next recording"
+          aria-label="Switch camera for next recording"
+          class="order-1 flex size-11 shrink-0 items-center justify-center rounded-full bg-base-200 opacity-70 transition hover:bg-base-300 hover:opacity-100 sm:order-none"
+        >
+          <.icon name="hero-arrow-path-rounded-square" class="size-5" />
         </button>
 
         <input
@@ -391,10 +415,31 @@ defmodule VeejrWeb.MessagingComponents do
           :if={@show_files && @surface != "messages"}
           type="button"
           data-role="audio-toggle"
+          aria-pressed="false"
           class="btn btn-outline btn-sm"
         >
           <.icon name="hero-microphone" class="size-4" /> Record audio
         </button>
+
+        <div :if={@show_files && @surface != "messages"} class="flex flex-wrap gap-2">
+          <button
+            type="button"
+            data-role="video-toggle"
+            aria-pressed="false"
+            class="btn btn-outline btn-sm"
+          >
+            <.icon name="hero-video-camera" class="size-4" /> Record video
+          </button>
+          <button
+            type="button"
+            data-role="video-facing-toggle"
+            title="Switch camera for next recording"
+            aria-label="Switch camera for next recording"
+            class="btn btn-ghost btn-sm btn-square"
+          >
+            <.icon name="hero-arrow-path-rounded-square" class="size-4" />
+          </button>
+        </div>
 
         <button
           :if={@surface != "messages"}
@@ -420,6 +465,14 @@ defmodule VeejrWeb.MessagingComponents do
       >
       </div>
       <div :if={@show_files} data-role="audio-preview" class="space-y-2"></div>
+      <div
+        :if={@show_files}
+        data-role="video-status"
+        aria-live="polite"
+        class="hidden px-2 text-xs opacity-70"
+      >
+      </div>
+      <div :if={@show_files} data-role="video-preview" class="space-y-2"></div>
     </form>
     """
   end

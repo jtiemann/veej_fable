@@ -29,6 +29,21 @@ defmodule VeejrWeb.MessagesLiveTest do
     refute has_element?(view, "#new-message")
   end
 
+  test "offers encrypted voice and video recording controls", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/messages")
+
+    assert has_element?(view, "#message-composer [data-role='audio-toggle']")
+
+    assert has_element?(
+             view,
+             "#message-composer [data-role='video-toggle'][aria-pressed='false']"
+           )
+
+    assert has_element?(view, "#message-composer [data-role='video-facing-toggle']")
+    assert has_element?(view, "#message-composer [data-role='video-status'][aria-live='polite']")
+    assert has_element?(view, "#message-composer [data-role='video-preview']")
+  end
+
   test "opens a new conversation with multiple recipients preselected", %{
     conn: conn,
     user: user

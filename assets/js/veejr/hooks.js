@@ -113,10 +113,26 @@ function preferredAudioMime() {
   return types.find((type) => window.MediaRecorder && MediaRecorder.isTypeSupported(type)) || ""
 }
 
+const MAX_VIDEO_DURATION_MS = 60_000
+
+function preferredVideoMime() {
+  const types = [
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
+    "video/webm",
+    "video/mp4",
+  ]
+  return types.find((type) => window.MediaRecorder && MediaRecorder.isTypeSupported(type)) || ""
+}
+
 function attachmentMime(att) {
   const mime = att.mime || ""
   const name = (att.name || "").toLowerCase()
   if (mime.startsWith("image/")) return mime
+  if (mime.startsWith("video/")) return mime
+  if (name.endsWith(".mp4") || name.endsWith(".m4v")) return "video/mp4"
+  if (name.endsWith(".webm")) return "video/webm"
+  if (name.endsWith(".mov")) return "video/quicktime"
   if (mime === "application/pdf" || mime === "application/x-pdf" || name.endsWith(".pdf")) {
     return "application/pdf"
   }
@@ -125,7 +141,7 @@ function attachmentMime(att) {
 
 function previewableMedia(att) {
   const mime = attachmentMime(att)
-  return mime.startsWith("image/") || mime === "application/pdf"
+  return mime.startsWith("image/") || mime.startsWith("video/") || mime === "application/pdf"
 }
 
 function showMediaModal({blob, title, mime}) {
@@ -164,6 +180,17 @@ function showMediaModal({blob, title, mime}) {
     img.draggable = false
     img.className = "mx-auto max-h-[78vh] max-w-full object-contain"
     body.appendChild(img)
+  } else if ((mime || "").startsWith("video/")) {
+    const video = document.createElement("video")
+    video.src = url
+    video.controls = true
+    video.autoplay = true
+    video.playsInline = true
+    video.controlsList = "nodownload noplaybackrate"
+    video.disablePictureInPicture = true
+    video.disableRemotePlayback = true
+    video.className = "mx-auto max-h-[78vh] max-w-full bg-black object-contain"
+    body.appendChild(video)
   } else {
     const frame = document.createElement("iframe")
     frame.src = `${url}#toolbar=0&navpanes=0&scrollbar=1`
@@ -657,6 +684,8 @@ export const AccountStatus = {
 export const Composer = {
   mounted() {
     this.recordedAudio = []
+    this.recordedVideo = []
+    this.videoFacingMode = "user"
     this.textEl = this.el.querySelector("[data-role=text]")
 
     this.onTextKeydown = (e) => {
@@ -694,10 +723,31 @@ export const Composer = {
         return
       }
 
+      const videoToggle = e.target.closest("[data-role=video-toggle]")
+      if (videoToggle && this.el.contains(videoToggle)) {
+        e.preventDefault()
+        this.toggleVideoRecording().catch((err) => showError(this.el, err.message))
+        return
+      }
+
+      const facingToggle = e.target.closest("[data-role=video-facing-toggle]")
+      if (facingToggle && this.el.contains(facingToggle)) {
+        e.preventDefault()
+        this.toggleVideoFacing().catch((err) => showError(this.el, err.message))
+        return
+      }
+
       const discardAudio = e.target.closest("[data-role=discard-audio]")
       if (discardAudio && this.el.contains(discardAudio)) {
         e.preventDefault()
         this.discardAudio(parseInt(discardAudio.dataset.index))
+        return
+      }
+
+      const discardVideo = e.target.closest("[data-role=discard-video]")
+      if (discardVideo && this.el.contains(discardVideo)) {
+        e.preventDefault()
+        this.discardVideo(parseInt(discardVideo.dataset.index))
       }
     }
 
@@ -743,6 +793,8 @@ export const Composer = {
   },
 
   destroyed() {
+    clearTimeout(this.videoDurationTimer)
+    if (this.mediaRecorder && this.mediaRecorder.state === "recording") this.mediaRecorder.stop()
     this.stopMediaTracks()
     if (this.onComposerClick) this.el.removeEventListener("click", this.onComposerClick)
     if (this.onDocumentClick) document.removeEventListener("click", this.onDocumentClick)
@@ -750,6 +802,7 @@ export const Composer = {
     if (this.textEl) this.textEl.removeEventListener("keydown", this.onTextKeydown)
     if (this.emojiMenu && this.emojiMenu.parentElement === document.body) this.emojiMenu.remove()
     this.recordedAudio.forEach((entry) => URL.revokeObjectURL(entry.url))
+    this.recordedVideo.forEach((entry) => URL.revokeObjectURL(entry.url))
   },
 
   setEmojiMenuOpen(open) {
@@ -804,7 +857,13 @@ export const Composer = {
   },
 
   async toggleAudioRecording() {
+    if (this.recordingFinalizing) throw new Error("Wait for the current recording to finish.")
+
     if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
+      if (this.activeRecordingKind !== "audio") {
+        throw new Error("Stop the video recording first.")
+      }
+      this.recordingFinalizing = true
       this.mediaRecorder.stop()
       this.setAudioStatus("Finishing recording...")
       return
@@ -826,6 +885,10 @@ export const Composer = {
 
     recorder.addEventListener("stop", () => {
       this.stopMediaTracks()
+      this.setRecordingButton("audio-toggle", false)
+      this.recordingFinalizing = false
+      this.activeRecordingKind = null
+      if (this.mediaRecorder === recorder) this.mediaRecorder = null
       const type = recorder.mimeType || mimeType || "audio/webm"
       const blob = new Blob(chunks, {type})
       if (blob.size === 0) {
@@ -843,14 +906,19 @@ export const Composer = {
     })
 
     this.audioStream = stream
+    this.mediaStream = stream
+    this.activeRecordingKind = "audio"
     this.mediaRecorder = recorder
     recorder.start()
+    this.setRecordingButton("audio-toggle", true)
     this.setAudioStatus("Recording... click the microphone again to stop.")
   },
 
   stopMediaTracks() {
-    if (!this.audioStream) return
-    this.audioStream.getTracks().forEach((track) => track.stop())
+    const stream = this.mediaStream || this.audioStream
+    if (!stream) return
+    stream.getTracks().forEach((track) => track.stop())
+    this.mediaStream = null
     this.audioStream = null
   },
 
@@ -859,6 +927,15 @@ export const Composer = {
     if (!status) return
     status.textContent = message
     status.classList.toggle("hidden", !message)
+  },
+
+  setRecordingButton(role, active) {
+    const button = this.el.querySelector(`[data-role="${role}"]`)
+    if (!button) return
+    button.setAttribute("aria-pressed", active ? "true" : "false")
+    button.classList.toggle("bg-error", active)
+    button.classList.toggle("text-error-content", active)
+    button.classList.toggle("opacity-100", active)
   },
 
   renderAudioPreview() {
@@ -904,6 +981,166 @@ export const Composer = {
     this.setAudioStatus("")
   },
 
+  async toggleVideoRecording() {
+    if (this.recordingFinalizing) throw new Error("Wait for the current recording to finish.")
+
+    if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
+      if (this.activeRecordingKind !== "video") {
+        throw new Error("Stop the voice recording first.")
+      }
+      this.recordingFinalizing = true
+      this.mediaRecorder.stop()
+      this.setVideoStatus("Finishing recording...")
+      return
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+      throw new Error("Video recording is not supported in this browser.")
+    }
+
+    const mimeType = preferredVideoMime()
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: {
+        facingMode: {ideal: this.videoFacingMode},
+        width: {ideal: 1280},
+        height: {ideal: 720},
+      },
+    })
+    const options = mimeType ? {mimeType, videoBitsPerSecond: 2_000_000} : {videoBitsPerSecond: 2_000_000}
+    let recorder
+    try {
+      recorder = new MediaRecorder(stream, options)
+    } catch (error) {
+      try {
+        recorder = new MediaRecorder(stream, mimeType ? {mimeType} : undefined)
+      } catch {
+        stream.getTracks().forEach((track) => track.stop())
+        throw error
+      }
+    }
+    const chunks = []
+    const startedAt = Date.now()
+
+    recorder.addEventListener("dataavailable", (event) => {
+      if (event.data && event.data.size > 0) chunks.push(event.data)
+    })
+
+    recorder.addEventListener("stop", () => {
+      clearTimeout(this.videoDurationTimer)
+      this.videoDurationTimer = null
+      this.stopMediaTracks()
+      this.setRecordingButton("video-toggle", false)
+      this.recordingFinalizing = false
+      this.activeRecordingKind = null
+      if (this.mediaRecorder === recorder) this.mediaRecorder = null
+      const type = recorder.mimeType || mimeType || "video/webm"
+      const blob = new Blob(chunks, {type})
+      if (blob.size === 0) {
+        this.renderVideoPreview()
+        this.setVideoStatus("Recording was empty.")
+        return
+      }
+
+      const extension = type.includes("mp4") ? "mp4" : "webm"
+      const durationMs = Math.min(Date.now() - startedAt, MAX_VIDEO_DURATION_MS)
+      const name = `video-message-${new Date().toISOString().replace(/[:.]/g, "-")}.${extension}`
+      const file = new File([blob], name, {type})
+      this.recordedVideo.push({file, url: URL.createObjectURL(blob), durationMs})
+      this.renderVideoPreview()
+      this.setVideoStatus("Video message ready to send.")
+    })
+
+    this.mediaStream = stream
+    this.activeRecordingKind = "video"
+    this.mediaRecorder = recorder
+    this.renderLiveVideoPreview(stream)
+    recorder.start(1_000)
+    this.setRecordingButton("video-toggle", true)
+    this.videoDurationTimer = setTimeout(() => {
+      if (recorder.state === "recording") {
+        this.recordingFinalizing = true
+        recorder.stop()
+        this.setVideoStatus("Maximum recording length reached. Finishing recording...")
+      }
+    }, MAX_VIDEO_DURATION_MS)
+    this.setVideoStatus("Recording... click the camera again to stop. Maximum 60 seconds.")
+  },
+
+  async toggleVideoFacing() {
+    if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
+      throw new Error("Stop recording before switching cameras.")
+    }
+    if (this.recordingFinalizing) throw new Error("Wait for the current recording to finish.")
+    this.videoFacingMode = this.videoFacingMode === "user" ? "environment" : "user"
+    const label = this.videoFacingMode === "user" ? "front" : "rear"
+    this.setVideoStatus(`The ${label} camera will be used for the next recording.`)
+  },
+
+  setVideoStatus(message) {
+    const status = this.el.querySelector("[data-role=video-status]")
+    if (!status) return
+    status.textContent = message
+    status.classList.toggle("hidden", !message)
+  },
+
+  renderLiveVideoPreview(stream) {
+    const preview = this.el.querySelector("[data-role=video-preview]")
+    if (!preview) return
+    preview.textContent = ""
+    const video = document.createElement("video")
+    video.srcObject = stream
+    video.autoplay = true
+    video.muted = true
+    video.playsInline = true
+    video.className = "max-h-64 w-full rounded-lg bg-black object-contain"
+    preview.appendChild(video)
+  },
+
+  renderVideoPreview() {
+    const preview = this.el.querySelector("[data-role=video-preview]")
+    if (!preview) return
+    preview.textContent = ""
+
+    this.recordedVideo.forEach((entry, index) => {
+      const row = document.createElement("div")
+      row.className = "flex flex-col gap-2 rounded-lg bg-base-200 p-2 sm:flex-row sm:items-center"
+
+      const video = document.createElement("video")
+      video.controls = true
+      video.controlsList = "nodownload"
+      video.disablePictureInPicture = true
+      video.src = entry.url
+      video.className = "max-h-56 min-w-0 flex-1 rounded bg-black object-contain"
+
+      const btn = document.createElement("button")
+      btn.type = "button"
+      btn.dataset.role = "discard-video"
+      btn.dataset.index = index.toString()
+      btn.className = "btn btn-ghost btn-sm"
+      btn.textContent = "Remove"
+
+      row.append(video, btn)
+      preview.appendChild(row)
+    })
+  },
+
+  discardVideo(index) {
+    const entry = this.recordedVideo[index]
+    if (!entry) return
+    URL.revokeObjectURL(entry.url)
+    this.recordedVideo.splice(index, 1)
+    this.renderVideoPreview()
+    this.setVideoStatus(this.recordedVideo.length > 0 ? "Video message ready to send." : "")
+  },
+
+  clearVideoRecordings() {
+    this.recordedVideo.forEach((entry) => URL.revokeObjectURL(entry.url))
+    this.recordedVideo = []
+    this.renderVideoPreview()
+    this.setVideoStatus("")
+  },
+
   async send() {
     if (this.sending) return
 
@@ -912,6 +1149,7 @@ export const Composer = {
     if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
       throw new Error("Stop recording before sending.")
     }
+    if (this.recordingFinalizing) throw new Error("Wait for the recording to finish before sending.")
 
     const mySecret = getSecretKey(userId)
     if (!mySecret) {
@@ -949,7 +1187,14 @@ export const Composer = {
     const filesEl = form.querySelector("[data-role=files]")
     const files = filesEl ? [...filesEl.files] : []
     const recordedAudio = this.recordedAudio || []
-    if (!text && files.length === 0 && recordedAudio.length === 0 && Object.keys(extra).length === 0) {
+    const recordedVideo = this.recordedVideo || []
+    if (
+      !text &&
+      files.length === 0 &&
+      recordedAudio.length === 0 &&
+      recordedVideo.length === 0 &&
+      Object.keys(extra).length === 0
+    ) {
       throw new Error("Nothing to send.")
     }
 
@@ -989,6 +1234,17 @@ export const Composer = {
           })
         )
       }
+      for (const [i, entry] of recordedVideo.entries()) {
+        busy(`Encrypting video message ${i + 1}/${recordedVideo.length}...`)
+        attachments.push(
+          await encryptAndUpload(entry.file, {
+            name: entry.file.name,
+            mime: entry.file.type,
+            size: entry.file.size,
+            durationMs: entry.durationMs,
+          })
+        )
+      }
 
       // recipient handles ride inside the encrypted payload so group
       // messages can show all participants after decryption
@@ -1019,6 +1275,7 @@ export const Composer = {
 
       form.reset()
       this.clearAudioRecordings()
+      this.clearVideoRecordings()
       const err = form.querySelector("[data-role=error]")
       if (err) err.classList.add("hidden")
     } finally {
@@ -1142,7 +1399,7 @@ export const Decrypt = {
     btn.type = "button"
     btn.className = "btn btn-outline btn-xs mt-1 mr-1"
     const mime = attachmentMime(att)
-    const kind = mime.startsWith("image/") ? "Image" : "PDF"
+    const kind = mime.startsWith("image/") ? "Image" : mime.startsWith("video/") ? "Video" : "PDF"
     btn.textContent = `View ${kind}: ${att.name || "attachment"}`
     btn.addEventListener("click", async () => {
       if (this.expired) return
