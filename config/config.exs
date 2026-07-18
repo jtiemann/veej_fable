@@ -26,6 +26,8 @@ config :veejr,
   migration_dir: Path.expand("../priv/migrations", __DIR__),
   # GitHub owner/repo consulted for release updates; forks point at their own.
   update_repo: "veejr/veejr-server",
+  # WebRTC ICE servers for calls; override per deployment in runtime.exs.
+  ice_servers: [%{urls: ["stun:stun.l.google.com:19302"]}],
   provisioner_token: nil,
   # :community (open registration) or :personal (single-owner instance)
   instance_mode: :community,

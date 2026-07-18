@@ -34,6 +34,31 @@ if config_env() == :prod do
     config :veejr, update_repo: repo
   end
 
+  # WebRTC ICE servers: comma-separated STUN URLs, plus an optional TURN
+  # relay with static credentials (see OPERATIONS.md for a coturn sidecar).
+  stun_servers =
+    case System.get_env("VEEJR_STUN_URLS") do
+      nil -> [%{urls: ["stun:stun.l.google.com:19302"]}]
+      urls -> [%{urls: urls |> String.split(",", trim: true) |> Enum.map(&String.trim/1)}]
+    end
+
+  turn_servers =
+    case System.get_env("VEEJR_TURN_URL") do
+      nil ->
+        []
+
+      url ->
+        [
+          %{
+            urls: [url],
+            username: System.get_env("VEEJR_TURN_USERNAME") || "",
+            credential: System.get_env("VEEJR_TURN_PASSWORD") || ""
+          }
+        ]
+    end
+
+  config :veejr, ice_servers: stun_servers ++ turn_servers
+
   database_path =
     System.get_env("DATABASE_PATH") ||
       raise """

@@ -1,0 +1,319 @@
+defmodule Veejr.Calls do
+  @moduledoc """
+  Synchronous 1:1 audio/video calls.
+
+  The server never touches call media: WebRTC carries it peer-to-peer over
+  DTLS-SRTP, and the signaling payloads (SDP offers/answers, ICE candidates)
+  are sealed browser-side with `nacl.box` between the participants' pinned
+  identity keys — instances relay opaque ciphertext, so a compromised server
+  cannot substitute DTLS fingerprints and man-in-the-middle a call.
+
+  A ring is veejr's consent model applied to realtime: the callee's open
+  tabs show an incoming-call banner and nothing connects until they accept.
+  Only accepted friends can ring. For federated calls each instance holds a
+  mirror `calls` row under the same public id and relays sealed signaling
+  over the signed instance-to-instance channel — synchronously, not through
+  the retry outbox, because a call is now or never.
+  """
+
+  import Ecto.Query, warn: false
+
+  require Logger
+
+  alias Veejr.Accounts.User
+  alias Veejr.Calls.Call
+  alias Veejr.Repo
+  alias Veejr.Social
+
+  # A ring that nobody answered within this window counts as missed.
+  @ring_timeout_seconds 60
+
+  ## PubSub
+
+  def subscribe(%Call{public_id: public_id}), do: subscribe(public_id)
+  def subscribe(public_id), do: Phoenix.PubSub.subscribe(Veejr.PubSub, topic(public_id))
+
+  defp topic(public_id), do: "call:#{public_id}"
+
+  defp broadcast(call, message) do
+    Phoenix.PubSub.broadcast(Veejr.PubSub, topic(call.public_id), message)
+  end
+
+  ## Lifecycle
+
+  @doc """
+  Starts a call from `caller` to an accepted friend and rings them: local
+  callees get a PubSub ring in every open tab; remote callees get a signed
+  invite delivered to their instance, which rings them there. Returns
+  `{:ok, call}` or an error (`:not_a_friend`, `:callee_unreachable`, …).
+  """
+  def start_call(%User{host: nil} = caller, callee_id) do
+    callee = Repo.get(User, callee_id)
+
+    cond do
+      is_nil(callee) ->
+        {:error, :not_found}
+
+      callee.id == caller.id ->
+        {:error, :self}
+
+      not Social.friends?(caller.id, callee.id) ->
+        {:error, :not_a_friend}
+
+      true ->
+        call =
+          Repo.insert!(%Call{
+            public_id: random_id(),
+            caller_id: caller.id,
+            callee_id: callee.id,
+            state: "ringing"
+          })
+
+        call = %{call | caller: caller, callee: callee}
+
+        if is_nil(callee.host) do
+          ring_local(call, callee)
+          {:ok, call}
+        else
+          case Veejr.Federation.deliver_call_invite(call, caller, callee) do
+            :ok ->
+              {:ok, call}
+
+            {:error, reason} ->
+              Logger.warning(
+                "calls: invite to #{callee.username}@#{callee.host} failed: #{inspect(reason)}"
+              )
+
+              set_state(call, "failed")
+              {:error, :callee_unreachable}
+          end
+        end
+    end
+  end
+
+  defp ring_local(call, %User{} = callee) do
+    Phoenix.PubSub.broadcast(
+      Veejr.PubSub,
+      "user:#{callee.id}",
+      {:veejr_call_ring, call}
+    )
+  end
+
+  @doc "Fetches a call by public id, only for its participants."
+  def get_call(%User{id: user_id}, public_id) when is_binary(public_id) do
+    case Repo.get_by(Call, public_id: public_id) do
+      %Call{caller_id: ^user_id} = call -> {:ok, Repo.preload(call, [:caller, :callee])}
+      %Call{callee_id: ^user_id} = call -> {:ok, Repo.preload(call, [:caller, :callee])}
+      _ -> {:error, :not_found}
+    end
+  end
+
+  @doc """
+  The callee has opened the call page: the ring is answered. Tells the
+  caller's side (locally or over federation) so it starts WebRTC
+  negotiation — the caller never sends an offer into the void.
+  """
+  def join_call(%User{id: user_id} = user, public_id) do
+    with {:ok, %Call{callee_id: ^user_id, state: "ringing"} = call} <- get_call(user, public_id) do
+      call = set_state(call, "accepted")
+      broadcast(call, {:call_peer_joined, call.public_id})
+
+      relay_to_remote_peer(call, user, fn authority ->
+        Veejr.Federation.deliver_call_update(authority, call, "joined")
+      end)
+
+      {:ok, call}
+    else
+      {:ok, %Call{} = call} -> {:error, {:bad_state, call.state}}
+      error -> error
+    end
+  end
+
+  @doc "Declines a ringing call (callee side)."
+  def decline_call(%User{id: user_id} = user, public_id) do
+    with {:ok, %Call{callee_id: ^user_id, state: "ringing"} = call} <- get_call(user, public_id) do
+      call = set_state(call, "declined")
+      broadcast(call, {:call_ended, call.public_id, "declined"})
+
+      relay_to_remote_peer(call, user, fn authority ->
+        Veejr.Federation.deliver_call_update(authority, call, "declined")
+      end)
+
+      {:ok, call}
+    else
+      {:ok, %Call{}} -> {:error, :not_ringing}
+      error -> error
+    end
+  end
+
+  @doc "Ends a call from either side: hang-up, or cancel while still ringing."
+  def end_call(%User{} = user, public_id) do
+    with {:ok, %Call{} = call} <- get_call(user, public_id) do
+      if call.state in ["ringing", "accepted"] do
+        final = if call.state == "ringing", do: "missed", else: "ended"
+        call = set_state(call, final)
+        broadcast(call, {:call_ended, call.public_id, final})
+
+        relay_to_remote_peer(call, user, fn authority ->
+          Veejr.Federation.deliver_call_update(authority, call, "ended")
+        end)
+      end
+
+      :ok
+    end
+  end
+
+  @doc """
+  Relays one sealed signaling payload (offer/answer/ICE) to the peer. The
+  payload is `nacl.box` ciphertext produced in the sender's browser — the
+  server cannot read or alter it. Remote peers get it over the signed
+  federation channel, in the background so a slow peer instance never
+  blocks the sender's socket.
+  """
+  def signal(%User{id: user_id} = user, public_id, ciphertext, nonce)
+      when is_binary(ciphertext) and is_binary(nonce) do
+    with {:ok, %Call{state: "accepted"} = call} <- get_call(user, public_id) do
+      broadcast(call, {:call_signal, call.public_id, user_id, ciphertext, nonce})
+
+      relay_to_remote_peer(call, user, fn authority ->
+        Task.Supervisor.start_child(Veejr.TaskSupervisor, fn ->
+          Veejr.Federation.deliver_call_signal(authority, call, ciphertext, nonce)
+        end)
+
+        :ok
+      end)
+
+      :ok
+    else
+      {:ok, %Call{} = call} -> {:error, {:bad_state, call.state}}
+      error -> error
+    end
+  end
+
+  ## Federation (inbound, authorities already verified by FederationAuth)
+
+  @doc "Creates the mirror row for an invite from a verified peer and rings the callee."
+  def receive_remote_invite(%User{} = remote_caller, %User{host: nil} = local_callee, public_id)
+      when is_binary(public_id) do
+    cond do
+      not Social.friends?(remote_caller.id, local_callee.id) ->
+        {:error, :not_friends}
+
+      Repo.get_by(Call, public_id: public_id) ->
+        {:ok, :duplicate}
+
+      byte_size(public_id) > 100 ->
+        {:error, :bad_request}
+
+      true ->
+        call =
+          Repo.insert!(%Call{
+            public_id: public_id,
+            caller_id: remote_caller.id,
+            callee_id: local_callee.id,
+            state: "ringing"
+          })
+
+        ring_local(%{call | caller: remote_caller, callee: local_callee}, local_callee)
+        {:ok, :created}
+    end
+  end
+
+  @doc "Applies a joined/declined/ended update relayed by the remote participant's instance."
+  def receive_remote_update(public_id, verified_authority, event)
+      when event in ["joined", "declined", "ended"] do
+    with {:ok, call} <- remote_party_call(public_id, verified_authority) do
+      case event do
+        "joined" when call.state == "ringing" ->
+          call = set_state(call, "accepted")
+          broadcast(call, {:call_peer_joined, call.public_id})
+
+        "declined" when call.state == "ringing" ->
+          call = set_state(call, "declined")
+          broadcast(call, {:call_ended, call.public_id, "declined"})
+
+        "ended" when call.state in ["ringing", "accepted"] ->
+          final = if call.state == "ringing", do: "missed", else: "ended"
+          call = set_state(call, final)
+          broadcast(call, {:call_ended, call.public_id, final})
+
+        _ ->
+          :ok
+      end
+
+      {:ok, :applied}
+    end
+  end
+
+  def receive_remote_update(_public_id, _authority, _event), do: {:error, :bad_request}
+
+  @doc "Delivers a sealed signaling payload relayed by the remote participant's instance."
+  def receive_remote_signal(public_id, verified_authority, ciphertext, nonce)
+      when is_binary(ciphertext) and is_binary(nonce) do
+    with {:ok, %Call{state: "accepted"} = call} <-
+           remote_party_call(public_id, verified_authority) do
+      remote = if call.caller.host, do: call.caller, else: call.callee
+      broadcast(call, {:call_signal, call.public_id, remote.id, ciphertext, nonce})
+      {:ok, :relayed}
+    else
+      {:ok, %Call{}} -> {:error, :bad_request}
+      error -> error
+    end
+  end
+
+  def receive_remote_signal(_public_id, _authority, _ciphertext, _nonce),
+    do: {:error, :bad_request}
+
+  # The call must exist and its remote participant must live on exactly the
+  # authority whose signature was verified — instance B cannot speak about
+  # calls it is not a party to.
+  defp remote_party_call(public_id, verified_authority) do
+    with %Call{} = call <-
+           Repo.get_by(Call, public_id: public_id) || {:error, :not_found},
+         call = Repo.preload(call, [:caller, :callee]),
+         true <-
+           (call.caller.host == verified_authority or call.callee.host == verified_authority) ||
+             {:error, :origin_mismatch} do
+      {:ok, call}
+    end
+  end
+
+  ## Maintenance
+
+  @doc "Marks stale ringing calls missed and abandons ancient accepted calls."
+  def sweep_stale_calls do
+    ring_cutoff = DateTime.add(DateTime.utc_now(:second), -@ring_timeout_seconds, :second)
+    active_cutoff = DateTime.add(DateTime.utc_now(:second), -24, :hour)
+
+    {missed, _} =
+      from(c in Call, where: c.state == "ringing" and c.inserted_at < ^ring_cutoff)
+      |> Repo.update_all(set: [state: "missed"])
+
+    {ended, _} =
+      from(c in Call, where: c.state == "accepted" and c.updated_at < ^active_cutoff)
+      |> Repo.update_all(set: [state: "ended"])
+
+    %{missed: missed, ended: ended}
+  end
+
+  ## Helpers
+
+  defp relay_to_remote_peer(%Call{} = call, %User{id: user_id}, fun) do
+    peer = if call.caller_id == user_id, do: call.callee, else: call.caller
+
+    case peer do
+      %User{host: authority} when is_binary(authority) -> fun.(authority)
+      _ -> :ok
+    end
+  end
+
+  defp set_state(%Call{} = call, state)
+       when state in ~w(ringing accepted declined missed ended failed) do
+    call
+    |> Ecto.Changeset.change(state: state)
+    |> Repo.update!()
+    |> Map.merge(%{caller: call.caller, callee: call.callee})
+  end
+
+  defp random_id, do: :crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false)
+end

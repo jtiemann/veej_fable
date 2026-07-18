@@ -143,6 +143,72 @@ defmodule Veejr.Federation do
     })
   end
 
+  ## Calls — synchronous signaling relay. A call is now or never, so these
+  ## POST directly instead of going through the retry outbox.
+
+  @doc "Rings a remote callee's instance. Synchronous so the caller learns immediately."
+  def deliver_call_invite(call, %User{host: nil} = caller, %User{host: authority} = callee)
+      when is_binary(authority) do
+    post(authority, "/api/federation/call_invite", %{
+      from: %{username: caller.username, authority: Veejr.instance_authority()},
+      to: callee.username,
+      call_id: call.public_id
+    })
+  end
+
+  @doc "Relays a joined/declined/ended call state change to the peer instance."
+  def deliver_call_update(authority, call, event) when is_binary(authority) do
+    post(authority, "/api/federation/call_update", %{
+      call_id: call.public_id,
+      event: event
+    })
+  end
+
+  @doc "Relays one sealed signaling payload to the peer instance."
+  def deliver_call_signal(authority, call, ciphertext, nonce) when is_binary(authority) do
+    post(authority, "/api/federation/call_signal", %{
+      call_id: call.public_id,
+      ciphertext: ciphertext,
+      nonce: nonce
+    })
+  end
+
+  def handle_call_invite(
+        %{
+          "from" => %{"username" => username, "authority" => authority},
+          "to" => to,
+          "call_id" => call_id
+        },
+        verified_authority
+      )
+      when is_binary(call_id) do
+    with :ok <- validate_origin(username, authority, verified_authority),
+         {:ok, remote} <- ensure_remote_user(username, authority),
+         %User{host: nil} = local <-
+           Veejr.Accounts.get_user_by_username(to) || {:error, :unknown_recipient} do
+      Veejr.Calls.receive_remote_invite(remote, local, call_id)
+    end
+  end
+
+  def handle_call_invite(_, _), do: {:error, :bad_request}
+
+  def handle_call_update(%{"call_id" => call_id, "event" => event}, verified_authority)
+      when is_binary(call_id) do
+    Veejr.Calls.receive_remote_update(call_id, verified_authority, event)
+  end
+
+  def handle_call_update(_, _), do: {:error, :bad_request}
+
+  def handle_call_signal(
+        %{"call_id" => call_id, "ciphertext" => ciphertext, "nonce" => nonce},
+        verified_authority
+      )
+      when is_binary(call_id) do
+    Veejr.Calls.receive_remote_signal(call_id, verified_authority, ciphertext, nonce)
+  end
+
+  def handle_call_signal(_, _), do: {:error, :bad_request}
+
   @doc """
   Queues a content-free envelope announcement for the remote recipient's
   instance. Only a row insert happens here, so this is safe inside the send

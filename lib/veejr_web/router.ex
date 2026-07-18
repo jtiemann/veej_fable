@@ -127,6 +127,9 @@ defmodule VeejrWeb.Router do
     post "/notify", FederationController, :notify
     post "/key_update", FederationController, :key_update
     post "/account_move", FederationController, :account_move
+    post "/call_invite", FederationController, :call_invite
+    post "/call_update", FederationController, :call_update
+    post "/call_signal", FederationController, :call_signal
   end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
@@ -174,6 +177,7 @@ defmodule VeejrWeb.Router do
       live "/messages", MessagesLive
       live "/map", MapLive
       live "/history", HistoryLive
+      live "/call/:public_id", CallLive
     end
 
     post "/users/update-password", UserSessionController, :update_password

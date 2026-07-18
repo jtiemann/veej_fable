@@ -27,6 +27,16 @@ defmodule VeejrWeb.LiveNotify do
     {:cont, socket}
   end
 
+  defp handle_info({:veejr_call_ring, call}, socket) do
+    socket =
+      push_event(socket, "veejr:ring", %{
+        call_id: call.public_id,
+        from: Veejr.Social.Address.handle(call.caller)
+      })
+
+    {:halt, socket}
+  end
+
   defp handle_info({:veejr_notification, notification}, socket) do
     socket =
       socket
