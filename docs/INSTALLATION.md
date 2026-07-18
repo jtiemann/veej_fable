@@ -246,7 +246,7 @@ docker service create `
   --mount "type=bind,source=$Repo,target=/app" `
   --mount "type=bind,source=$Data,target=/var/lib/veejr" `
   --publish "published=4000,target=4000,protocol=tcp,mode=host" `
-  --restart-condition on-failure `
+  --restart-condition any `
   --workdir /app `
   $Image `
   bash -lc "mix local.hex --force >/dev/null && mix local.rebar --force >/dev/null && mix phx.server"
