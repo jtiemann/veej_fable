@@ -620,6 +620,82 @@ defmodule VeejrWeb.AdminLive do
         </section>
       </div>
 
+      <section id="admin-software-update" aria-labelledby="admin-software-update-heading">
+        <h2 id="admin-software-update-heading" class="text-lg font-semibold">Software update</h2>
+        <div class="mt-3 space-y-3 rounded-lg border border-base-300 bg-base-100 p-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <p class="text-sm">
+              Running <span class="font-mono font-semibold">v{@software_update.version}</span>
+              <span :if={@software_update.sha} class="font-mono text-xs opacity-60">
+                ({@software_update.sha})
+              </span>
+              <span :if={@software_update.dirty} class="badge badge-warning badge-sm ml-2">
+                modified checkout
+              </span>
+            </p>
+            <button id="check-updates" phx-click="check_updates" class="btn btn-outline btn-sm">
+              Check for updates
+            </button>
+          </div>
+
+          <div :if={@software_update.upgrading} class="rounded-lg bg-info/10 p-3 text-sm">
+            An upgrade is in progress. The instance will restart on its own when the new
+            version has been built; reload this page afterwards.
+          </div>
+
+          <div :if={match?({:ok, _}, @software_update.latest)} class="space-y-2">
+            <% {:ok, release} = @software_update.latest %>
+            <p :if={!@software_update.available} class="text-sm text-success">
+              ✓ Up to date — latest release is {release.tag}
+              <span class="text-xs opacity-60">(checked {format_time(release.checked_at)})</span>
+            </p>
+            <div :if={@software_update.available} class="space-y-2">
+              <p class="text-sm">
+                <span class="badge badge-primary badge-sm mr-1">update</span>
+                <span class="font-semibold">{release.name}</span>
+                ({release.tag}) is available.
+                <a :if={release.url} href={release.url} target="_blank" class="link text-xs">
+                  Release notes
+                </a>
+              </p>
+              <p
+                :if={release.notes != ""}
+                class="max-h-40 overflow-y-auto whitespace-pre-wrap rounded bg-base-200 p-3 text-xs"
+              >
+                {release.notes}
+              </p>
+              <p :if={@software_update.dirty} class="text-sm text-warning">
+                This deployment has local modifications, so in-place upgrade is disabled.
+                Upgrade it with git directly.
+              </p>
+              <button
+                :if={!@software_update.dirty && !@software_update.upgrading}
+                id="start-upgrade"
+                phx-click="start_upgrade"
+                phx-value-tag={release.tag}
+                data-confirm={"Upgrade this instance to #{release.tag} and restart it? A database backup is taken first."}
+                class="btn btn-primary btn-sm"
+              >
+                Upgrade &amp; restart
+              </button>
+            </div>
+          </div>
+
+          <p :if={@software_update.latest == {:error, :no_releases}} class="text-sm opacity-70">
+            No published releases found for the configured update source.
+          </p>
+          <p
+            :if={match?({:error, reason} when reason != :no_releases, @software_update.latest)}
+            class="text-sm text-warning"
+          >
+            Could not reach the update source — try again later.
+          </p>
+          <p :if={is_nil(@software_update.latest)} class="text-sm opacity-70">
+            Updates are checked only when you ask — nothing phones home on its own.
+          </p>
+        </div>
+      </section>
+
       <section
         :if={@operational_failures != []}
         id="admin-failures"
@@ -651,7 +727,11 @@ defmodule VeejrWeb.AdminLive do
   @impl true
   def mount(_params, _session, socket) do
     if Accounts.instance_admin?(socket.assigns.current_scope.user) do
-      {:ok, socket |> assign(page_title: "Instance administration") |> load_dashboard()}
+      {:ok,
+       socket
+       |> assign(page_title: "Instance administration")
+       |> assign_software_update(nil)
+       |> load_dashboard()}
     else
       {:ok,
        socket
@@ -663,6 +743,51 @@ defmodule VeejrWeb.AdminLive do
   @impl true
   def handle_event("refresh", _params, socket) do
     {:noreply, load_dashboard(socket)}
+  end
+
+  def handle_event("check_updates", _params, socket) do
+    {:noreply, assign_software_update(socket, Veejr.Updates.latest_release(force: true))}
+  end
+
+  def handle_event("start_upgrade", %{"tag" => tag}, socket) do
+    latest = Veejr.Updates.latest_release()
+
+    cond do
+      not match?({:ok, %{tag: ^tag}}, latest) ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "That release is no longer current — check for updates again.")
+         |> assign_software_update(latest)}
+
+      not Veejr.Updates.update_available?(latest) ->
+        {:noreply, put_flash(socket, :error, "This instance is already up to date.")}
+
+      true ->
+        case Admin.start_upgrade(socket.assigns.current_scope.user, tag) do
+          :ok ->
+            {:noreply,
+             socket
+             |> put_flash(
+               :info,
+               "Upgrading to #{tag}. The instance restarts on its own when the build finishes."
+             )
+             |> assign_software_update(latest)}
+
+          {:error, :dirty_worktree} ->
+            {:noreply,
+             put_flash(
+               socket,
+               :error,
+               "This deployment has local modifications — upgrade it with git directly."
+             )}
+
+          {:error, :already_running} ->
+            {:noreply, put_flash(socket, :error, "An upgrade is already in progress.")}
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Could not start the upgrade.")}
+        end
+    end
   end
 
   def handle_event("validate_settings", %{"settings" => params}, socket) do
@@ -968,6 +1093,17 @@ defmodule VeejrWeb.AdminLive do
     )
   end
 
+  defp assign_software_update(socket, latest) do
+    assign(socket, :software_update, %{
+      version: Veejr.Updates.current_version(),
+      sha: Veejr.Updates.current_sha(),
+      dirty: Veejr.Updates.dirty_worktree?(),
+      latest: latest,
+      available: Veejr.Updates.update_available?(latest),
+      upgrading: Veejr.Updates.Upgrader.running?()
+    })
+  end
+
   defp invitation_status_label(:active), do: "Active"
   defp invitation_status_label(:accepted), do: "Accepted"
   defp invitation_status_label(:expired), do: "Expired"
@@ -1002,6 +1138,7 @@ defmodule VeejrWeb.AdminLive do
   defp audit_action_label("account_move.test_verified"), do: "Account move test verified"
   defp audit_action_label("federation.retried"), do: "Federation retried"
   defp audit_action_label("instance.mail_tested"), do: "Mail tested"
+  defp audit_action_label("instance.upgrade_started"), do: "Software upgrade started"
   defp audit_action_label("instance.settings_updated"), do: "Settings updated"
   defp audit_action_label("invitation.expired"), do: "Invitation expired"
   defp audit_action_label("invitation.revoked"), do: "Invitation revoked"

@@ -30,6 +30,10 @@ if config_env() == :prod do
     migration_dir: System.get_env("VEEJR_MIGRATION_DIR") || "/var/lib/veejr/migrations",
     provisioner_token: System.get_env("VEEJR_PROVISIONER_TOKEN")
 
+  if repo = System.get_env("VEEJR_UPDATE_REPO") do
+    config :veejr, update_repo: repo
+  end
+
   database_path =
     System.get_env("DATABASE_PATH") ||
       raise """

@@ -31,7 +31,37 @@ docker logs --tail 100 veej_postfix
 Postfix checks are necessary only when `SMTP_HOST` points to that container or
 relay. The current project host uses an external SMTP provider directly.
 
-## Deploy an update
+## In-app upgrades (pull-based)
+
+Every instance can upgrade itself from `/admin` → **Software update**. The
+check queries the configured upstream's GitHub releases (`:update_repo`,
+overridable with `VEEJR_UPDATE_REPO`) and only when the administrator asks —
+nothing phones home unattended. When a newer release exists, **Upgrade &
+restart**:
+
+1. records the current commit as last-known-good and takes an online SQLite
+   backup next to the database (`<name>-preupgrade-<stamp>.db`),
+2. checks out the release tag and builds it (deps, assets, compile) while
+   the old version keeps serving,
+3. stops the VM only after a successful build; the container restart policy
+   boots the new version, which runs its own migrations at startup
+   (`:auto_migrate` is enabled for prod).
+
+A failed build rolls the checkout back, recompiles the running version, and
+records the error under **Recent delivery failures** — the running instance
+is never replaced by an unproven build. In-place upgrade refuses to run on a
+working tree with local modifications (a development checkout).
+
+Recovery, if a new version fails **after** restart: stop the service, restore
+the `-preupgrade-` database copy over `DATABASE_PATH`, `git checkout` the
+previous commit in the instance repository, and start the service again.
+
+Publishing a release (upstream maintainers): bump `version:` in `mix.exs` as
+part of the release PR, then create a GitHub release whose tag is
+`v<version>` on the merged commit. Instances compare their compiled version
+against the newest release tag.
+
+## Deploy an update (manual)
 
 Do not deploy with an uncommitted working tree. Review upstream changes and
 take a backup before an update that includes migrations.

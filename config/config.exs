@@ -24,6 +24,8 @@ config :veejr,
   ecto_repos: [Veejr.Repo],
   generators: [timestamp_type: :utc_datetime],
   migration_dir: Path.expand("../priv/migrations", __DIR__),
+  # GitHub owner/repo consulted for release updates; forks point at their own.
+  update_repo: "veejr/veejr-server",
   provisioner_token: nil,
   # :community (open registration) or :personal (single-owner instance)
   instance_mode: :community,

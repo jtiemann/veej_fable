@@ -22,7 +22,7 @@ are described under [Security boundaries](#security-boundaries).
 Veejr.Supervisor
 ├── VeejrWeb.Telemetry
 ├── Veejr.Repo (SQLite)
-├── Ecto.Migrator (release startup only)
+├── Ecto.Migrator (release and prod startup — boot-time migrations)
 ├── DNSCluster
 ├── Phoenix.PubSub (Veejr.PubSub)
 ├── Veejr.Federation.Outbox
