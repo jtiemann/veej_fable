@@ -9,7 +9,7 @@ import {getSecretKey, openFrom} from "./crypto.js"
 const LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
 const LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
 
-function ensureLeaflet() {
+export function ensureLeaflet() {
   if (window.L) return Promise.resolve(window.L)
   return new Promise((resolve, reject) => {
     const css = document.createElement("link")
