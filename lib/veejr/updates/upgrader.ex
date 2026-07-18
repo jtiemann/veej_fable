@@ -67,8 +67,10 @@ defmodule Veejr.Updates.Upgrader do
       :ok ->
         Logger.info("upgrade: #{tag} built successfully — restarting")
         # The container restart policy brings the new build up; it migrates
-        # itself at boot. Stopping is the commit point.
-        System.stop(0)
+        # itself at boot. Stopping is the commit point. The exit code must be
+        # non-zero: `on-failure` restart policies ignore clean exits and would
+        # leave the instance down after a successful upgrade.
+        System.stop(1)
 
       {:error, step, output} ->
         Logger.error("upgrade: #{step} failed, rolling back to #{last_good}")

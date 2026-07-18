@@ -266,7 +266,7 @@ the service as described in [docs/INSTALLATION.md](docs/INSTALLATION.md):
 ```text
 secret: fcm_service_account_json → /run/secrets/fcm_service_account_json
 environment: FCM_SERVICE_ACCOUNT_JSON_FILE=/run/secrets/fcm_service_account_json
-restart policy: on-failure, no maximum retry count
+restart policy: any, no maximum retry count
 ```
 
 Do not print or inspect the secret contents. Verify the running service without

@@ -228,7 +228,7 @@ function Invoke-FinalJob($Job, [string] $PackagePath, [string] $PackageSha) {
       "--mount", "type=bind,source=$repo,target=/app",
       "--mount", "type=bind,source=$data,target=/var/lib/veejr",
       "--publish", "published=$port,target=$port,protocol=tcp,mode=host",
-      "--restart-condition", "on-failure", "--workdir", "/app", $ElixirImage,
+      "--restart-condition", "any", "--workdir", "/app", $ElixirImage,
       "bash", "-lc", "mix local.hex --force >/dev/null && mix local.rebar --force >/dev/null && mix phx.server"
     ) | Out-Null
 

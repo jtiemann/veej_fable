@@ -47,6 +47,14 @@ restart**:
    boots the new version, which runs its own migrations at startup
    (`:auto_migrate` is enabled for prod).
 
+The upgrader exits non-zero so `on-failure` restart policies also restart the
+task, but services should use restart condition `any`. Installations created
+before this default can switch with:
+
+```powershell
+docker service update --restart-condition any veej_fable
+```
+
 A failed build rolls the checkout back, recompiles the running version, and
 records the error under **Recent delivery failures** — the running instance
 is never replaced by an unproven build. In-place upgrade refuses to run on a
