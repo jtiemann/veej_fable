@@ -67,6 +67,26 @@ defmodule Veejr.MessagingArchiveTest do
              [second.public_id]
   end
 
+  test "locations and notes are first-class conversation items" do
+    user = user_fixture()
+    message = self_envelope(user, "message", "hello")
+    note = self_envelope(user, "note", "geo-ciphertext")
+    location = self_envelope(user, "location", "loc-ciphertext")
+    key = Messaging.conversation_key(["notes to yourself"])
+
+    assert [%{key: ^key, message_count: 3}] = Messaging.list_conversation_summaries(user)
+
+    assert Enum.map(Messaging.list_thread_envelopes(user, key), & &1.kind) ==
+             ["message", "note", "location"]
+
+    # archiving carries the whole thread, not just the messages
+    assert {:ok, archive} = Messaging.archive_conversation(user, key)
+
+    for envelope <- [message, note, location] do
+      assert Repo.get!(Envelope, envelope.id).thread_key == archive.conversation_key
+    end
+  end
+
   test "thread envelopes page from the newest side" do
     user = user_fixture()
     envelopes = for index <- 1..5, do: self_message(user, "message-#{index}")
@@ -78,9 +98,11 @@ defmodule Veejr.MessagingArchiveTest do
              envelopes |> Enum.take(-2) |> Enum.map(& &1.public_id)
   end
 
-  defp self_message(user, ciphertext) do
+  defp self_message(user, ciphertext), do: self_envelope(user, "message", ciphertext)
+
+  defp self_envelope(user, kind, ciphertext) do
     {:ok, batch_id, []} =
-      Messaging.send_batch(user, "message", [
+      Messaging.send_batch(user, kind, [
         %{"recipient_id" => user.id, "ciphertext" => ciphertext, "nonce" => "nonce"}
       ])
 

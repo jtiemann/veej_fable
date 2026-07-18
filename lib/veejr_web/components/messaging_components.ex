@@ -549,6 +549,12 @@ defmodule VeejrWeb.MessagingComponents do
           !@mine &&
             "veejr-bubble-peer rounded-bl-md bg-base-100 text-base-content ring-1 ring-base-300"
         ]}>
+          <p
+            :if={@envelope.kind != "message"}
+            class="mb-0.5 text-xs font-medium uppercase tracking-wide opacity-60"
+          >
+            {kind_label(@envelope.kind)}
+          </p>
           <div
             id={"env-#{@envelope.public_id}"}
             phx-hook="Decrypt"
@@ -603,6 +609,10 @@ defmodule VeejrWeb.MessagingComponents do
 
   defp expiry_iso8601(nil), do: nil
   defp expiry_iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
+
+  defp kind_label("location"), do: "📍 Location"
+  defp kind_label("note"), do: "📝 Map note"
+  defp kind_label(other), do: other
 
   defp delete_label(true), do: "delete"
   defp delete_label(false), do: "hide"
