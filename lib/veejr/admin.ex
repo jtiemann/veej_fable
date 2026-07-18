@@ -408,6 +408,18 @@ defmodule Veejr.Admin do
     end
   end
 
+  @doc "Starts the in-place software upgrade to `tag` and records it in the audit trail."
+  def start_upgrade(%User{} = actor, tag) when is_binary(tag) do
+    if Veejr.Accounts.instance_admin?(actor) do
+      with :ok <- Veejr.Updates.Upgrader.start(tag) do
+        {:ok, _event} = audit(actor, "instance.upgrade_started", "instance", 1, %{"tag" => tag})
+        :ok
+      end
+    else
+      {:error, :unauthorized}
+    end
+  end
+
   def retry_federation(%User{} = actor) do
     if Veejr.Accounts.instance_admin?(actor) do
       result = Outbox.retry_all()

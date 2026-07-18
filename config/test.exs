@@ -6,6 +6,9 @@ config :bcrypt_elixir, :log_rounds, 1
 # Route federation HTTP through Req.Test so tests can stub remote instances.
 config :veejr, :federation_req_options, plug: {Req.Test, Veejr.FederationStub}
 
+# Route release-update checks through Req.Test as well.
+config :veejr, :updates_req_options, plug: {Req.Test, Veejr.UpdatesStub}
+
 # The outbox never ticks (or reacts to kicks) on its own in tests;
 # process_due/0 is driven directly.
 config :veejr, :outbox_tick_ms, :never

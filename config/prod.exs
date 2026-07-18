@@ -30,3 +30,7 @@ config :logger, level: :info
 
 # Runtime production configuration, including reading
 # of environment variables, is done on config/runtime.exs.
+
+# Run pending database migrations at boot, so restarting into a newer
+# checkout (including the in-app self-upgrade) migrates automatically.
+config :veejr, auto_migrate: true

@@ -40,7 +40,14 @@ defmodule Veejr.Application do
   end
 
   defp skip_migrations?() do
-    # By default, sqlite migrations are run when using a release
-    System.get_env("RELEASE_NAME") == nil
+    # Releases always migrate at boot. The source-mounted prod deployment
+    # opts in via :auto_migrate (set in prod.exs) so a restart into a newer
+    # checkout — including the in-app self-upgrade — migrates itself with
+    # its own freshly compiled modules. Dev and test migrate explicitly.
+    cond do
+      System.get_env("RELEASE_NAME") -> false
+      Application.get_env(:veejr, :auto_migrate, false) -> false
+      true -> true
+    end
   end
 end

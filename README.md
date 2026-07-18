@@ -27,6 +27,9 @@ friendship, and consent rules.
 - Account export/import, administrator-controlled moves into newly provisioned
   instances, key rewrap/rotation/reset, installable PWA support, browser
   notifications, and encrypted Web Push.
+- Pull-based self-upgrades: each instance checks the upstream releases on its
+  administrator's request and can upgrade and restart itself, with an
+  automatic database backup and build-failure rollback.
 - A native Jetpack Compose Android client with portable-key unlock, consent,
   conversation messaging, filtered history, contact/group policy controls, and
   private notes. See [veejr-android](https://github.com/veejr/veejr-android).

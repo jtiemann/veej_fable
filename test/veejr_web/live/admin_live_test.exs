@@ -32,6 +32,45 @@ defmodule VeejrWeb.AdminLiveTest do
     assert has_element?(view, "#admin-health")
   end
 
+  test "checks for software updates on demand", %{conn: conn} do
+    admin = user_fixture()
+
+    Req.Test.stub(Veejr.UpdatesStub, fn conn ->
+      Req.Test.json(conn, %{
+        "tag_name" => "v9.9.9",
+        "name" => "Release v9.9.9",
+        "body" => "big improvements",
+        "html_url" => "https://example.com/release"
+      })
+    end)
+
+    {:ok, view, html} = conn |> log_in_user(admin) |> live(~p"/admin")
+
+    # nothing phones home until the admin asks
+    assert html =~ "Updates are checked only when you ask"
+    assert html =~ "v#{Veejr.Updates.current_version()}"
+
+    view |> element("#check-updates") |> render_click()
+
+    assert has_element?(view, "#admin-software-update", "v9.9.9")
+    assert has_element?(view, "#admin-software-update", "big improvements")
+  end
+
+  test "reports an up-to-date instance", %{conn: conn} do
+    admin = user_fixture()
+
+    Req.Test.stub(Veejr.UpdatesStub, fn conn ->
+      Req.Test.json(conn, %{"tag_name" => "v" <> Veejr.Updates.current_version()})
+    end)
+
+    {:ok, view, _html} = conn |> log_in_user(admin) |> live(~p"/admin")
+
+    view |> element("#check-updates") |> render_click()
+
+    assert has_element?(view, "#admin-software-update", "Up to date")
+    refute has_element?(view, "#start-upgrade")
+  end
+
   test "updates instance settings and tests mail delivery", %{conn: conn} do
     admin = user_fixture()
     assert_email_sent()
