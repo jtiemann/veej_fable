@@ -16,6 +16,7 @@ import {
   encryptBlob,
   decryptBlob,
 } from "./crypto.js"
+import {ensureLeaflet} from "./map_hook.js"
 
 // Promise wrapper around pushEvent-with-reply, shared by several hooks.
 function pushWithReply(hook, event, params) {
@@ -209,6 +210,90 @@ function showMediaModal({blob, title, mime}) {
   panel.appendChild(body)
   overlay.appendChild(panel)
   document.body.appendChild(overlay)
+}
+
+// Full-screen map modal for a decrypted location or geo-note. The plaintext
+// (coordinates, title, text) only ever exists in this browser; everything is
+// written with textContent, matching the Decrypt hook's security rule.
+async function showLocationModal({lat, lng, title, text, kind}) {
+  const overlay = document.createElement("div")
+  overlay.className = "fixed inset-0 z-[1100] flex items-center justify-center bg-black/70 p-4"
+  overlay.setAttribute("role", "dialog")
+  overlay.setAttribute("aria-modal", "true")
+
+  const panel = document.createElement("div")
+  panel.className = "flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg bg-base-100 text-base-content shadow-2xl"
+
+  const header = document.createElement("div")
+  header.className = "flex items-center justify-between gap-3 border-b border-base-300 px-4 py-3"
+
+  const h = document.createElement("h3")
+  h.className = "truncate text-sm font-medium text-base-content"
+  h.textContent = title || (kind === "note" ? "📝 Map note" : "📍 Shared location")
+
+  const close = document.createElement("button")
+  close.type = "button"
+  close.className = "btn btn-ghost btn-sm"
+  close.textContent = "Close"
+
+  const mapDiv = document.createElement("div")
+  mapDiv.className = "h-[55vh] min-h-64 w-full bg-base-200"
+  mapDiv.setAttribute("data-role", "location-modal-map")
+
+  const info = document.createElement("div")
+  info.className = "space-y-1 border-t border-base-300 px-4 py-3"
+
+  if (text) {
+    const p = document.createElement("p")
+    p.className = "whitespace-pre-wrap text-sm"
+    p.textContent = text
+    info.appendChild(p)
+  }
+
+  const coords = document.createElement("p")
+  coords.className = "text-xs opacity-60"
+  coords.textContent = `📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}`
+  info.appendChild(coords)
+
+  let map = null
+  const cleanup = () => {
+    if (map) map.remove()
+    document.removeEventListener("keydown", onKeydown)
+    overlay.remove()
+  }
+  const onKeydown = (event) => {
+    if (event.key === "Escape") cleanup()
+  }
+
+  close.addEventListener("click", cleanup)
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) cleanup()
+  })
+  document.addEventListener("keydown", onKeydown)
+
+  header.appendChild(h)
+  header.appendChild(close)
+  panel.appendChild(header)
+  panel.appendChild(mapDiv)
+  panel.appendChild(info)
+  overlay.appendChild(panel)
+  document.body.appendChild(overlay)
+
+  try {
+    const L = await ensureLeaflet()
+    if (!overlay.isConnected) return
+    map = L.map(mapDiv).setView([lat, lng], 16)
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors",
+    }).addTo(map)
+    L.marker([lat, lng]).addTo(map)
+    // Leaflet measures its container on init; re-measure once layout settles.
+    setTimeout(() => map && map.invalidateSize(), 60)
+  } catch (err) {
+    mapDiv.className = "flex min-h-64 w-full items-center justify-center p-4 text-sm opacity-70"
+    mapDiv.textContent = err.message
+  }
 }
 
 // Key setup: generate a keypair, wrap the secret key with the passphrase,
@@ -1356,10 +1441,22 @@ export const Decrypt = {
 
     if (kind === "location" || kind === "note") {
       if (typeof payload.lat === "number" && typeof payload.lng === "number") {
-        const p = document.createElement("p")
-        p.className = "text-sm opacity-70"
-        p.textContent = `📍 ${payload.lat.toFixed(5)}, ${payload.lng.toFixed(5)}`
-        this.el.appendChild(p)
+        const btn = document.createElement("button")
+        btn.type = "button"
+        btn.className = "btn btn-outline btn-xs mt-1"
+        btn.setAttribute("data-role", "view-location")
+        btn.textContent = `📍 ${payload.lat.toFixed(5)}, ${payload.lng.toFixed(5)} · View map`
+        btn.addEventListener("click", () => {
+          if (this.expired) return
+          showLocationModal({
+            lat: payload.lat,
+            lng: payload.lng,
+            title: payload.title,
+            text: payload.text,
+            kind,
+          })
+        })
+        this.el.appendChild(btn)
       }
     }
 
