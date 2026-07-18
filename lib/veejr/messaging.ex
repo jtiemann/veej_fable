@@ -636,7 +636,7 @@ defmodule Veejr.Messaging do
         Repo.transaction(fn ->
           first =
             from(e in Envelope,
-              where: e.recipient_id == ^user_id and e.thread_key == ^key and e.kind == "message",
+              where: e.recipient_id == ^user_id and e.thread_key == ^key,
               order_by: [asc: e.id],
               limit: 1
             )
@@ -664,7 +664,7 @@ defmodule Veejr.Messaging do
             end
 
           from(e in Envelope,
-            where: e.recipient_id == ^user_id and e.thread_key == ^key and e.kind == "message"
+            where: e.recipient_id == ^user_id and e.thread_key == ^key
           )
           |> Repo.update_all(set: [thread_key: archive_key])
 
@@ -695,8 +695,9 @@ defmodule Veejr.Messaging do
   @doc """
   Conversation summaries for the current user, newest activity first — one
   row per thread, computed in the database without loading any ciphertext.
-  Includes archived instances; callers overlay `list_thread_archives/1` to
-  filter or label them.
+  Every kind participates: messages, location shares, and geo-notes are all
+  first-class conversation items. Includes archived instances; callers
+  overlay `list_thread_archives/1` to filter or label them.
   """
   def list_conversation_summaries(%User{id: id}) do
     now = DateTime.utc_now(:second)
@@ -704,7 +705,7 @@ defmodule Veejr.Messaging do
     from(e in Envelope,
       left_join: n in assoc(e, :notification),
       where:
-        e.recipient_id == ^id and e.kind == "message" and not is_nil(e.thread_key) and
+        e.recipient_id == ^id and not is_nil(e.thread_key) and
           (e.sender_id == ^id or n.state == "accepted") and
           (is_nil(e.expires_at) or e.expires_at > ^now) and
           (is_nil(e.max_displays) or e.display_count < e.max_displays),
@@ -724,8 +725,9 @@ defmodule Veejr.Messaging do
   end
 
   @doc """
-  The newest page of one conversation's envelopes, returned oldest-first for
-  display. `:limit` bounds the page; older rows load by raising it.
+  The newest page of one conversation's envelopes — all kinds, returned
+  oldest-first for display. `:limit` bounds the page; older rows load by
+  raising it.
   """
   def list_thread_envelopes(%User{id: id}, thread_key, opts \\ [])
       when is_binary(thread_key) do
@@ -735,7 +737,7 @@ defmodule Veejr.Messaging do
       from(e in Envelope,
         left_join: n in assoc(e, :notification),
         where:
-          e.recipient_id == ^id and e.thread_key == ^thread_key and e.kind == "message" and
+          e.recipient_id == ^id and e.thread_key == ^thread_key and
             (e.sender_id == ^id or n.state == "accepted") and
             (is_nil(e.expires_at) or e.expires_at > ^now) and
             (is_nil(e.max_displays) or e.display_count < e.max_displays),
