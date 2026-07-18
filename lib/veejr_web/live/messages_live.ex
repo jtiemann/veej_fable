@@ -239,14 +239,26 @@ defmodule VeejrWeb.MessagesLive do
                     </p>
                   </div>
                 </div>
-                <button
-                  id="archive-conversation"
-                  phx-click="archive_conversation"
-                  phx-value-key={@selected_conversation.key}
-                  class="shrink-0 rounded-full px-3 py-1.5 text-sm font-medium opacity-80 hover:bg-base-200 hover:opacity-100"
-                >
-                  <.icon name="hero-archive-box" class="mr-1 inline size-4" /> Archive
-                </button>
+                <div class="flex shrink-0 items-center gap-1">
+                  <button
+                    :if={call_peer_id(@selected_conversation)}
+                    id="start-call"
+                    phx-click="start_call"
+                    phx-value-id={call_peer_id(@selected_conversation)}
+                    title="Start an encrypted audio/video call"
+                    class="rounded-full px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/10"
+                  >
+                    <.icon name="hero-phone" class="mr-1 inline size-4" /> Call
+                  </button>
+                  <button
+                    id="archive-conversation"
+                    phx-click="archive_conversation"
+                    phx-value-key={@selected_conversation.key}
+                    class="rounded-full px-3 py-1.5 text-sm font-medium opacity-80 hover:bg-base-200 hover:opacity-100"
+                  >
+                    <.icon name="hero-archive-box" class="mr-1 inline size-4" /> Archive
+                  </button>
+                </div>
               </div>
 
               <div
@@ -456,6 +468,20 @@ defmodule VeejrWeb.MessagesLive do
        message_limit: @message_page_size
      )
      |> refresh()}
+  end
+
+  def handle_event("start_call", %{"id" => id}, socket) do
+    case Veejr.Calls.start_call(socket.assigns.current_scope.user, id) do
+      {:ok, call} ->
+        {:noreply, push_navigate(socket, to: ~p"/call/#{call.public_id}")}
+
+      {:error, :callee_unreachable} ->
+        {:noreply,
+         put_flash(socket, :error, "Their instance is unreachable right now — try again later.")}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Could not start the call.")}
+    end
   end
 
   def handle_event("open_profile", %{"id" => id}, socket) do
@@ -790,6 +816,16 @@ defmodule VeejrWeb.MessagesLive do
   defp profile_note_error(_changeset), do: "Could not save that note."
 
   defp composer_submit_label(_conversation), do: "Send"
+
+  # A call button appears only on 1:1 conversations with a single friend.
+  defp call_peer_id(%{reply_ids: reply_ids, participants: participants}) do
+    case {String.split(reply_ids, ",", trim: true), participants} do
+      {[single_friend_id], [_single_participant]} -> single_friend_id
+      _ -> nil
+    end
+  end
+
+  defp call_peer_id(_conversation), do: nil
 
   defp assign_multi_recipient(socket, params) do
     friend_ids = parse_id_list(Map.get(params, "friend_ids"))

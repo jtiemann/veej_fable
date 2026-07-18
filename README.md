@@ -30,6 +30,10 @@ friendship, and consent rules.
 - Pull-based self-upgrades: each instance checks the upstream releases on its
   administrator's request and can upgrade and restart itself, with an
   automatic database backup and build-failure rollback.
+- 1:1 audio/video calls (browser, including across federated instances):
+  media flows peer-to-peer over WebRTC and signaling is sealed between the
+  participants' pinned keys, so instances relay only ciphertext they cannot
+  read or alter.
 - A native Jetpack Compose Android client with portable-key unlock, consent,
   conversation messaging, filtered history, contact/group policy controls, and
   private notes. See [veejr-android](https://github.com/veejr/veejr-android).

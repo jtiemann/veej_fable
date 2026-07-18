@@ -2,10 +2,10 @@ defmodule Veejr.Janitor do
   @moduledoc """
   Periodic background cleanup.
 
-  Currently sweeps abandoned attachment uploads (tracked blobs that were
-  never linked to a sent batch) once per interval, keeping filesystem I/O
-  off the upload request path. Disabled in tests via `:janitor_interval_ms`;
-  tests call `Veejr.Messaging.purge_abandoned_blobs/0` directly.
+  Sweeps abandoned attachment uploads (tracked blobs that were never linked
+  to a sent batch), keeping filesystem I/O off the upload request path, and
+  marks stale calls (unanswered rings, abandoned sessions). Disabled in
+  tests via `:janitor_interval_ms`; tests call the swept functions directly.
   """
 
   use GenServer
@@ -21,6 +21,7 @@ defmodule Veejr.Janitor do
   @impl true
   def handle_info(:sweep, state) do
     Veejr.Messaging.purge_abandoned_blobs()
+    Veejr.Calls.sweep_stale_calls()
     schedule_sweep()
     {:noreply, state}
   end

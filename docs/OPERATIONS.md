@@ -115,6 +115,36 @@ $Response.StatusCode
 ).Value | Sort-Object -Unique
 ```
 
+## Calls: STUN and optional TURN
+
+Calls default to a public STUN server, which suffices for most NAT
+combinations. When both parties sit behind symmetric NAT the direct
+connection fails (the call page reports it); a TURN relay fixes this. TURN
+only relays already-encrypted SRTP — it never sees call content.
+
+Run a coturn sidecar and point the instance at it:
+
+```powershell
+docker run -d --name veej_coturn --restart unless-stopped `
+  -p 3478:3478 -p 3478:3478/udp -p 49160-49200:49160-49200/udp `
+  coturn/coturn -n --realm=veejr `
+  --user=veejr:CHOOSE_A_LONG_SECRET `
+  --min-port=49160 --max-port=49200 --no-cli --no-tls
+```
+
+Then set on the application service (and open the UDP ports on the
+firewall/router):
+
+```text
+VEEJR_TURN_URL=turn:your-host:3478
+VEEJR_TURN_USERNAME=veejr
+VEEJR_TURN_PASSWORD=CHOOSE_A_LONG_SECRET
+VEEJR_STUN_URLS=stun:stun.l.google.com:19302   # optional override
+```
+
+Static credentials are the simple v1; time-limited HMAC credentials are a
+future hardening step.
+
 ## Restart services
 
 Restart Phoenix through Swarm rather than `docker restart`:

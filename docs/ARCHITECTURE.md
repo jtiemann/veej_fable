@@ -200,6 +200,29 @@ delivery immediately. Failures are retried with exponential backoff (30
 seconds to six hours) for roughly a week. Definitive 4xx responses are not
 retried.
 
+## Calls
+
+1:1 audio/video calls use WebRTC: media flows peer-to-peer over DTLS-SRTP
+and never touches an instance. The server's only role is consent and
+signaling relay:
+
+- Ringing reuses the consent model — the callee's open tabs show an
+  incoming-call banner (`{:veejr_call_ring, call}` on the user topic) and
+  nothing connects until they accept. Only accepted friends can ring.
+- Signaling payloads (SDP offers/answers, ICE candidates) are sealed
+  browser-side with `nacl.box` between the participants' pinned identity
+  keys. Instances relay opaque ciphertext, so a compromised server cannot
+  substitute DTLS fingerprints to man-in-the-middle a call.
+- Federated calls mirror one `calls` row per instance under a shared public
+  id; invites, state updates, and sealed signals relay over the signed
+  instance-to-instance channel synchronously (`/api/federation/call_*`) —
+  a call is now or never, so the retry outbox is not involved.
+- ICE servers default to public STUN; operators can add a TURN relay
+  (encrypted SRTP only) via environment configuration.
+- The peers learn each other's IP addresses when connecting directly, as in
+  any peer-to-peer call; a TURN relay hides addresses at the cost of
+  relaying through the configured server.
+
 ## Web Push
 
 Each browser/device can register a Push API subscription. Push payloads are
@@ -232,6 +255,7 @@ message plaintext. Push services still observe endpoint and timing metadata.
 | `conversation_archives` | Archived/preserved conversation instances; archiving stamps member envelopes with the instance key. |
 | `notifications` | Per-envelope consent state. |
 | `conversation_windows` | Rolling user/peer auto-accept expiry. |
+| `calls` | 1:1 call consent/lifecycle state (ringing/accepted/…); signaling itself is relayed, never stored. |
 | `blobs` | Opaque encrypted file location, owner, size, and public capability ID. |
 | `instance_credentials` | Server-side Ed25519 federation and P-256 VAPID keypairs. |
 | `peers` | TOFU-pinned remote instance signing keys. |
