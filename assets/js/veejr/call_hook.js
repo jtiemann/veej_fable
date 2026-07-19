@@ -38,7 +38,10 @@ export const CallSession = {
     })
 
     this.setupControls()
-    this.acquireMedia()
+    // Negotiation awaits this promise: building the peer connection before
+    // capture resolves (e.g. while a permission prompt is open) would create
+    // a receive-only session and the other side would never see this party.
+    this.mediaReady = this.acquireMedia()
   },
 
   destroyed() {
@@ -110,8 +113,12 @@ export const CallSession = {
   },
 
   // The caller starts negotiation only after the callee's page joined, so
-  // no offer is ever sent into the void.
+  // no offer is ever sent into the void — and only after local capture has
+  // settled, so the offer actually carries this side's tracks.
   async startAsCaller() {
+    if (this.negotiating || this.pc) return
+    this.negotiating = true
+    await this.mediaReady
     if (this.pc) return
     this.createPeer()
     const offer = await this.pc.createOffer()
@@ -127,7 +134,11 @@ export const CallSession = {
     }
 
     this.pc.ontrack = (event) => {
-      if (this.remoteVideo && event.streams[0]) this.remoteVideo.srcObject = event.streams[0]
+      if (this.remoteVideo && event.streams[0]) {
+        this.remoteVideo.srcObject = event.streams[0]
+        // Nudge playback in case the browser's autoplay policy paused it.
+        this.remoteVideo.play().catch(() => {})
+      }
     }
 
     this.pc.onicecandidate = (event) => {
@@ -151,7 +162,14 @@ export const CallSession = {
   async onSignal(payload) {
     try {
       if (payload.kind === "offer") {
-        if (!this.pc) this.createPeer()
+        if (!this.pc) {
+          // Wait for capture before answering — an answer built without
+          // local tracks would be receive-only and the caller would never
+          // see or hear this side.
+          await this.mediaReady
+          if (!this.pc) this.createPeer()
+        }
+
         await this.pc.setRemoteDescription({type: "offer", sdp: payload.sdp})
         const answer = await this.pc.createAnswer()
         await this.pc.setLocalDescription(answer)
