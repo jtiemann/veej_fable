@@ -61,6 +61,52 @@ export const CallSession = {
     if (this.localVideo && this.localStream.getVideoTracks().length > 0) {
       this.localVideo.srcObject = this.localStream
     }
+
+    this.offerCameraSwitch()
+  },
+
+  // Shows the switch-camera button when more than one camera exists. Device
+  // labels/ids are fully available here because capture is already active.
+  async offerCameraSwitch() {
+    if (!this.localStream || this.localStream.getVideoTracks().length === 0) return
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      this.cameras = devices.filter((d) => d.kind === "videoinput")
+      const btn = this.el.querySelector("[data-role=switch-cam]")
+      if (btn && this.cameras.length > 1) btn.classList.remove("hidden")
+    } catch {
+      this.cameras = []
+    }
+  },
+
+  // Swaps the outgoing video to the next camera without renegotiating: the
+  // new track replaces the old one on the existing RTCRtpSender.
+  async switchCamera() {
+    const oldTrack = this.localStream && this.localStream.getVideoTracks()[0]
+    if (!oldTrack || !this.cameras || this.cameras.length < 2) return
+
+    const currentId = oldTrack.getSettings().deviceId
+    const index = this.cameras.findIndex((d) => d.deviceId === currentId)
+    const next = this.cameras[(index + 1) % this.cameras.length]
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {deviceId: {exact: next.deviceId}},
+      })
+      const newTrack = stream.getVideoTracks()[0]
+      newTrack.enabled = oldTrack.enabled
+
+      const sender =
+        this.pc && this.pc.getSenders().find((s) => s.track && s.track.kind === "video")
+      if (sender) await sender.replaceTrack(newTrack)
+
+      this.localStream.removeTrack(oldTrack)
+      oldTrack.stop()
+      this.localStream.addTrack(newTrack)
+      if (this.localVideo) this.localVideo.srcObject = this.localStream
+    } catch (err) {
+      this.showError(`Could not switch camera: ${err.message}`)
+    }
   },
 
   // The caller starts negotiation only after the callee's page joined, so
@@ -158,6 +204,11 @@ export const CallSession = {
         track.enabled = !track.enabled
         cam.textContent = track.enabled ? "🎥 Camera off" : "🎥 Camera on"
       })
+    }
+
+    const switchCam = this.el.querySelector("[data-role=switch-cam]")
+    if (switchCam) {
+      switchCam.addEventListener("click", () => this.switchCamera())
     }
   },
 
