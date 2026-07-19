@@ -72,6 +72,13 @@ defmodule VeejrWeb.CallLive do
         <div class="flex items-center justify-center gap-3 border-t border-base-300 bg-base-100 px-5 py-4">
           <button data-role="toggle-mic" class="btn btn-outline btn-sm">🎙 Mute</button>
           <button data-role="toggle-cam" class="btn btn-outline btn-sm">🎥 Camera off</button>
+          <button
+            data-role="switch-cam"
+            title="Switch to the next camera"
+            class="btn btn-outline btn-sm hidden"
+          >
+            🔄 Camera
+          </button>
         </div>
       </div>
 
