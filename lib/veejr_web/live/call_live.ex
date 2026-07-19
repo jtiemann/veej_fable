@@ -136,13 +136,24 @@ defmodule VeejrWeb.CallLive do
 
     if connected?(socket) do
       Calls.subscribe(call)
+      Calls.register_presence(call.public_id, user.id)
 
-      if role == "callee" and call.state == "ringing" do
-        case Calls.join_call(user, call.public_id) do
-          {:ok, _call} -> :ok
-          # raced with a cancel — the ended broadcast will redirect us
-          {:error, _} -> :ok
-        end
+      cond do
+        role == "callee" and call.state == "ringing" ->
+          case Calls.join_call(user, call.public_id) do
+            {:ok, _call} -> :ok
+            # raced with a cancel — the ended broadcast will redirect us
+            {:error, _} -> :ok
+          end
+
+        role == "caller" and call.state == "accepted" ->
+          # The callee already joined — either we reconnected and missed the
+          # transient broadcast (common on phones), or they accepted between
+          # our dead and connected mounts. Replay it so negotiation starts.
+          send(self(), {:call_peer_joined, call.public_id})
+
+        true ->
+          :ok
       end
     end
 
@@ -206,10 +217,11 @@ defmodule VeejrWeb.CallLive do
 
   @impl true
   def terminate(_reason, socket) do
-    # Leaving the page (navigation, closed tab, crash) hangs up. Calls that
+    # Leaving the page hangs up — but only after a grace period with no
+    # reconnect, so a phone's socket blip doesn't kill the call. Calls that
     # already ended are untouched.
     if call = socket.assigns[:call] do
-      Calls.end_call(socket.assigns.current_scope.user, call.public_id)
+      Calls.end_call_after_grace(socket.assigns.current_scope.user, call.public_id)
     end
 
     :ok

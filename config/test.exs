@@ -17,6 +17,10 @@ config :veejr, :outbox_tick_ms, :never
 # driven directly.
 config :veejr, :janitor_interval_ms, :never
 
+# No deferred hang-up tasks in tests (they would outlive the DB sandbox);
+# presence and end_call are exercised directly.
+config :veejr, :call_grace_ms, :never
+
 # No spontaneous Web Push sends from tests; Veejr.Push.notify/1 is called directly.
 config :veejr, :push_enabled, false
 config :veejr, :push_req_options, plug: {Req.Test, Veejr.PushStub}

@@ -278,6 +278,49 @@ defmodule Veejr.Calls do
     end
   end
 
+  ## Participant presence
+
+  # Mobile browsers drop and reconnect the LiveView socket constantly, and a
+  # reconnect must not read as "hung up". Each mounted call page registers
+  # here; leaving only ends the call if the participant stays absent through
+  # a short grace period.
+
+  @grace_ms 10_000
+
+  @doc "Registers the calling process as a participant's live call page."
+  def register_presence(public_id, user_id) do
+    Registry.register(Veejr.CallRegistry, {public_id, user_id}, :present)
+    :ok
+  end
+
+  @doc "Whether any live call page is currently open for this participant."
+  def present?(public_id, user_id) do
+    Registry.lookup(Veejr.CallRegistry, {public_id, user_id}) != []
+  end
+
+  @doc """
+  Ends the call only if the participant has not re-registered (reconnected
+  or reopened the page) within the grace period. A genuine navigation away
+  or closed tab still hangs up — just not a network blip.
+  """
+  def end_call_after_grace(%User{} = user, public_id) do
+    case Application.get_env(:veejr, :call_grace_ms, @grace_ms) do
+      :never ->
+        :ok
+
+      grace_ms ->
+        Task.Supervisor.start_child(Veejr.TaskSupervisor, fn ->
+          Process.sleep(grace_ms)
+
+          unless present?(public_id, user.id) do
+            end_call(user, public_id)
+          end
+        end)
+
+        :ok
+    end
+  end
+
   ## Maintenance
 
   @doc "Marks stale ringing calls missed and abandons ancient accepted calls."
