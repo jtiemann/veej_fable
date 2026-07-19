@@ -79,6 +79,13 @@ defmodule VeejrWeb.CallLive do
           >
             🔄 Camera
           </button>
+          <button
+            data-role="share-screen"
+            title="Share your screen or a window"
+            class="btn btn-outline btn-sm hidden"
+          >
+            🖥 Share screen
+          </button>
         </div>
       </div>
 

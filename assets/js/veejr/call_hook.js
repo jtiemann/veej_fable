@@ -45,6 +45,7 @@ export const CallSession = {
   },
 
   destroyed() {
+    if (this.screenTrack) this.screenTrack.stop()
     if (this.localStream) this.localStream.getTracks().forEach((t) => t.stop())
     if (this.pc) this.pc.close()
   },
@@ -82,9 +83,78 @@ export const CallSession = {
     }
   },
 
+  // Shares the whole screen or one window (the browser's picker offers the
+  // choice). The screen track replaces the outgoing camera track on the
+  // existing sender — no renegotiation — and the camera comes back when
+  // sharing stops, including via the browser's own "Stop sharing" bar.
+  async toggleScreenShare() {
+    if (this.screenTrack) return this.stopScreenShare()
+
+    const cameraTrack = this.localStream && this.localStream.getVideoTracks()[0]
+    const sender =
+      this.pc && this.pc.getSenders().find((s) => s.track && s.track.kind === "video")
+
+    if (!cameraTrack || !sender) {
+      return this.showError("Screen sharing needs a connected call with video.")
+    }
+
+    let stream
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({video: true})
+    } catch {
+      return // picker dismissed — not an error
+    }
+
+    try {
+      const track = stream.getVideoTracks()[0]
+      this.screenTrack = track
+      track.addEventListener("ended", () => this.stopScreenShare())
+      await sender.replaceTrack(track)
+      if (this.localVideo) this.localVideo.srcObject = stream
+      this.setShareUi(true)
+    } catch (err) {
+      this.screenTrack = null
+      stream.getTracks().forEach((t) => t.stop())
+      this.showError(`Could not share the screen: ${err.message}`)
+    }
+  },
+
+  async stopScreenShare() {
+    const track = this.screenTrack
+    if (!track) return
+    this.screenTrack = null
+    track.stop()
+
+    const cameraTrack = this.localStream && this.localStream.getVideoTracks()[0]
+    const sender =
+      this.pc && this.pc.getSenders().find((s) => s.track && s.track.kind === "video")
+
+    try {
+      if (sender && cameraTrack) await sender.replaceTrack(cameraTrack)
+    } catch (err) {
+      this.showError(`Could not restore the camera: ${err.message}`)
+    }
+
+    if (this.localVideo) this.localVideo.srcObject = this.localStream
+    this.setShareUi(false)
+  },
+
+  // While sharing, the camera controls would silently fight the screen
+  // track, so they sit disabled until sharing stops.
+  setShareUi(sharing) {
+    const share = this.el.querySelector("[data-role=share-screen]")
+    if (share) share.textContent = sharing ? "🖥 Stop sharing" : "🖥 Share screen"
+
+    for (const role of ["toggle-cam", "switch-cam"]) {
+      const btn = this.el.querySelector(`[data-role=${role}]`)
+      if (btn) btn.disabled = sharing
+    }
+  },
+
   // Swaps the outgoing video to the next camera without renegotiating: the
   // new track replaces the old one on the existing RTCRtpSender.
   async switchCamera() {
+    if (this.screenTrack) return
     const oldTrack = this.localStream && this.localStream.getVideoTracks()[0]
     if (!oldTrack || !this.cameras || this.cameras.length < 2) return
 
@@ -227,6 +297,13 @@ export const CallSession = {
     const switchCam = this.el.querySelector("[data-role=switch-cam]")
     if (switchCam) {
       switchCam.addEventListener("click", () => this.switchCamera())
+    }
+
+    // Screen capture is a desktop-browser feature; phones hide the button.
+    const share = this.el.querySelector("[data-role=share-screen]")
+    if (share && navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
+      share.classList.remove("hidden")
+      share.addEventListener("click", () => this.toggleScreenShare())
     }
   },
 
