@@ -348,11 +348,13 @@ docker logs --tail 100 veej_caddy
 The Swarm service bind-mounts the project and starts the application with
 `mix phx.server`; this is operationally convenient but is not an immutable
 release deployment. Swarm restarts the Phoenix task on failure. The standalone
-Caddy and Postfix containers currently have no restart policy, so they must be
-started after a Docker daemon or host restart. A future deployment should use
+Caddy, coturn, and Postfix containers are configured with an `unless-stopped`
+restart policy, so they return automatically after a Docker daemon or host
+restart (provided Docker Desktop itself starts). A future deployment should use
 a built release image and configure all supporting containers with persistent
-volumes and an `unless-stopped` restart policy. The exact current installation,
-upgrade order, backup procedure, and troubleshooting steps are documented in
+volumes. The exact current host layout, secrets, and recovery steps are in
+[docs/HOST_RUNBOOK.md](docs/HOST_RUNBOOK.md); installation, upgrade order,
+backup procedure, and troubleshooting are in
 [docs/INSTALLATION.md](docs/INSTALLATION.md) and
 [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
