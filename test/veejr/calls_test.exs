@@ -203,6 +203,27 @@ defmodule Veejr.CallsTest do
     end
   end
 
+  test "participant presence tracks live call pages per process" do
+    refute Calls.present?("some-call", 1)
+
+    task =
+      Task.async(fn ->
+        Calls.register_presence("some-call", 1)
+        Process.sleep(:infinity)
+      end)
+
+    # registration is visible while the page process lives…
+    Process.sleep(50)
+    assert Calls.present?("some-call", 1)
+    refute Calls.present?("some-call", 2)
+    refute Calls.present?("other-call", 1)
+
+    # …and disappears with it, which is what the hang-up grace checks
+    Task.shutdown(task, :brutal_kill)
+    Process.sleep(50)
+    refute Calls.present?("some-call", 1)
+  end
+
   test "the janitor sweep marks stale rings missed" do
     alice = user_fixture()
     bob = user_fixture()
