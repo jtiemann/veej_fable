@@ -135,8 +135,15 @@ docker run -d --name veej_coturn --restart unless-stopped `
 
 Keep the relay range below 49152 on Windows hosts — Windows reserves blocks
 of the ephemeral range (49152+) and Docker cannot publish ports inside them.
-`--external-ip` maps the relay's advertised address for peers outside the
-LAN; omit it when the host has a public address of its own.
+
+Omit `--external-ip` on routers without NAT loopback (hairpin): with it, LAN
+devices are handed relay addresses at the public IP they cannot reach. Left
+out, the relay advertises its LAN address; external parties (including
+VPN'd devices, whose traffic arrives from the internet) still relay fine
+through their own allocation, provided the router forwards 3478 (TCP and
+UDP) and the relay UDP range to the host. The instance automatically
+advertises a `?transport=tcp` TURN variant for clients whose VPN or
+firewall drops UDP.
 
 Then set on the application service (and open the UDP ports on the
 firewall/router):

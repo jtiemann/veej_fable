@@ -48,9 +48,14 @@ if config_env() == :prod do
         []
 
       url ->
+        # Advertise a TCP variant alongside UDP: VPNs and strict firewalls
+        # often drop UDP, and TURN-over-TCP still relays to UDP media fine.
+        urls =
+          if String.contains?(url, "transport="), do: [url], else: [url, url <> "?transport=tcp"]
+
         [
           %{
-            urls: [url],
+            urls: urls,
             username: System.get_env("VEEJR_TURN_USERNAME") || "",
             credential: System.get_env("VEEJR_TURN_PASSWORD") || ""
           }
