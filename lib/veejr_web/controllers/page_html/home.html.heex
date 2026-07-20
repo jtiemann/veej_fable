@@ -1,90 +1,116 @@
-<Layouts.app flash={@flash} current_scope={@current_scope}>
-  <div id="landing-page" class="landing-page mx-auto max-w-6xl py-8 sm:py-14">
-    <section class="grid items-center gap-12 lg:grid-cols-[1fr_0.9fr] lg:gap-16">
-      <div class="landing-copy max-w-2xl">
-        <div class="landing-eyebrow mb-5 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary">
-          <.icon name="hero-lock-closed-mini" class="size-4" /> Private by design
-        </div>
-        <h1 class="landing-title text-5xl font-bold tracking-tight sm:text-6xl">veejr</h1>
-        <p class="mt-5 max-w-xl text-lg leading-8 opacity-80 sm:text-xl">
-          Your people. Your places. Your little moments. Share messages, locations, and map
-          notes — encrypted in your browser before they go anywhere.
-        </p>
-
-        <div class="mt-8 grid gap-3 sm:grid-cols-2">
-          <div class="landing-feature">
-            <.icon name="hero-key-mini" class="size-5 text-primary" />
-            <p>
-              <strong>Your keys, your data.</strong>
-              Encryption keys are generated on your device; the server stores only ciphertext.
-            </p>
-          </div>
-          <div class="landing-feature">
-            <.icon name="hero-inbox-arrow-down-mini" class="size-5 text-primary" />
-            <p>
-              <strong>Nothing arrives uninvited.</strong>
-              You're notified when a friend sends something, and no data transfers until you request it.
-            </p>
-          </div>
-          <div class="landing-feature">
-            <.icon name="hero-user-group-mini" class="size-5 text-primary" />
-            <p>
-              <strong>Gather your people.</strong>
-              Share with one person, a group, or everyone — friends can be in multiple groups.
-            </p>
-          </div>
-          <div class="landing-feature">
-            <.icon name="hero-map-pin-mini" class="size-5 text-primary" />
-            <p>
-              <strong>Places, privately.</strong>
-              Share your location or pin a note to the map for selected friends only.
-            </p>
-          </div>
-        </div>
-
-        <p class="mt-5 text-sm opacity-65">
-          <strong>Own your instance.</strong>
-          Run veejr on your own machine; the community server is just a starting point.
-        </p>
-
-        <div class="mt-9 flex flex-wrap gap-3">
-          <.link navigate={~p"/users/register"} class="landing-cta btn btn-primary">Let's go
-          <.icon name="hero-arrow-right-mini" class="size-4" /></.link>
-          <.link navigate={~p"/users/log-in"} class="btn btn-ghost">Log in</.link>
-        </div>
+<Layouts.app
+  flash={@flash}
+  current_scope={@current_scope}
+  container_class="mx-auto w-full max-w-6xl"
+>
+  <div id="landing-page" class="landing-page pb-6">
+    <%!-- Hero --%>
+    <section class="landing-reveal text-center">
+      <div class="landing-eyebrow mx-auto mb-6 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary">
+        <.icon name="hero-lock-closed-mini" class="size-4" /> Private by design
       </div>
 
-      <div class="landing-showcase" aria-label="A rotating preview of private sharing in veejr">
-        <span class="landing-confetti landing-confetti-one" aria-hidden="true">*</span>
-        <span class="landing-confetti landing-confetti-two" aria-hidden="true">o</span>
-        <span class="landing-confetti landing-confetti-three" aria-hidden="true">+</span>
-        <div class="landing-orbit landing-orbit-one"></div>
-        <div class="landing-orbit landing-orbit-two"></div>
-        <div class="landing-preview landing-preview-message">
-          <div class="landing-preview-topline">
-            <span class="landing-status"></span><span>Encrypted message</span><time>now</time>
+      <div class="mb-6 flex items-center justify-center gap-3 sm:gap-4">
+        <Layouts.veejr_mark
+          class="landing-mark size-14 veejr-brand sm:size-[4.5rem]"
+          id="hero-mark"
+        />
+        <span class="landing-wordmark text-6xl lowercase sm:text-7xl">veejr</span>
+      </div>
+
+      <h1 class="mx-auto max-w-3xl text-3xl font-bold tracking-tight sm:text-4xl">
+        Share your life — just not with the entire internet.
+      </h1>
+      <p class="mx-auto mt-5 max-w-xl text-lg leading-8 opacity-75">
+        Messages, locations, and map notes, encrypted in your browser before they go anywhere.
+        The only people who see them are the ones you meant to.
+      </p>
+
+      <div class="mt-8 flex flex-wrap justify-center gap-3">
+        <.link navigate={~p"/users/register"} class="landing-cta btn btn-primary btn-lg">
+          Let's go <.icon name="hero-arrow-right-mini" class="size-4" />
+        </.link>
+        <.link navigate={~p"/users/log-in"} class="btn btn-ghost btn-lg">Log in</.link>
+      </div>
+    </section>
+
+    <%!-- Video showpiece --%>
+    <section class="landing-reveal mt-12 sm:mt-16">
+      <div class="landing-video-frame mx-auto max-w-4xl">
+        <video
+          class="landing-video"
+          autoplay
+          muted
+          loop
+          playsinline
+          preload="metadata"
+          poster={~p"/images/veejr-promo-poster.jpg"}
+          aria-label="A 15-second animated introduction to veejr"
+        >
+          <source src={~p"/videos/veejr-promo.mp4"} type="video/mp4" />
+          Your browser can't play this video — but veejr shares your people, places, and little
+          moments, end-to-end encrypted.
+        </video>
+      </div>
+      <p class="mt-3 text-center text-xs opacity-55">
+        Fifteen seconds. No sign-up required to watch — or to judge us.
+      </p>
+    </section>
+
+    <%!-- Features --%>
+    <section class="mt-16 grid gap-4 sm:mt-20 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="landing-feature">
+        <span class="landing-feature-icon"><.icon name="hero-key" class="size-5" /></span>
+        <h3>Your keys, your data.</h3>
+        <p>
+          Encryption keys are born on your device. The server only ever holds ciphertext it
+          cannot read.
+        </p>
+      </div>
+      <div class="landing-feature">
+        <span class="landing-feature-icon"><.icon name="hero-inbox-arrow-down" class="size-5" /></span>
+        <h3>Nothing arrives uninvited.</h3>
+        <p>
+          You're notified when a friend sends something — and nothing transfers until you actually
+          ask for it.
+        </p>
+      </div>
+      <div class="landing-feature">
+        <span class="landing-feature-icon"><.icon name="hero-user-group" class="size-5" /></span>
+        <h3>Gather your people.</h3>
+        <p>
+          Share with one person, a group, or everyone. Friends can live in as many circles as you
+          like.
+        </p>
+      </div>
+      <div class="landing-feature">
+        <span class="landing-feature-icon"><.icon name="hero-map-pin" class="size-5" /></span>
+        <h3>Places, privately.</h3>
+        <p>
+          Drop your location or pin a note to the map — for the friends you choose, never the
+          crowd.
+        </p>
+      </div>
+    </section>
+
+    <%!-- Own your instance --%>
+    <section class="landing-ownit mt-14 sm:mt-16">
+      <div class="flex flex-col items-start gap-6 sm:flex-row sm:items-center sm:justify-between">
+        <div class="max-w-xl">
+          <div class="mb-3 inline-flex items-center gap-2 text-sm font-semibold text-primary">
+            <.icon name="hero-server-stack-mini" class="size-4" /> Own the whole thing
           </div>
-          <div class="landing-bubble">Meet at the quiet spot?</div>
-          <div class="landing-bubble landing-bubble-mine">Pinned. See you there.</div>
+          <h2 class="text-2xl font-bold tracking-tight">Run veejr on your own machine.</h2>
+          <p class="mt-3 text-base leading-7 opacity-75">
+            The community server is just training wheels. Self-host when you're ready, federate with
+            friends on other instances, and answer to nobody.
+          </p>
         </div>
-        <div class="landing-preview landing-preview-map">
-          <div class="landing-preview-topline">
-            <.icon name="hero-map-pin-mini" class="size-4 text-primary" /><span>Shared place</span><time>only friends</time>
-          </div>
-          <div class="landing-map-grid">
-            <span class="landing-map-route"></span><span class="landing-map-pin"></span><span class="landing-map-label">Riverside</span>
-          </div>
-        </div>
-        <div class="landing-preview landing-preview-group">
-          <div class="landing-preview-topline">
-            <.icon name="hero-user-group-mini" class="size-4 text-primary" /><span>Weekend group</span><time>3 people</time>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="landing-avatar bg-primary/30">M</span><span class="landing-avatar bg-info/30">J</span><span class="landing-avatar bg-success/30">A</span><span class="text-sm opacity-65">Only your circle</span>
-          </div>
-        </div>
-        <div class="landing-security-note">
-          <.icon name="hero-lock-closed-mini" class="size-4" /> End-to-end encrypted
+        <div class="flex shrink-0 flex-wrap gap-3">
+          <.link navigate={~p"/users/register"} class="btn btn-primary">Create an account</.link>
+          <a href="https://github.com/veejr/veejr-server" class="btn btn-outline" rel="noopener">
+            <.icon name="hero-code-bracket-mini" class="size-4" /> Self-host
+          </a>
         </div>
       </div>
     </section>
