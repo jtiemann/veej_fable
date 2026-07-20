@@ -724,6 +724,31 @@ defmodule VeejrWeb.MessagingComponents do
     """
   end
 
+  attr :envelope, Envelope, required: true
+  attr :user, User, required: true
+
+  def self_note_card(assigns) do
+    ~H"""
+    <article
+      id={"self-note-#{@envelope.public_id}"}
+      class="self-note-card break-inside-avoid rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+    >
+      <div
+        id={"self-note-content-#{@envelope.public_id}"}
+        phx-hook="SelfNotes"
+        phx-update="ignore"
+        data-user-id={@user.id}
+        data-peer-key={Veejr.Messaging.peer_key(@envelope, @user)}
+        data-ciphertext={@envelope.ciphertext}
+        data-nonce={@envelope.nonce}
+        data-public-id={@envelope.public_id}
+      >
+        <span class="loading loading-dots loading-xs"></span>
+      </div>
+    </article>
+    """
+  end
+
   defp expiry_iso8601(nil), do: nil
   defp expiry_iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
 

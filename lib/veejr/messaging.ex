@@ -152,6 +152,13 @@ defmodule Veejr.Messaging do
           Repo.rollback(:duplicate_recipients)
         end
 
+        if kind == "self_note" and
+             (length(recipient_ids) != 1 or recipient_ids != [sender.id] or
+                not is_nil(effective_expires_at(opt(opts, :expires_at))) or
+                not is_nil(normalize_max_displays(opt(opts, :max_displays)))) do
+          Repo.rollback(:invalid_self_note)
+        end
+
         recipients =
           Enum.map(recipient_ids, fn recipient_id ->
             Repo.get(User, recipient_id) || Repo.rollback({:no_such_user, recipient_id})
@@ -761,6 +768,16 @@ defmodule Veejr.Messaging do
       end
 
     query |> Repo.all() |> Enum.reverse()
+  end
+
+  @doc "Returns the owner's encrypted note cards, newest edit first."
+  def list_self_note_envelopes(%User{id: id}) do
+    from(e in Envelope,
+      where: e.sender_id == ^id and e.recipient_id == ^id and e.kind == "self_note",
+      preload: [:sender],
+      order_by: [desc: e.edited_at, desc: e.inserted_at, desc: e.id]
+    )
+    |> Repo.all()
   end
 
   @doc """

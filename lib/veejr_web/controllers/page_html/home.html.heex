@@ -14,28 +14,42 @@
         <div class="mt-8 grid gap-3 sm:grid-cols-2">
           <div class="landing-feature">
             <.icon name="hero-key-mini" class="size-5 text-primary" />
-            <p><strong>Your keys, your data.</strong> Encryption keys are generated on your device; the server stores only ciphertext.</p>
+            <p>
+              <strong>Your keys, your data.</strong>
+              Encryption keys are generated on your device; the server stores only ciphertext.
+            </p>
           </div>
           <div class="landing-feature">
             <.icon name="hero-inbox-arrow-down-mini" class="size-5 text-primary" />
-            <p><strong>Nothing arrives uninvited.</strong> You're notified when a friend sends something, and no data transfers until you request it.</p>
+            <p>
+              <strong>Nothing arrives uninvited.</strong>
+              You're notified when a friend sends something, and no data transfers until you request it.
+            </p>
           </div>
           <div class="landing-feature">
             <.icon name="hero-user-group-mini" class="size-5 text-primary" />
-            <p><strong>Friends and groups.</strong> Share with one person, a group, or everyone — friends can be in multiple groups.</p>
+            <p>
+              <strong>Friends and groups.</strong>
+              Share with one person, a group, or everyone — friends can be in multiple groups.
+            </p>
           </div>
           <div class="landing-feature">
             <.icon name="hero-map-pin-mini" class="size-5 text-primary" />
-            <p><strong>Places, privately.</strong> Share your location or pin a note to the map for selected friends only.</p>
+            <p>
+              <strong>Places, privately.</strong>
+              Share your location or pin a note to the map for selected friends only.
+            </p>
           </div>
         </div>
 
         <p class="mt-5 text-sm opacity-65">
-          <strong>Own your instance.</strong> Run veejr on your own machine; the community server is just a starting point.
+          <strong>Own your instance.</strong>
+          Run veejr on your own machine; the community server is just a starting point.
         </p>
 
         <div class="mt-9 flex flex-wrap gap-3">
-          <.link navigate={~p"/users/register"} class="btn btn-primary">Create an account <.icon name="hero-arrow-right-mini" class="size-4" /></.link>
+          <.link navigate={~p"/users/register"} class="btn btn-primary">Create an account
+          <.icon name="hero-arrow-right-mini" class="size-4" /></.link>
           <.link navigate={~p"/users/log-in"} class="btn btn-ghost">Log in</.link>
         </div>
       </div>
@@ -44,19 +58,31 @@
         <div class="landing-orbit landing-orbit-one"></div>
         <div class="landing-orbit landing-orbit-two"></div>
         <div class="landing-preview landing-preview-message">
-          <div class="landing-preview-topline"><span class="landing-status"></span><span>Encrypted message</span><time>now</time></div>
+          <div class="landing-preview-topline">
+            <span class="landing-status"></span><span>Encrypted message</span><time>now</time>
+          </div>
           <div class="landing-bubble">Meet at the quiet spot?</div>
           <div class="landing-bubble landing-bubble-mine">Pinned. See you there.</div>
         </div>
         <div class="landing-preview landing-preview-map">
-          <div class="landing-preview-topline"><.icon name="hero-map-pin-mini" class="size-4 text-primary" /><span>Shared place</span><time>only friends</time></div>
-          <div class="landing-map-grid"><span class="landing-map-route"></span><span class="landing-map-pin"></span><span class="landing-map-label">Riverside</span></div>
+          <div class="landing-preview-topline">
+            <.icon name="hero-map-pin-mini" class="size-4 text-primary" /><span>Shared place</span><time>only friends</time>
+          </div>
+          <div class="landing-map-grid">
+            <span class="landing-map-route"></span><span class="landing-map-pin"></span><span class="landing-map-label">Riverside</span>
+          </div>
         </div>
         <div class="landing-preview landing-preview-group">
-          <div class="landing-preview-topline"><.icon name="hero-user-group-mini" class="size-4 text-primary" /><span>Weekend group</span><time>3 people</time></div>
-          <div class="flex items-center gap-2"><span class="landing-avatar bg-primary/30">M</span><span class="landing-avatar bg-info/30">J</span><span class="landing-avatar bg-success/30">A</span><span class="text-sm opacity-65">Only your circle</span></div>
+          <div class="landing-preview-topline">
+            <.icon name="hero-user-group-mini" class="size-4 text-primary" /><span>Weekend group</span><time>3 people</time>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="landing-avatar bg-primary/30">M</span><span class="landing-avatar bg-info/30">J</span><span class="landing-avatar bg-success/30">A</span><span class="text-sm opacity-65">Only your circle</span>
+          </div>
         </div>
-        <div class="landing-security-note"><.icon name="hero-lock-closed-mini" class="size-4" /> End-to-end encrypted</div>
+        <div class="landing-security-note">
+          <.icon name="hero-lock-closed-mini" class="size-4" /> End-to-end encrypted
+        </div>
       </div>
     </section>
   </div>

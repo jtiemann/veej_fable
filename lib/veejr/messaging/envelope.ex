@@ -2,7 +2,7 @@ defmodule Veejr.Messaging.Envelope do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @kinds ~w(message location note)
+  @kinds ~w(message location note self_note)
 
   schema "envelopes" do
     field :public_id, :string

@@ -42,6 +42,13 @@ defmodule VeejrWeb.MessagesLive do
               >
                 <.icon name="hero-qr-code" class="size-4" /> Invite person
               </.link>
+              <.link
+                id="messages-self-notes"
+                patch={~p"/messages?self_notes=true"}
+                class="btn btn-ghost btn-sm"
+              >
+                <.icon name="hero-squares-2x2" class="size-4" /> Notes
+              </.link>
               <.conversation_builder
                 id="messages-conversation-builder"
                 form_id="messages-conversation-builder-form"
@@ -231,8 +238,60 @@ defmodule VeejrWeb.MessagesLive do
           </aside>
 
           <main class="flex h-full min-h-0 min-w-0 flex-col bg-base-200/80">
+            <div :if={@self_notes} class="flex min-h-0 flex-1 flex-col">
+              <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 bg-base-100 px-5 py-4">
+                <div>
+                  <h2 class="text-lg font-semibold text-base-content">Notes to yourself</h2>
+                  <p class="text-xs opacity-70">Private, end-to-end encrypted notes</p>
+                </div>
+                <button
+                  id="self-notes-new"
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  phx-click={JS.dispatch("self-notes:new", to: "#self-notes-board")}
+                >
+                  <.icon name="hero-plus" class="size-4" /> New note
+                </button>
+              </div>
+              <div
+                id="self-notes-board"
+                phx-hook="SelfNotesBoard"
+                data-user-id={@current_scope.user.id}
+                data-peer-key={@current_scope.user.public_key}
+                class="min-h-[26rem] flex-1 overflow-y-auto p-4 sm:p-6"
+              >
+                <div class="mb-5 rounded-2xl border border-base-300 bg-base-100 p-3 shadow-sm">
+                  <input
+                    id="self-notes-search"
+                    data-role="search"
+                    type="search"
+                    placeholder="Search your notes"
+                    class="w-full bg-transparent text-sm outline-none"
+                  />
+                  <button
+                    data-role="new-note"
+                    type="button"
+                    class="mt-3 text-sm font-medium text-primary"
+                  >Take a note…</button>
+                </div>
+                <div id="self-notes-grid" class="columns-1 gap-4 sm:columns-2 xl:columns-3">
+                  <p
+                    :if={@self_note_envelopes == []}
+                    id="self-notes-empty"
+                    class="rounded-2xl border border-dashed border-base-300 p-8 text-center text-sm opacity-70"
+                  >
+                    Capture a thought, a checklist, or a private reminder.
+                  </p>
+                  <.self_note_card
+                    :for={envelope <- @self_note_envelopes}
+                    envelope={envelope}
+                    user={@current_scope.user}
+                  />
+                </div>
+              </div>
+            </div>
             <div
-              :if={@selected_conversation}
+              :if={@selected_conversation && !@self_notes}
               class="flex min-h-0 flex-1 flex-col"
             >
               <div class="flex items-center justify-between gap-3 border-b border-base-300 bg-base-100 px-5 py-4">
@@ -328,7 +387,7 @@ defmodule VeejrWeb.MessagesLive do
             </div>
 
             <div
-              :if={!@selected_conversation}
+              :if={!@selected_conversation && !@self_notes}
               class="flex flex-1 flex-col justify-end"
             >
               <div class="mx-auto max-w-xl px-6 py-12 text-center">
@@ -391,7 +450,9 @@ defmodule VeejrWeb.MessagesLive do
        selected_recipient_type: nil,
        selected_recipient_id: nil,
        selected_profile: nil,
-       message_limit: @message_page_size
+       message_limit: @message_page_size,
+       self_notes: false,
+       self_note_envelopes: []
      )
      |> refresh()}
   end
@@ -633,20 +694,27 @@ defmodule VeejrWeb.MessagesLive do
     selected_key = if selected_conversation, do: selected_key
     selected_recipient = selected_recipient(socket, friends, groups)
 
-    assign(socket,
-      pending: pending,
-      pending_count: length(pending),
-      friends: friends,
-      groups: groups,
-      contact_notes: Social.list_contact_notes(user),
-      available_friends: available_friends(friends, conversations),
-      available_groups: available_groups(groups, conversations),
-      conversations: conversations,
-      has_more_messages: has_more_messages,
-      selected_conversation: selected_conversation,
-      selected_conversation_key: selected_key,
-      selected_recipient: selected_recipient
-    )
+    socket =
+      assign(socket,
+        pending: pending,
+        pending_count: length(pending),
+        friends: friends,
+        groups: groups,
+        contact_notes: Social.list_contact_notes(user),
+        available_friends: available_friends(friends, conversations),
+        available_groups: available_groups(groups, conversations),
+        conversations: conversations,
+        has_more_messages: has_more_messages,
+        selected_conversation: selected_conversation,
+        selected_conversation_key: selected_key,
+        selected_recipient: selected_recipient
+      )
+
+    if socket.assigns.self_notes do
+      assign(socket, :self_note_envelopes, Messaging.list_self_note_envelopes(user))
+    else
+      assign(socket, :self_note_envelopes, [])
+    end
   end
 
   defp clear_selected_recipient(socket) do
@@ -667,12 +735,21 @@ defmodule VeejrWeb.MessagesLive do
 
   defp apply_message_params(%{"conversation" => key}, socket) when is_binary(key) do
     socket
+    |> assign(:self_notes, false)
     |> assign(:selected_conversation_key, key)
+    |> clear_selected_recipient()
+  end
+
+  defp apply_message_params(%{"self_notes" => value}, socket) when value in ["true", "1"] do
+    socket
+    |> assign(:self_notes, true)
+    |> assign(:selected_conversation_key, nil)
     |> clear_selected_recipient()
   end
 
   defp apply_message_params(%{"friend_id" => id}, socket) do
     assign(socket,
+      self_notes: false,
       selected_conversation_key: nil,
       selected_recipient_type: :friend,
       selected_recipient_id: id
@@ -681,6 +758,7 @@ defmodule VeejrWeb.MessagesLive do
 
   defp apply_message_params(%{"group_id" => id}, socket) do
     assign(socket,
+      self_notes: false,
       selected_conversation_key: nil,
       selected_recipient_type: :group,
       selected_recipient_id: id
@@ -697,6 +775,7 @@ defmodule VeejrWeb.MessagesLive do
 
   defp apply_message_params(_params, socket) do
     socket
+    |> assign(:self_notes, false)
     |> assign(:selected_conversation_key, nil)
     |> clear_selected_recipient()
   end
@@ -835,6 +914,7 @@ defmodule VeejrWeb.MessagesLive do
     include_self = Map.get(params, "include_self") in [true, "true", "1", "on"]
 
     assign(socket,
+      self_notes: false,
       selected_conversation_key: nil,
       selected_recipient_type: :multi,
       selected_recipient_id: %{

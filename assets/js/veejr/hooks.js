@@ -1808,6 +1808,125 @@ export const MessageBubble = {
   },
 }
 
+function noteDocument(payload = {}) {
+  const now = new Date().toISOString()
+  return {
+    v: 2,
+    kind: "self_note",
+    note_id: payload.note_id || crypto.randomUUID(),
+    title: payload.title || "",
+    body: payload.body || "",
+    checklist: Array.isArray(payload.checklist) ? payload.checklist : [],
+    labels: Array.isArray(payload.labels) ? payload.labels : [],
+    color: payload.color || "default",
+    pinned: !!payload.pinned,
+    archived_at: payload.archived_at || null,
+    trashed_at: payload.trashed_at || null,
+    created_at: payload.created_at || now,
+    updated_at: now,
+    attachments: Array.isArray(payload.attachments) ? payload.attachments : [],
+  }
+}
+
+function noteEditor(board, payload, save) {
+  const editor = document.createElement("form")
+  editor.className = "mb-5 rounded-2xl border border-primary/30 bg-base-100 p-4 shadow-lg"
+  editor.innerHTML = `<input data-note-title class="mb-3 w-full bg-transparent text-lg font-semibold outline-none" placeholder="Title"><textarea data-note-body class="min-h-28 w-full resize-y bg-transparent text-sm outline-none" placeholder="Take a note…"></textarea><input data-note-labels class="mt-3 w-full bg-transparent text-xs outline-none" placeholder="Labels, separated by commas"><div class="mt-3 flex flex-wrap items-center gap-2"><button type="button" data-note-checklist class="btn btn-ghost btn-xs">Checklist</button><select data-note-color class="select select-sm"><option value="default">Default</option><option value="sand">Sand</option><option value="rose">Rose</option><option value="violet">Violet</option><option value="blue">Blue</option><option value="mint">Mint</option></select><span class="flex-1"></span><button type="button" data-note-cancel class="btn btn-ghost btn-sm">Cancel</button><button class="btn btn-primary btn-sm">Save note</button></div><div data-note-items class="mt-3 space-y-2"></div>`
+  const title = editor.querySelector("[data-note-title]")
+  const body = editor.querySelector("[data-note-body]")
+  const labels = editor.querySelector("[data-note-labels]")
+  const color = editor.querySelector("[data-note-color]")
+  const items = editor.querySelector("[data-note-items]")
+  title.value = payload.title || ""
+  body.value = payload.body || ""
+  labels.value = (payload.labels || []).join(", ")
+  color.value = payload.color || "default"
+  const renderItems = () => {
+    items.textContent = ""
+    ;(payload.checklist || []).forEach((item) => {
+      const row = document.createElement("label")
+      row.className = "flex items-center gap-2 text-sm"
+      const check = document.createElement("input")
+      check.type = "checkbox"; check.checked = !!item.checked
+      const input = document.createElement("input")
+      input.value = item.text || ""; input.className = "flex-1 bg-transparent outline-none"
+      check.addEventListener("change", () => { item.checked = check.checked })
+      input.addEventListener("input", () => { item.text = input.value })
+      row.append(check, input); items.appendChild(row)
+    })
+  }
+  renderItems()
+  editor.querySelector("[data-note-checklist]").addEventListener("click", () => {
+    payload.checklist = [...(payload.checklist || []), {id: crypto.randomUUID(), text: "", checked: false}]
+    renderItems(); items.querySelector("input:last-child")?.focus()
+  })
+  editor.querySelector("[data-note-cancel]").addEventListener("click", () => editor.remove())
+  editor.addEventListener("submit", async (event) => {
+    event.preventDefault()
+    const next = noteDocument({...payload, title: title.value.trim(), body: body.value.trim(), color: color.value, labels: labels.value.split(",").map((v) => v.trim()).filter(Boolean).slice(0, 10)})
+    next.checklist = (payload.checklist || []).filter((item) => item.text.trim())
+    if (!next.title && !next.body && next.checklist.length === 0) return
+    const button = editor.querySelector("button[type=submit]")
+    button.disabled = true; button.textContent = "Encrypting…"
+    try { await save(next); editor.remove() } catch (error) { button.disabled = false; button.textContent = error.message || "Could not save" }
+  })
+  board.prepend(editor); title.focus()
+}
+
+export const SelfNotesBoard = {
+  mounted() {
+    this.el.addEventListener("self-notes:new", () => this.create())
+    this.el.querySelector("[data-role=new-note]")?.addEventListener("click", () => this.create())
+    this.el.querySelector("[data-role=search]")?.addEventListener("input", (event) => {
+      const query = event.target.value.toLocaleLowerCase()
+      this.el.querySelectorAll(".self-note-card").forEach((card) => {
+        card.hidden = !!query && !(card.dataset.noteSearch || "").includes(query)
+      })
+    })
+    this.onEdit = (event) => this.edit(event.detail)
+    window.addEventListener("veejr:self-note-edit", this.onEdit)
+  },
+  destroyed() { window.removeEventListener("veejr:self-note-edit", this.onEdit) },
+  create() {
+    const userId = this.el.querySelector("[data-user-id]")?.dataset.userId
+    const key = this.el.querySelector("[data-peer-key]")?.dataset.peerKey
+    if (!userId || !key) return
+    noteEditor(this.el, {}, async (note) => {
+      const secret = getSecretKey(userId)
+      if (!secret) throw new Error("Unlock your keys before saving a note.")
+      await pushWithReply(this, "send_batch", {kind: "self_note", envelopes: [{recipient_id: Number(userId), ...sealFor(key, note, secret)}]})
+    })
+  },
+  edit({payload, element}) {
+    noteEditor(this.el, payload, async (note) => {
+      const secret = getSecretKey(element.dataset.userId)
+      if (!secret) throw new Error("Unlock your keys before saving a note.")
+      const {copies} = await pushWithReply(this, "prepare_edit", {id: element.dataset.publicId})
+      const envelopes = copies.map((copy) => ({public_id: copy.public_id, ...sealFor(copy.public_key, note, secret)}))
+      await pushWithReply(this, "edit_batch", {id: element.dataset.publicId, envelopes})
+    })
+  },
+}
+
+export const SelfNotes = {
+  mounted() {
+    const secret = getSecretKey(this.el.dataset.userId)
+    this.el.textContent = ""
+    if (!secret) { this.el.textContent = "Locked — unlock keys to read"; return }
+    const payload = openFrom(this.el.dataset.ciphertext, this.el.dataset.nonce, this.el.dataset.peerKey, secret)
+    if (!payload || payload.kind !== "self_note") { this.el.textContent = "Could not decrypt this note."; return }
+    this.el.closest(".self-note-card").dataset.noteSearch = [payload.title, payload.body, ...(payload.labels || []), ...(payload.checklist || []).map((item) => item.text)].join(" ").toLocaleLowerCase()
+    const title = document.createElement("h3"); title.className = "font-semibold"; title.textContent = payload.title || "Untitled note"
+    const body = document.createElement("p"); body.className = "mt-2 whitespace-pre-wrap text-sm"; body.textContent = payload.body || ""
+    const list = document.createElement("ul"); list.className = "mt-2 space-y-1 text-sm"
+    ;(payload.checklist || []).forEach((item) => { const li = document.createElement("li"); li.textContent = `${item.checked ? "✓" : "○"} ${item.text}`; li.className = item.checked ? "opacity-50 line-through" : ""; list.appendChild(li) })
+    const meta = document.createElement("p"); meta.className = "mt-3 text-xs opacity-60"; meta.textContent = (payload.labels || []).map((label) => `#${label}`).join(" ")
+    this.el.append(title, body, list, meta)
+    this.el.closest(".self-note-card").style.background = {sand:"#f8edcf",rose:"#f8dfe1",violet:"#ebe2fb",blue:"#dceefa",mint:"#dff3e7"}[payload.color] || ""
+    this.el.closest(".self-note-card").addEventListener("click", () => window.dispatchEvent(new CustomEvent("veejr:self-note-edit", {detail: {payload, element: this.el}})))
+  },
+}
+
 export const AutoDismissFlash = {
   mounted() {
     const ms = parseInt(this.el.dataset.autoDismissMs || "1000", 10)
@@ -1957,6 +2076,8 @@ export default {
   InstallApp,
   Composer,
   Decrypt,
+  SelfNotes,
+  SelfNotesBoard,
   MessageBubble,
   AutoDismissFlash,
   PasswordVisibility,
