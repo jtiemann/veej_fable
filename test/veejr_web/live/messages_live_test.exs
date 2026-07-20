@@ -21,12 +21,50 @@ defmodule VeejrWeb.MessagesLiveTest do
     %{conn: log_in_user(conn, user), user: user}
   end
 
-  test "uses a back-to-contacts link instead of new-chat buttons", %{conn: conn} do
+  test "offers direct invite and new-conversation actions", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/messages")
 
     assert has_element?(view, "#back-to-contacts[href='/contacts']", "Back to contacts")
-    refute has_element?(view, "#compose-new")
-    refute has_element?(view, "#new-message")
+    assert has_element?(view, "#messages-invite-person[href='/invites/new']", "Invite person")
+    assert has_element?(view, "#messages-conversation-builder", "New conversation")
+    assert has_element?(view, "#messages-conversation-builder-form")
+  end
+
+  test "starts a multi-selected conversation from the Messages dropdown", %{
+    conn: conn,
+    user: user
+  } do
+    friend = user_fixture()
+    {:ok, request} = Social.send_friend_request(user, friend.username)
+    {:ok, _friendship} = Social.accept_friend_request(friend, request.id)
+    {:ok, group} = Social.create_group(user, %{name: "Weekend crew"})
+    {:ok, _membership} = Social.add_group_member(user, group.id, friend.id)
+
+    {:ok, view, _html} = live(conn, "/messages")
+
+    assert has_element?(
+             view,
+             "#messages-conversation-builder-form input[name='selection[friend_ids][]'][value='#{friend.id}']"
+           )
+
+    assert has_element?(
+             view,
+             "#messages-conversation-builder-form input[name='selection[group_ids][]'][value='#{group.id}']"
+           )
+
+    view
+    |> form("#messages-conversation-builder-form", %{
+      "selection" => %{
+        "friend_ids" => [to_string(friend.id)],
+        "group_ids" => [to_string(group.id)]
+      }
+    })
+    |> render_submit()
+
+    assert_redirect(
+      view,
+      "/messages?friend_ids=#{friend.id}&group_ids=#{group.id}&include_self=false"
+    )
   end
 
   test "offers encrypted voice and video recording controls", %{conn: conn} do

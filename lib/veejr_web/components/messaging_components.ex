@@ -11,6 +11,113 @@ defmodule VeejrWeb.MessagingComponents do
 
   alias Veejr.Accounts.User
   alias Veejr.Messaging.Envelope
+  alias Veejr.Social
+
+  attr :id, :string, required: true
+  attr :form_id, :string, required: true
+  attr :conversations, :list, required: true
+  attr :friends, :list, required: true
+  attr :groups, :list, required: true
+  attr :submit_event, :string, default: "start_conversation"
+
+  def conversation_builder(assigns) do
+    ~H"""
+    <details id={@id} class="dropdown dropdown-end">
+      <summary class="btn btn-primary btn-sm list-none">
+        <.icon name="hero-chat-bubble-left-right" class="size-4" /> New conversation
+        <.icon name="hero-chevron-down" class="size-3.5" />
+      </summary>
+      <form
+        id={@form_id}
+        phx-submit={@submit_event}
+        class="dropdown-content z-40 mt-2 w-[min(22rem,calc(100vw-2rem))] rounded-lg border border-base-300 bg-base-100 p-3 shadow-xl"
+      >
+        <div class="max-h-80 space-y-4 overflow-y-auto pr-1">
+          <fieldset :if={@conversations != []}>
+            <legend class="mb-1 px-2 text-xs font-semibold uppercase opacity-60">
+              Conversations
+            </legend>
+            <label
+              :for={conversation <- @conversations}
+              class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-base-200"
+            >
+              <input
+                type="checkbox"
+                name="selection[conversation_keys][]"
+                value={conversation.key}
+                class="checkbox checkbox-sm"
+              />
+              <span class="min-w-0 flex-1 truncate">{conversation_title(conversation)}</span>
+            </label>
+          </fieldset>
+
+          <fieldset :if={@friends != []}>
+            <legend class="mb-1 px-2 text-xs font-semibold uppercase opacity-60">
+              Friends
+            </legend>
+            <label
+              :for={friend <- @friends}
+              class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-base-200"
+            >
+              <input
+                type="checkbox"
+                name="selection[friend_ids][]"
+                value={friend.id}
+                class="checkbox checkbox-sm"
+              />
+              <span class="min-w-0 flex-1 truncate">
+                {friend.display_name || Social.Address.handle(friend)}
+              </span>
+            </label>
+          </fieldset>
+
+          <fieldset :if={@groups != []}>
+            <legend class="mb-1 px-2 text-xs font-semibold uppercase opacity-60">
+              Groups
+            </legend>
+            <label
+              :for={group <- @groups}
+              class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-base-200"
+            >
+              <input
+                type="checkbox"
+                name="selection[group_ids][]"
+                value={group.id}
+                class="checkbox checkbox-sm"
+              />
+              <span class="min-w-0 flex-1 truncate">{group.name}</span>
+              <span class="text-xs opacity-50">{length(group.members)}</span>
+            </label>
+          </fieldset>
+
+          <p
+            :if={@conversations == [] and @friends == [] and @groups == []}
+            class="px-2 py-4 text-center text-sm opacity-60"
+          >
+            Add a friend or group first.
+          </p>
+        </div>
+        <button
+          type="submit"
+          class="btn btn-primary btn-sm mt-3 w-full"
+          disabled={@conversations == [] and @friends == [] and @groups == []}
+        >
+          Open conversation
+        </button>
+      </form>
+    </details>
+    """
+  end
+
+  defp conversation_title(conversation) do
+    title = Enum.join(conversation.participants, ", ")
+
+    if conversation.preserved do
+      "#{title} · #{Calendar.strftime(conversation.started_at, "%b %d, %Y")}"
+    else
+      title
+    end
+  end
 
   attr :id, :string, required: true
   attr :user, User, required: true
