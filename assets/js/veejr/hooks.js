@@ -1832,13 +1832,82 @@ function noteDocument(payload = {}) {
 function noteEditor(board, payload, save) {
   const editor = document.createElement("section")
   editor.className = "mb-5 rounded-2xl border border-primary/30 bg-base-100 p-4 shadow-lg"
-  editor.innerHTML = `<input data-note-title class="mb-3 w-full bg-transparent text-lg font-semibold outline-none" placeholder="Title"><textarea data-note-body class="min-h-28 w-full resize-y bg-transparent text-sm outline-none" placeholder="Take a note…"></textarea><input data-note-labels class="mt-3 w-full bg-transparent text-xs outline-none" placeholder="Labels, separated by commas"><input data-note-files type="file" multiple class="mt-3 block w-full text-xs"><div class="mt-3 flex flex-wrap items-center gap-2"><button type="button" data-note-checklist class="btn btn-ghost btn-xs">Checklist</button><select data-note-color class="select select-sm"><option value="default">Default</option><option value="sand">Sand</option><option value="rose">Rose</option><option value="violet">Violet</option><option value="blue">Blue</option><option value="mint">Mint</option></select><span class="flex-1"></span><button type="button" data-note-cancel class="btn btn-ghost btn-sm">Cancel</button><button type="button" data-note-save class="btn btn-primary btn-sm">Save note</button></div><p data-note-error class="mt-3 hidden text-sm text-error" role="alert"></p><div data-note-items class="mt-3 space-y-2"></div>`
+  editor.innerHTML = `<input data-note-title class="mb-3 w-full bg-transparent text-lg font-semibold outline-none" placeholder="Title"><textarea data-note-body class="min-h-28 w-full resize-y bg-transparent text-sm outline-none" placeholder="Take a note…"></textarea><input data-note-labels class="mt-3 w-full bg-transparent text-xs outline-none" placeholder="Labels, separated by commas"><input data-note-files type="file" multiple class="mt-3 block w-full text-xs" aria-label="Attach files"><div class="mt-3 flex flex-wrap items-center gap-2"><button type="button" data-note-audio class="btn btn-ghost btn-xs">Microphone</button><button type="button" data-note-video class="btn btn-ghost btn-xs">Video</button><button type="button" data-note-checklist class="btn btn-ghost btn-xs">Checklist</button><select data-note-color class="select select-sm"><option value="default">Default</option><option value="sand">Sand</option><option value="rose">Rose</option><option value="violet">Violet</option><option value="blue">Blue</option><option value="mint">Mint</option></select><span class="flex-1"></span><button type="button" data-note-cancel class="btn btn-ghost btn-sm">Cancel</button><button type="button" data-note-save class="btn btn-primary btn-sm">Save note</button></div><p data-note-record-status class="mt-3 hidden text-sm opacity-70" aria-live="polite"></p><div data-note-recordings class="mt-3 space-y-2"></div><p data-note-error class="mt-3 hidden text-sm text-error" role="alert"></p><div data-note-items class="mt-3 space-y-2"></div>`
   const title = editor.querySelector("[data-note-title]")
   const body = editor.querySelector("[data-note-body]")
   const labels = editor.querySelector("[data-note-labels]")
   const fileInput = editor.querySelector("[data-note-files]")
   const color = editor.querySelector("[data-note-color]")
   const items = editor.querySelector("[data-note-items]")
+  const recordings = {audio: [], video: [], recorder: null, stream: null, kind: null, finalizing: false, timer: null}
+  const recordStatus = editor.querySelector("[data-note-record-status]")
+  const recordPreview = editor.querySelector("[data-note-recordings]")
+  const setRecordStatus = (message) => {
+    recordStatus.textContent = message
+    recordStatus.classList.toggle("hidden", !message)
+  }
+  const stopTracks = () => {
+    recordings.stream?.getTracks().forEach((track) => track.stop())
+    recordings.stream = null
+  }
+  const cleanupRecordings = () => {
+    clearTimeout(recordings.timer)
+    if (recordings.recorder?.state === "recording") recordings.recorder.stop()
+    stopTracks()
+    ;[...recordings.audio, ...recordings.video].forEach((entry) => URL.revokeObjectURL(entry.url))
+  }
+  const renderRecordings = () => {
+    recordPreview.textContent = ""
+    for (const [kind, entries] of [["audio", recordings.audio], ["video", recordings.video]]) {
+      entries.forEach((entry, index) => {
+        const row = document.createElement("div")
+        row.className = "flex items-center gap-2 rounded-lg bg-base-200 p-2"
+        const media = document.createElement(kind)
+        media.controls = true; media.src = entry.url
+        media.className = kind === "video" ? "max-h-48 min-w-0 flex-1 rounded bg-black" : "min-w-0 flex-1"
+        const remove = document.createElement("button")
+        remove.type = "button"; remove.className = "btn btn-ghost btn-xs"; remove.textContent = "Remove"
+        remove.addEventListener("click", () => {
+          URL.revokeObjectURL(entry.url)
+          entries.splice(index, 1)
+          renderRecordings()
+        })
+        row.append(media, remove); recordPreview.appendChild(row)
+      })
+    }
+  }
+  const toggleRecording = async (kind) => {
+    if (recordings.finalizing) throw new Error("Wait for the recording to finish.")
+    if (recordings.recorder?.state === "recording") {
+      if (recordings.kind !== kind) throw new Error("Stop the current recording first.")
+      recordings.finalizing = true
+      recordings.recorder.stop()
+      setRecordStatus("Finishing recording…")
+      return
+    }
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) throw new Error("Recording is not supported in this browser.")
+    const mimeType = kind === "audio" ? preferredAudioMime() : preferredVideoMime()
+    const stream = await navigator.mediaDevices.getUserMedia(kind === "audio" ? {audio: true} : {audio: true, video: {facingMode: {ideal: "user"}, width: {ideal: 1280}, height: {ideal: 720}}})
+    const options = mimeType ? {mimeType, ...(kind === "video" ? {videoBitsPerSecond: 2_000_000} : {})} : undefined
+    const recorder = new MediaRecorder(stream, options)
+    const chunks = []; const startedAt = Date.now()
+    recorder.addEventListener("dataavailable", (event) => { if (event.data?.size > 0) chunks.push(event.data) })
+    recorder.addEventListener("stop", () => {
+      clearTimeout(recordings.timer); stopTracks()
+      recordings.finalizing = false; recordings.recorder = null; recordings.kind = null
+      const type = recorder.mimeType || mimeType || (kind === "audio" ? "audio/webm" : "video/webm")
+      const blob = new Blob(chunks, {type})
+      if (blob.size === 0) return setRecordStatus("Recording was empty.")
+      const extension = type.includes("mp4") ? (kind === "audio" ? "m4a" : "mp4") : type.includes("ogg") ? "ogg" : "webm"
+      const file = new File([blob], `${kind}-note-${new Date().toISOString().replace(/[:.]/g, "-")}.${extension}`, {type})
+      recordings[kind].push({file, url: URL.createObjectURL(blob), durationMs: Date.now() - startedAt})
+      renderRecordings(); setRecordStatus(`${kind === "audio" ? "Audio" : "Video"} ready to attach.`)
+    })
+    recordings.stream = stream; recordings.recorder = recorder; recordings.kind = kind
+    recorder.start(1_000)
+    if (kind === "video") recordings.timer = setTimeout(() => recorder.state === "recording" && recorder.stop(), MAX_VIDEO_DURATION_MS)
+    setRecordStatus(`Recording ${kind}… click ${kind === "audio" ? "Microphone" : "Video"} again to stop.`)
+  }
   title.value = payload.title || ""
   body.value = payload.body || ""
   labels.value = (payload.labels || []).join(", ")
@@ -1862,7 +1931,9 @@ function noteEditor(board, payload, save) {
     payload.checklist = [...(payload.checklist || []), {id: crypto.randomUUID(), text: "", checked: false}]
     renderItems(); items.querySelector("input:last-child")?.focus()
   })
-  editor.querySelector("[data-note-cancel]").addEventListener("click", () => editor.remove())
+  editor.querySelector("[data-note-audio]").addEventListener("click", () => toggleRecording("audio").catch((error) => setRecordStatus(error.message)))
+  editor.querySelector("[data-note-video]").addEventListener("click", () => toggleRecording("video").catch((error) => setRecordStatus(error.message)))
+  editor.querySelector("[data-note-cancel]").addEventListener("click", () => { cleanupRecordings(); editor.remove() })
   const submit = async () => {
     const error = editor.querySelector("[data-note-error]")
     error.textContent = ""
@@ -1870,7 +1941,13 @@ function noteEditor(board, payload, save) {
     const next = noteDocument({...payload, title: title.value.trim(), body: body.value.trim(), color: color.value, labels: labels.value.split(",").map((v) => v.trim()).filter(Boolean).slice(0, 10)})
     next.checklist = (payload.checklist || []).filter((item) => item.text.trim())
     const files = [...fileInput.files]
-    if (!next.title && !next.body && next.checklist.length === 0 && next.attachments.length === 0 && files.length === 0) return
+    const captured = [...recordings.audio, ...recordings.video]
+    if (recordings.recorder?.state === "recording" || recordings.finalizing) {
+      error.textContent = "Stop the recording before saving."
+      error.classList.remove("hidden")
+      return
+    }
+    if (!next.title && !next.body && next.checklist.length === 0 && next.attachments.length === 0 && files.length === 0 && captured.length === 0) return
     const button = editor.querySelector("[data-note-save]")
     button.disabled = true; button.textContent = "Encrypting…"
     try {
@@ -1878,7 +1955,12 @@ function noteEditor(board, payload, save) {
         button.textContent = `Encrypting ${file.name}…`
         next.attachments.push(await encryptAndUpload(file))
       }
+      for (const entry of captured) {
+        button.textContent = `Encrypting ${entry.file.name}…`
+        next.attachments.push(await encryptAndUpload(entry.file, {name: entry.file.name, mime: entry.file.type, size: entry.file.size, durationMs: entry.durationMs}))
+      }
       await save(next)
+      cleanupRecordings()
       editor.remove()
     } catch (saveError) {
       button.disabled = false; button.textContent = "Save note"
