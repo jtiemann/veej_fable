@@ -1867,11 +1867,11 @@ function noteEditor(board, payload, save) {
     event.preventDefault()
     const next = noteDocument({...payload, title: title.value.trim(), body: body.value.trim(), color: color.value, labels: labels.value.split(",").map((v) => v.trim()).filter(Boolean).slice(0, 10)})
     next.checklist = (payload.checklist || []).filter((item) => item.text.trim())
-    if (!next.title && !next.body && next.checklist.length === 0) return
+    const files = [...fileInput.files]
+    if (!next.title && !next.body && next.checklist.length === 0 && next.attachments.length === 0 && files.length === 0) return
     const button = editor.querySelector("button[type=submit]")
     button.disabled = true; button.textContent = "Encrypting…"
     try {
-      const files = [...fileInput.files]
       for (const file of files) {
         button.textContent = `Encrypting ${file.name}…`
         next.attachments.push(await encryptAndUpload(file))
@@ -2029,7 +2029,7 @@ export const SelfNotesBoard = {
       if (!secret) throw new Error("Unlock your keys before saving a note.")
       const {copies} = await pushWithReply(this, "prepare_edit", {id: element.dataset.publicId})
       const envelopes = copies.map((copy) => ({public_id: copy.public_id, ...sealFor(copy.public_key, note, secret)}))
-      await pushWithReply(this, "edit_batch", {id: element.dataset.publicId, envelopes, attachment_ids: note.attachments.map((attachment) => attachment.id), expected_updated_at: element.dataset.updatedAt})
+      await pushWithReply(this, "edit_batch", {id: element.dataset.publicId, envelopes, attachment_ids: note.attachments.map((attachment) => attachment.id)})
     })
   },
   async save({payload, element}) {
@@ -2038,7 +2038,7 @@ export const SelfNotesBoard = {
     const {copies} = await pushWithReply(this, "prepare_edit", {id: element.dataset.publicId})
     const next = noteDocument(payload)
     const envelopes = copies.map((copy) => ({public_id: copy.public_id, ...sealFor(copy.public_key, next, secret)}))
-    await pushWithReply(this, "edit_batch", {id: element.dataset.publicId, envelopes, attachment_ids: next.attachments.map((attachment) => attachment.id), expected_updated_at: element.dataset.updatedAt})
+    await pushWithReply(this, "edit_batch", {id: element.dataset.publicId, envelopes, attachment_ids: next.attachments.map((attachment) => attachment.id)})
     window.dispatchEvent(new CustomEvent("veejr:self-note-save-complete", {detail: {element}}))
   },
 }
