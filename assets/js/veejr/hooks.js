@@ -1893,6 +1893,104 @@ function noteEditor(board, payload, save) {
   board.prepend(editor); title.focus()
 }
 
+function noteAttachmentPreview(att) {
+  const mime = attachmentMime(att)
+  const wrap = document.createElement("div")
+  wrap.className = "group relative overflow-hidden rounded-xl border border-base-300 bg-base-200/50"
+  wrap.addEventListener("click", (event) => event.stopPropagation())
+
+  const download = () => {
+    const button = document.createElement("button")
+    button.type = "button"
+    button.className = "btn btn-ghost btn-xs"
+    button.textContent = `Download ${att.name || "file"}`
+    button.addEventListener("click", () => {
+      button.disabled = true
+      downloadAttachment(att)
+        .catch((error) => { button.textContent = error.message || "Could not download" })
+        .finally(() => { if (button.isConnected) button.disabled = false })
+    })
+    return button
+  }
+
+  if (mime.startsWith("image/")) {
+    const status = document.createElement("p")
+    status.className = "p-3 text-xs opacity-70"
+    status.textContent = "Decrypting image…"
+    wrap.appendChild(status)
+    decryptAttachmentBlob(att)
+      .then((blob) => {
+        const url = URL.createObjectURL(blob)
+        const image = document.createElement("img")
+        image.src = url
+        image.alt = att.name || "Image attachment"
+        image.className = "max-h-64 w-full cursor-zoom-in object-cover"
+        image.addEventListener("click", () => showMediaModal({blob, title: att.name, mime}))
+        status.replaceWith(image)
+      })
+      .catch((error) => {
+        status.textContent = `Could not display image: ${error.message}`
+        status.className = "p-3 text-xs text-error"
+        wrap.appendChild(download())
+      })
+    return wrap
+  }
+
+  const label = document.createElement("p")
+  label.className = "truncate px-3 pt-3 text-xs font-medium"
+  label.textContent = att.name || "Attachment"
+  wrap.appendChild(label)
+
+  if (mime === "application/pdf") {
+    const open = document.createElement("button")
+    open.type = "button"
+    open.className = "btn btn-ghost btn-xs m-2"
+    open.textContent = "Open PDF"
+    open.addEventListener("click", async () => {
+      open.disabled = true
+      try {
+        showMediaModal({blob: await decryptAttachmentBlob(att), title: att.name, mime})
+      } catch (error) {
+        open.textContent = error.message || "Could not open PDF"
+      } finally {
+        if (open.isConnected) open.disabled = false
+      }
+    })
+    wrap.append(open, download())
+    return wrap
+  }
+
+  if (mime.startsWith("audio/") || mime.startsWith("video/")) {
+    const play = document.createElement("button")
+    play.type = "button"
+    play.className = "btn btn-primary btn-xs m-2"
+    play.textContent = mime.startsWith("video/") ? "Play video" : "Play audio"
+    play.addEventListener("click", async () => {
+      play.disabled = true
+      play.textContent = "Decrypting…"
+      try {
+        const blob = await decryptAttachmentBlob(att)
+        const url = URL.createObjectURL(blob)
+        const media = document.createElement(mime.startsWith("video/") ? "video" : "audio")
+        media.controls = true
+        media.preload = "metadata"
+        media.className = mime.startsWith("video/") ? "aspect-video w-full bg-black object-contain" : "mx-2 mb-2 w-[calc(100%-1rem)]"
+        media.src = url
+        media.addEventListener("ended", () => URL.revokeObjectURL(url), {once: true})
+        play.replaceWith(media)
+      } catch (error) {
+        play.disabled = false
+        play.textContent = error.message || "Could not play attachment"
+      }
+    })
+    wrap.append(play, download())
+    return wrap
+  }
+
+  wrap.append(download())
+  return wrap
+}
+
 export const SelfNotesBoard = {
   mounted() {
     this.filter = "active"
@@ -2085,15 +2183,9 @@ export const SelfNotes = {
       })
       meta.appendChild(chip)
     })
-    const attachments = document.createElement("div"); attachments.className = "mt-3 flex flex-wrap gap-2"
+    const attachments = document.createElement("div"); attachments.className = "mt-3 grid gap-2 sm:grid-cols-2"
     ;(payload.attachments || []).forEach((attachment) => {
-      const button = document.createElement("button")
-      button.type = "button"; button.className = "btn btn-outline btn-xs"; button.textContent = `Attachment: ${attachment.name || "file"}`
-      button.addEventListener("click", (event) => {
-        event.stopPropagation()
-        downloadAttachment(attachment).catch((error) => { button.textContent = error.message || "Could not download" })
-      })
-      attachments.appendChild(button)
+      attachments.appendChild(noteAttachmentPreview(attachment))
     })
     const actions = document.createElement("div"); actions.className = "mt-3 flex justify-end gap-1"
     const select = document.createElement("input")
