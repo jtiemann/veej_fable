@@ -4,6 +4,7 @@ defmodule VeejrWeb.MessagesLive do
   import VeejrWeb.MessagingComponents
 
   alias Veejr.{Messaging, Social}
+  alias VeejrWeb.ConversationLauncher
 
   @message_page_size 50
 
@@ -16,21 +17,39 @@ defmodule VeejrWeb.MessagesLive do
       pending_count={@pending_count}
       container_class="mx-auto max-w-7xl"
     >
-      <div class="overflow-hidden rounded-[32px] border border-base-300 bg-base-200 shadow-sm">
-        <div class="border-b border-base-300 bg-base-100 px-4 py-4">
-          <div>
-            <.link
-              id="back-to-contacts"
-              navigate={~p"/contacts"}
-              class="group mb-2 inline-flex items-center gap-1 text-sm font-medium text-base-content/65 transition hover:text-primary"
-            >
-              <.icon
-                name="hero-arrow-left"
-                class="size-4 transition-transform group-hover:-translate-x-0.5"
-              /> Back to contacts
-            </.link>
-            <h1 class="text-2xl font-semibold tracking-tight text-base-content">Messages</h1>
-            <p class="text-sm opacity-70">End-to-end encrypted conversations</p>
+      <div class="rounded-[32px] border border-base-300 bg-base-200 shadow-sm">
+        <div class="relative z-20 rounded-t-[31px] border-b border-base-300 bg-base-100 px-4 py-4">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <.link
+                id="back-to-contacts"
+                navigate={~p"/contacts"}
+                class="group mb-2 inline-flex items-center gap-1 text-sm font-medium text-base-content/65 transition hover:text-primary"
+              >
+                <.icon
+                  name="hero-arrow-left"
+                  class="size-4 transition-transform group-hover:-translate-x-0.5"
+                /> Back to contacts
+              </.link>
+              <h1 class="text-2xl font-semibold tracking-tight text-base-content">Messages</h1>
+              <p class="text-sm opacity-70">End-to-end encrypted conversations</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <.link
+                id="messages-invite-person"
+                navigate={~p"/invites/new"}
+                class="btn btn-outline btn-sm"
+              >
+                <.icon name="hero-qr-code" class="size-4" /> Invite person
+              </.link>
+              <.conversation_builder
+                id="messages-conversation-builder"
+                form_id="messages-conversation-builder-form"
+                conversations={@conversations}
+                friends={@friends}
+                groups={@groups}
+              />
+            </div>
           </div>
         </div>
 
@@ -80,7 +99,7 @@ defmodule VeejrWeb.MessagesLive do
           </ul>
         </section>
 
-        <section class="min-h-[42rem] overflow-hidden lg:h-[calc(100svh-12rem)] lg:min-h-0">
+        <section class="min-h-[42rem] overflow-hidden rounded-b-[31px] lg:h-[calc(100svh-12rem)] lg:min-h-0">
           <aside class="hidden border-b border-base-300 bg-base-100 p-3 lg:overflow-y-auto lg:border-b-0 lg:border-r">
             <div class="mb-3 flex items-center justify-between px-2">
               <h2 class="text-sm font-semibold uppercase tracking-wide opacity-70">
@@ -409,6 +428,16 @@ defmodule VeejrWeb.MessagesLive do
   def handle_event("decline", %{"id" => id}, socket) do
     Messaging.decline_notification(socket.assigns.current_scope.user, id)
     {:noreply, refresh(socket)}
+  end
+
+  def handle_event("start_conversation", params, socket) do
+    case ConversationLauncher.destination(socket.assigns, params) do
+      {:ok, destination} ->
+        {:noreply, push_navigate(socket, to: destination)}
+
+      {:error, message} ->
+        {:noreply, put_flash(socket, :error, message)}
+    end
   end
 
   def handle_event("select_conversation", %{"key" => key}, socket) do

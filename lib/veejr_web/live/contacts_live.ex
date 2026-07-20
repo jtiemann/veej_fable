@@ -1,7 +1,10 @@
 defmodule VeejrWeb.ContactsLive do
   use VeejrWeb, :live_view
 
+  import VeejrWeb.MessagingComponents, only: [conversation_builder: 1]
+
   alias Veejr.{Accounts, Messaging, Social}
+  alias VeejrWeb.ConversationLauncher
 
   @impl true
   def render(assigns) do
@@ -22,90 +25,13 @@ defmodule VeejrWeb.ContactsLive do
           <.link navigate={~p"/invites/new"} class="btn btn-outline btn-sm">
             <.icon name="hero-qr-code" class="size-4" /> Invite person
           </.link>
-          <details id="conversation-builder" class="dropdown dropdown-end">
-            <summary class="btn btn-primary btn-sm list-none">
-              <.icon name="hero-chat-bubble-left-right" class="size-4" /> New conversation
-              <.icon name="hero-chevron-down" class="size-3.5" />
-            </summary>
-            <form
-              id="conversation-builder-form"
-              phx-submit="start_conversation"
-              class="dropdown-content z-40 mt-2 w-[min(22rem,calc(100vw-2rem))] rounded-lg border border-base-300 bg-base-100 p-3 shadow-xl"
-            >
-              <div class="max-h-80 space-y-4 overflow-y-auto pr-1">
-                <fieldset :if={@conversations != []}>
-                  <legend class="mb-1 px-2 text-xs font-semibold uppercase opacity-60">
-                    Conversations
-                  </legend>
-                  <label
-                    :for={conversation <- @conversations}
-                    class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-base-200"
-                  >
-                    <input
-                      type="checkbox"
-                      name="selection[conversation_keys][]"
-                      value={conversation.key}
-                      class="checkbox checkbox-sm"
-                    />
-                    <span class="min-w-0 flex-1 truncate">{conversation_title(conversation)}</span>
-                  </label>
-                </fieldset>
-
-                <fieldset :if={@friends != []}>
-                  <legend class="mb-1 px-2 text-xs font-semibold uppercase opacity-60">
-                    Friends
-                  </legend>
-                  <label
-                    :for={friend <- @friends}
-                    class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-base-200"
-                  >
-                    <input
-                      type="checkbox"
-                      name="selection[friend_ids][]"
-                      value={friend.id}
-                      class="checkbox checkbox-sm"
-                    />
-                    <span class="min-w-0 flex-1 truncate">
-                      {friend.display_name || Social.Address.handle(friend)}
-                    </span>
-                  </label>
-                </fieldset>
-
-                <fieldset :if={@groups != []}>
-                  <legend class="mb-1 px-2 text-xs font-semibold uppercase opacity-60">
-                    Groups
-                  </legend>
-                  <label
-                    :for={group <- @groups}
-                    class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-base-200"
-                  >
-                    <input
-                      type="checkbox"
-                      name="selection[group_ids][]"
-                      value={group.id}
-                      class="checkbox checkbox-sm"
-                    />
-                    <span class="min-w-0 flex-1 truncate">{group.name}</span>
-                    <span class="text-xs opacity-50">{length(group.members)}</span>
-                  </label>
-                </fieldset>
-
-                <p
-                  :if={@conversations == [] and @friends == [] and @groups == []}
-                  class="px-2 py-4 text-center text-sm opacity-60"
-                >
-                  Add a friend or group first.
-                </p>
-              </div>
-              <button
-                type="submit"
-                class="btn btn-primary btn-sm mt-3 w-full"
-                disabled={@conversations == [] and @friends == [] and @groups == []}
-              >
-                Open conversation
-              </button>
-            </form>
-          </details>
+          <.conversation_builder
+            id="conversation-builder"
+            form_id="conversation-builder-form"
+            conversations={@conversations}
+            friends={@friends}
+            groups={@groups}
+          />
         </:actions>
       </.header>
 
@@ -579,54 +505,12 @@ defmodule VeejrWeb.ContactsLive do
 
   @impl true
   def handle_event("start_conversation", params, socket) do
-    selection = Map.get(params, "selection", %{})
-    conversation_keys = selection_values(selection, "conversation_keys")
-    direct_friend_ids = selection_values(selection, "friend_ids")
-    group_ids = selection_values(selection, "group_ids")
+    case ConversationLauncher.destination(socket.assigns, params) do
+      {:ok, destination} ->
+        {:noreply, push_navigate(socket, to: destination)}
 
-    conversations =
-      Enum.filter(socket.assigns.conversations, &(to_string(&1.key) in conversation_keys))
-
-    valid_friend_ids = MapSet.new(socket.assigns.friends, &to_string(&1.id))
-    direct_friend_ids = Enum.filter(direct_friend_ids, &MapSet.member?(valid_friend_ids, &1))
-    valid_groups = Enum.filter(socket.assigns.groups, &(to_string(&1.id) in group_ids))
-
-    conversation_friend_ids =
-      conversations
-      |> Enum.flat_map(&String.split(&1.reply_ids, ",", trim: true))
-
-    group_friend_ids =
-      valid_groups
-      |> Enum.flat_map(& &1.members)
-      |> Enum.map(&to_string(&1.id))
-
-    friend_ids =
-      (direct_friend_ids ++ conversation_friend_ids)
-      |> Enum.uniq()
-
-    all_friend_ids = Enum.uniq(friend_ids ++ group_friend_ids)
-    include_self = Enum.any?(conversations, &(&1.participants == ["notes to yourself"]))
-
-    cond do
-      all_friend_ids == [] and not include_self ->
-        {:noreply,
-         put_flash(socket, :error, "Select at least one conversation, friend, or group.")}
-
-      length(conversations) == 1 and direct_friend_ids == [] and valid_groups == [] ->
-        {:noreply, push_navigate(socket, to: "/messages?conversation=#{hd(conversations).key}")}
-
-      existing = matching_conversation(socket.assigns, all_friend_ids, include_self) ->
-        {:noreply, push_navigate(socket, to: "/messages?conversation=#{existing.key}")}
-
-      true ->
-        query =
-          URI.encode_query([
-            {"friend_ids", Enum.join(friend_ids, ",")},
-            {"group_ids", Enum.map_join(valid_groups, ",", & &1.id)},
-            {"include_self", to_string(include_self)}
-          ])
-
-        {:noreply, push_navigate(socket, to: "/messages?#{query}")}
+      {:error, message} ->
+        {:noreply, put_flash(socket, :error, message)}
     end
   end
 
@@ -976,35 +860,11 @@ defmodule VeejrWeb.ContactsLive do
     end
   end
 
-  defp selection_values(selection, key) do
-    case Map.get(selection, key, []) do
-      values when is_list(values) -> Enum.map(values, &to_string/1)
-      value when is_binary(value) -> [value]
-      _ -> []
-    end
-  end
-
   defp profile_note(_notes, nil), do: ""
   defp profile_note(notes, profile), do: Map.get(notes, profile.id, "")
 
   defp profile_editable?(_friends, nil), do: false
   defp profile_editable?(friends, profile), do: Enum.any?(friends, &(&1.id == profile.id))
-
-  defp matching_conversation(assigns, friend_ids, include_self) do
-    participants =
-      if friend_ids == [] and include_self do
-        ["notes to yourself"]
-      else
-        friend_id_set = MapSet.new(friend_ids)
-
-        assigns.friends
-        |> Enum.filter(&MapSet.member?(friend_id_set, to_string(&1.id)))
-        |> Enum.map(&Social.Address.handle/1)
-        |> Enum.sort()
-      end
-
-    Enum.find(assigns.conversations, &(&1.participants == participants))
-  end
 
   defp error_from(%Ecto.Changeset{errors: [{_field, {msg, _}} | _]}), do: msg
   defp error_from(_), do: "Something went wrong."
