@@ -2092,6 +2092,7 @@ export const SelfNotesBoard = {
     this.el.querySelector("[data-role=bulk-pin]")?.addEventListener("click", () => this.bulk((note) => { note.pinned = true }))
     this.el.querySelector("[data-role=bulk-archive]")?.addEventListener("click", () => this.bulk((note) => { note.archived_at = new Date().toISOString(); note.trashed_at = null }))
     this.el.querySelector("[data-role=bulk-trash]")?.addEventListener("click", () => this.bulk((note) => { note.trashed_at = new Date().toISOString() }))
+    this.el.querySelector("[data-role=delete-trashed]")?.addEventListener("click", () => this.deleteTrashed())
     this.onEdit = (event) => this.edit(event.detail)
     this.onSave = (event) => this.save(event.detail)
     this.onRendered = () => this.applyFilters()
@@ -2163,6 +2164,33 @@ export const SelfNotesBoard = {
           : card.dataset.noteArchived !== "true" && card.dataset.noteTrashed !== "true"
       card.hidden = !stateMatch || (!!query && !(card.dataset.noteSearch || "").includes(query))
     })
+    const deleteTrashed = this.el.querySelector("[data-role=delete-trashed]")
+    if (deleteTrashed) {
+      const count = cards.filter((card) => card.dataset.noteTrashed === "true").length
+      deleteTrashed.classList.toggle("hidden", this.filter !== "trashed" || count === 0)
+      deleteTrashed.textContent = `Delete all ${count} trashed note${count === 1 ? "" : "s"}`
+    }
+  },
+  async deleteTrashed() {
+    const button = this.el.querySelector("[data-role=delete-trashed]")
+    const notes = [...this.el.querySelectorAll(".self-note-card")]
+      .filter((card) => card.dataset.noteTrashed === "true")
+      .map((card) => card.querySelector("[data-public-id]")?.dataset.publicId)
+      .filter(Boolean)
+    if (notes.length === 0) return this.applyFilters()
+    if (!window.confirm(`Permanently delete ${notes.length} trashed note${notes.length === 1 ? "" : "s"}? This cannot be undone.`)) return
+    button.disabled = true
+    try {
+      for (const [index, id] of notes.entries()) {
+        button.textContent = `Deleting ${index + 1}/${notes.length}…`
+        await pushWithReply(this, "delete_self_note", {id})
+      }
+      this.clearSelection()
+      this.applyFilters()
+    } catch (error) {
+      button.textContent = error.message || "Could not delete all trashed notes"
+      button.disabled = false
+    }
   },
   create() {
     const {userId, peerKey: key} = this.el.dataset

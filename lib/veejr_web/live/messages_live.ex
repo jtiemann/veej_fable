@@ -308,6 +308,11 @@ defmodule VeejrWeb.MessagesLive do
                       aria-pressed="false"
                     >Trash</button>
                   </div>
+                  <button
+                    data-role="delete-trashed"
+                    type="button"
+                    class="btn btn-error btn-xs mt-3 hidden"
+                  >Delete all trashed notes</button>
                 </div>
                 <div id="self-notes-grid" class="columns-1 gap-4 sm:columns-2 xl:columns-3">
                   <p
