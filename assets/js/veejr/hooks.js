@@ -1825,6 +1825,7 @@ function noteDocument(payload = {}) {
     created_at: payload.created_at || now,
     updated_at: now,
     attachments: Array.isArray(payload.attachments) ? payload.attachments : [],
+    legacy_message_id: payload.legacy_message_id || null,
   }
 }
 
@@ -1901,9 +1902,10 @@ export const SelfNotesBoard = {
     this.el.querySelector("[data-role=bulk-pin]")?.addEventListener("click", () => this.bulk((note) => { note.pinned = true }))
     this.el.querySelector("[data-role=bulk-archive]")?.addEventListener("click", () => this.bulk((note) => { note.archived_at = new Date().toISOString(); note.trashed_at = null }))
     this.el.querySelector("[data-role=bulk-trash]")?.addEventListener("click", () => this.bulk((note) => { note.trashed_at = new Date().toISOString() }))
+    this.el.querySelector("[data-role=backfill]")?.addEventListener("click", () => this.backfill())
     this.onEdit = (event) => this.edit(event.detail)
     this.onSave = (event) => this.save(event.detail)
-    this.onRendered = () => this.applyFilters()
+    this.onRendered = () => { this.applyFilters(); this.updateBackfillButton() }
     this.onSelected = (event) => this.setSelected(event.detail)
     this.onKeydown = (event) => {
       if (!this.el.isConnected) return
@@ -1973,6 +1975,14 @@ export const SelfNotesBoard = {
       card.hidden = !stateMatch || (!!query && !(card.dataset.noteSearch || "").includes(query))
     })
   },
+  updateBackfillButton() {
+    const button = this.el.querySelector("[data-role=backfill]")
+    if (!button) return
+    const copied = new Set([...this.el.querySelectorAll(".self-note-card")].map((card) => card.dataset.legacySource).filter(Boolean))
+    const remaining = [...this.el.querySelectorAll("[data-role=legacy-note]")].filter((entry) => !copied.has(entry.dataset.publicId)).length
+    if (remaining === 0) { button.textContent = "All old self messages copied"; button.disabled = true }
+    else button.textContent = `Copy ${remaining} old self messages into notes`
+  },
   create() {
     const userId = this.el.querySelector("[data-user-id]")?.dataset.userId
     const key = this.el.querySelector("[data-peer-key]")?.dataset.peerKey
@@ -1986,6 +1996,32 @@ export const SelfNotesBoard = {
         attachment_ids: note.attachments.map((attachment) => attachment.id),
       })
     })
+  },
+  async backfill() {
+    const button = this.el.querySelector("[data-role=backfill]")
+    const userId = this.el.dataset.userId
+    const key = this.el.dataset.peerKey
+    const secret = getSecretKey(userId)
+    if (!secret) return window.alert("Unlock your keys before copying old messages.")
+    if (!window.confirm("Copy your old self messages into note cards? The original messages will be kept.")) return
+    button.disabled = true
+    const migrated = new Set([...this.el.querySelectorAll(".self-note-card")].map((card) => card.dataset.legacySource).filter(Boolean))
+    const entries = [...this.el.querySelectorAll("[data-role=legacy-note]")].filter((entry) => !migrated.has(entry.dataset.publicId))
+    if (entries.length === 0) return this.updateBackfillButton()
+    try {
+      for (const [index, entry] of entries.entries()) {
+        button.textContent = `Copying ${index + 1}/${entries.length}…`
+        const message = openFrom(entry.dataset.ciphertext, entry.dataset.nonce, entry.dataset.peerKey, secret)
+        if (!message) continue
+        const note = noteDocument({body: message.text || "", attachments: message.attachments || [], created_at: message.sent_at || undefined, legacy_message_id: entry.dataset.publicId})
+        if (!note.body && note.attachments.length === 0) continue
+        await pushWithReply(this, "send_batch", {kind: "self_note", envelopes: [{recipient_id: Number(userId), ...sealFor(key, note, secret)}], attachment_ids: note.attachments.map((attachment) => attachment.id)})
+      }
+      window.location.reload()
+    } catch (error) {
+      button.disabled = false
+      button.textContent = error.message || "Copy failed"
+    }
   },
   edit({payload, element}) {
     noteEditor(this.el, payload, async (note) => {
@@ -2018,6 +2054,7 @@ export const SelfNotes = {
     this.el.closest(".self-note-card").dataset.noteArchived = String(!!payload.archived_at)
     this.el.closest(".self-note-card").dataset.noteTrashed = String(!!payload.trashed_at)
     this.el.closest(".self-note-card").dataset.notePinned = String(!!payload.pinned)
+    if (payload.legacy_message_id) this.el.closest(".self-note-card").dataset.legacySource = payload.legacy_message_id
     window.dispatchEvent(new CustomEvent("veejr:self-note-rendered"))
     const title = document.createElement("h3"); title.className = "font-semibold"; title.textContent = payload.title || "Untitled note"
     if (payload.pinned) title.textContent = `📌 ${title.textContent}`

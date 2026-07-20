@@ -67,6 +67,23 @@ defmodule Veejr.MessagingSendTest do
     assert Enum.any?(Messaging.list_history(user), &(&1.public_id == message.public_id))
   end
 
+  test "legacy self-message listing excludes self notes" do
+    user = user_fixture()
+
+    for {kind, ciphertext} <- [{"message", "legacy"}, {"self_note", "note"}] do
+      assert {:ok, _, []} =
+               Messaging.send_batch(user, kind, [
+                 %{
+                   "recipient_id" => user.id,
+                   "ciphertext" => ciphertext,
+                   "nonce" => "nonce-#{kind}"
+                 }
+               ])
+    end
+
+    assert [%{kind: "message", ciphertext: "legacy"}] = Messaging.list_legacy_self_messages(user)
+  end
+
   test "sender deletion frees a batch's tracked attachment" do
     user = user_fixture()
     {:ok, blob} = Messaging.create_blob(user, "encrypted-video")

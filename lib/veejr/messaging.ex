@@ -780,6 +780,16 @@ defmodule Veejr.Messaging do
     |> Repo.all()
   end
 
+  @doc "Returns legacy self-addressed messages that a browser may copy into self notes."
+  def list_legacy_self_messages(%User{id: id}) do
+    from(e in Envelope,
+      where: e.sender_id == ^id and e.recipient_id == ^id and e.kind == "message",
+      preload: [:sender],
+      order_by: [asc: e.inserted_at, asc: e.id]
+    )
+    |> Repo.all()
+  end
+
   @doc """
   Everything `user` can decrypt, newest first: their own self-copies (sent
   items) and received envelopes they accepted. Filterable by `:kind`.
