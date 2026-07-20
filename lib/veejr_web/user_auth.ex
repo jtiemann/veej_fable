@@ -33,12 +33,25 @@ defmodule VeejrWeb.UserAuth do
   or falls back to the `signed_in_path/1`.
   """
   def log_in_user(conn, user, params \\ %{}) do
-    user_return_to = get_session(conn, :user_return_to)
+    user_return_to = local_return_to(params["return_to"]) || get_session(conn, :user_return_to)
 
     conn
     |> create_or_extend_session(user, params)
     |> redirect(to: user_return_to || signed_in_path(conn))
   end
+
+  @doc false
+  def local_return_to(path) when is_binary(path) do
+    uri = URI.parse(path)
+
+    if is_nil(uri.scheme) and is_nil(uri.host) and is_binary(uri.path) and
+         String.starts_with?(uri.path, "/") and not String.starts_with?(uri.path, "//") and
+         not String.contains?(path, ["\\", "\r", "\n"]) do
+      URI.to_string(%URI{path: uri.path, query: uri.query, fragment: uri.fragment})
+    end
+  end
+
+  def local_return_to(_path), do: nil
 
   @doc """
   Logs the user out.
@@ -236,14 +249,35 @@ defmodule VeejrWeb.UserAuth do
     if Accounts.sudo_mode?(socket.assigns.current_scope.user, -10) do
       {:cont, socket}
     else
+      return_to =
+        socket
+        |> connect_uri()
+        |> path_from_uri()
+
       socket =
         socket
         |> Phoenix.LiveView.put_flash(:error, "You must re-authenticate to access this page.")
-        |> Phoenix.LiveView.redirect(to: ~p"/users/log-in")
+        |> Phoenix.LiveView.redirect(to: ~p"/users/log-in?#{[return_to: return_to]}")
 
       {:halt, socket}
     end
   end
+
+  defp connect_uri(socket) do
+    Phoenix.LiveView.get_connect_info(socket, :uri)
+  rescue
+    RuntimeError -> nil
+  end
+
+  defp path_from_uri(%URI{} = uri) do
+    query = if uri.query in [nil, ""], do: nil, else: uri.query
+    fragment = if uri.fragment in [nil, ""], do: nil, else: uri.fragment
+
+    local_return_to(URI.to_string(%URI{path: uri.path, query: query, fragment: fragment})) ||
+      ~p"/users/settings"
+  end
+
+  defp path_from_uri(_uri), do: ~p"/users/settings"
 
   defp mount_current_scope(socket, session) do
     Phoenix.Component.assign_new(socket, :current_scope, fn ->

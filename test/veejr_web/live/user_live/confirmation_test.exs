@@ -107,6 +107,26 @@ defmodule VeejrWeb.UserLive.ConfirmationTest do
       assert html =~ "Magic link is invalid or it has expired"
     end
 
+    test "returns to the requested local page after magic-link login", %{
+      conn: conn,
+      confirmed_user: user
+    } do
+      token =
+        extract_user_token(fn url ->
+          Accounts.deliver_login_instructions(user, url)
+        end)
+
+      {:ok, lv, _html} =
+        live(conn, ~p"/users/log-in/#{token}?#{[return_to: ~p"/users/settings"]}")
+
+      form = form(lv, "#login_form", %{"user" => %{"token" => token}})
+      render_submit(form)
+
+      authenticated_conn = follow_trigger_action(form, conn)
+
+      assert redirected_to(authenticated_conn) == ~p"/users/settings"
+    end
+
     test "raises error for invalid token", %{conn: conn} do
       {:ok, _lv, html} =
         live(conn, ~p"/users/log-in/invalid-token")

@@ -2,6 +2,7 @@ defmodule VeejrWeb.UserLive.Login do
   use VeejrWeb, :live_view
 
   alias Veejr.Accounts
+  alias VeejrWeb.UserAuth
 
   @impl true
   def render(assigns) do
@@ -38,7 +39,7 @@ defmodule VeejrWeb.UserLive.Login do
         <.form
           for={@form}
           id="login_form_magic"
-          action={~p"/users/log-in"}
+          action={login_path(@return_to)}
           phx-submit="submit_magic"
         >
           <.input
@@ -62,7 +63,7 @@ defmodule VeejrWeb.UserLive.Login do
         <.form
           for={@form}
           id="login_form_password"
-          action={~p"/users/log-in"}
+          action={login_path(@return_to)}
           phx-submit="submit_password"
           phx-trigger-action={@trigger_submit}
         >
@@ -96,14 +97,19 @@ defmodule VeejrWeb.UserLive.Login do
   end
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
     identifier =
       Phoenix.Flash.get(socket.assigns.flash, :identifier) ||
         get_in(socket.assigns, [:current_scope, Access.key(:user), Access.key(:email)])
 
     form = to_form(%{"identifier" => identifier}, as: "user")
 
-    {:ok, assign(socket, form: form, trigger_submit: false)}
+    {:ok,
+     assign(socket,
+       form: form,
+       trigger_submit: false,
+       return_to: UserAuth.local_return_to(params["return_to"])
+     )}
   end
 
   @impl true
@@ -112,10 +118,12 @@ defmodule VeejrWeb.UserLive.Login do
   end
 
   def handle_event("submit_magic", %{"user" => %{"identifier" => identifier}}, socket) do
+    return_to = socket.assigns.return_to
+
     if user = Accounts.get_user_by_login_identifier(identifier) do
       Accounts.deliver_login_instructions(
         user,
-        &url(~p"/users/log-in/#{&1}")
+        &magic_login_url(&1, return_to)
       )
     end
 
@@ -125,8 +133,16 @@ defmodule VeejrWeb.UserLive.Login do
     {:noreply,
      socket
      |> put_flash(:info, info)
-     |> push_navigate(to: ~p"/users/log-in")}
+     |> push_navigate(to: login_path(return_to))}
   end
+
+  defp login_path(nil), do: ~p"/users/log-in"
+  defp login_path(return_to), do: ~p"/users/log-in?#{[return_to: return_to]}"
+
+  defp magic_login_url(token, nil), do: url(~p"/users/log-in/#{token}")
+
+  defp magic_login_url(token, return_to),
+    do: url(~p"/users/log-in/#{token}?#{[return_to: return_to]}")
 
   defp local_mail_adapter? do
     Application.get_env(:veejr, Veejr.Mailer)[:adapter] == Swoosh.Adapters.Local

@@ -64,6 +64,21 @@ defmodule VeejrWeb.UserAuthTest do
       assert redirected_to(conn) == "/hello"
     end
 
+    test "redirects to a validated return_to parameter", %{conn: conn, user: user} do
+      conn =
+        conn
+        |> put_session(:user_return_to, "/older-destination")
+        |> UserAuth.log_in_user(user, %{"return_to" => "/users/settings?tab=security"})
+
+      assert redirected_to(conn) == "/users/settings?tab=security"
+    end
+
+    test "rejects an external return_to parameter", %{conn: conn, user: user} do
+      conn = UserAuth.log_in_user(conn, user, %{"return_to" => "https://example.com/phishing"})
+
+      assert redirected_to(conn) == ~p"/contacts"
+    end
+
     test "writes a cookie if remember_me is configured", %{conn: conn, user: user} do
       conn = conn |> fetch_cookies() |> UserAuth.log_in_user(user, %{"remember_me" => "true"})
       assert get_session(conn, :user_token) == conn.cookies[@remember_me_cookie]

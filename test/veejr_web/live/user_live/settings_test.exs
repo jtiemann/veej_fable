@@ -64,16 +64,30 @@ defmodule VeejrWeb.UserLive.SettingsTest do
       assert %{"error" => "You must log in to access this page."} = flash
     end
 
-    test "redirects if user is not in sudo mode", %{conn: conn} do
-      {:ok, conn} =
-        conn
-        |> log_in_user(user_fixture(),
+    test "returns to settings after re-authentication", %{conn: conn} do
+      user = user_fixture() |> set_password()
+
+      stale_conn =
+        log_in_user(conn, user,
           token_authenticated_at: DateTime.add(DateTime.utc_now(:second), -11, :minute)
         )
-        |> live(~p"/users/settings")
-        |> follow_redirect(conn, ~p"/users/log-in")
 
-      assert conn.resp_body =~ "You must re-authenticate to access this page."
+      assert {:error, {:redirect, %{to: login_path, flash: flash}}} =
+               live(stale_conn, ~p"/users/settings")
+
+      assert URI.decode_query(URI.parse(login_path).query)["return_to"] == ~p"/users/settings"
+      assert %{"error" => "You must re-authenticate to access this page."} = flash
+
+      {:ok, login_live, _html} = live(stale_conn, login_path)
+
+      login_form =
+        form(login_live, "#login_form_password",
+          user: %{identifier: user.username, password: valid_user_password()}
+        )
+
+      authenticated_conn = submit_form(login_form, stale_conn)
+
+      assert redirected_to(authenticated_conn) == ~p"/users/settings"
     end
   end
 
