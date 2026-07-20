@@ -1832,14 +1832,14 @@ function noteDocument(payload = {}) {
 function noteEditor(board, payload, save) {
   const editor = document.createElement("section")
   editor.className = "mb-5 rounded-2xl border border-primary/30 bg-base-100 p-4 shadow-lg"
-  editor.innerHTML = `<input data-note-title class="mb-3 w-full bg-transparent text-lg font-semibold outline-none" placeholder="Title"><textarea data-note-body class="min-h-28 w-full resize-y bg-transparent text-sm outline-none" placeholder="Take a note…"></textarea><input data-note-labels class="mt-3 w-full bg-transparent text-xs outline-none" placeholder="Labels, separated by commas"><input data-note-files type="file" multiple class="mt-3 block w-full text-xs" aria-label="Attach files"><div class="mt-3 flex flex-wrap items-center gap-2"><button type="button" data-note-audio class="btn btn-ghost btn-xs">Microphone</button><button type="button" data-note-video class="btn btn-ghost btn-xs">Video</button><button type="button" data-note-checklist class="btn btn-ghost btn-xs">Checklist</button><select data-note-color class="select select-sm"><option value="default">Default</option><option value="sand">Sand</option><option value="rose">Rose</option><option value="violet">Violet</option><option value="blue">Blue</option><option value="mint">Mint</option></select><span class="flex-1"></span><button type="button" data-note-cancel class="btn btn-ghost btn-sm">Cancel</button><button type="button" data-note-save class="btn btn-primary btn-sm">Save note</button></div><p data-note-record-status class="mt-3 hidden text-sm opacity-70" aria-live="polite"></p><div data-note-recordings class="mt-3 space-y-2"></div><p data-note-error class="mt-3 hidden text-sm text-error" role="alert"></p><div data-note-items class="mt-3 space-y-2"></div>`
+  editor.innerHTML = `<input data-note-title class="mb-3 w-full bg-transparent text-lg font-semibold outline-none" placeholder="Title"><textarea data-note-body class="min-h-28 w-full resize-y bg-transparent text-sm outline-none" placeholder="Take a note…"></textarea><input data-note-labels class="mt-3 w-full bg-transparent text-xs outline-none" placeholder="Labels, separated by commas"><div class="mt-3 flex flex-wrap items-center gap-2"><label title="Attach files" class="flex size-9 cursor-pointer items-center justify-center rounded-full bg-base-200 opacity-70 transition hover:bg-base-300 hover:opacity-100"><span aria-hidden="true">📎</span><span class="sr-only">Attach files</span><input data-note-files type="file" multiple class="sr-only" aria-label="Attach files"></label><button type="button" data-note-audio title="Record voice note" aria-label="Record voice note" class="flex size-9 items-center justify-center rounded-full bg-base-200 opacity-70 transition hover:bg-base-300 hover:opacity-100">🎙</button><button type="button" data-note-video title="Record video note" aria-label="Record video note" class="flex size-9 items-center justify-center rounded-full bg-base-200 opacity-70 transition hover:bg-base-300 hover:opacity-100">🎥</button><button type="button" data-note-camera title="Switch camera" aria-label="Switch camera" class="flex size-9 items-center justify-center rounded-full bg-base-200 opacity-70 transition hover:bg-base-300 hover:opacity-100">↻</button><button type="button" data-note-checklist class="btn btn-ghost btn-xs">Checklist</button><select data-note-color class="select select-sm"><option value="default">Default</option><option value="sand">Sand</option><option value="rose">Rose</option><option value="violet">Violet</option><option value="blue">Blue</option><option value="mint">Mint</option></select><span class="flex-1"></span><button type="button" data-note-cancel class="btn btn-ghost btn-sm">Cancel</button><button type="button" data-note-save class="btn btn-primary btn-sm">Save note</button></div><p data-note-record-status class="mt-3 hidden text-sm opacity-70" aria-live="polite"></p><div data-note-recordings class="mt-3 space-y-2"></div><p data-note-error class="mt-3 hidden text-sm text-error" role="alert"></p><div data-note-items class="mt-3 space-y-2"></div>`
   const title = editor.querySelector("[data-note-title]")
   const body = editor.querySelector("[data-note-body]")
   const labels = editor.querySelector("[data-note-labels]")
   const fileInput = editor.querySelector("[data-note-files]")
   const color = editor.querySelector("[data-note-color]")
   const items = editor.querySelector("[data-note-items]")
-  const recordings = {audio: [], video: [], recorder: null, stream: null, kind: null, finalizing: false, timer: null}
+  const recordings = {audio: [], video: [], recorder: null, stream: null, kind: null, finalizing: false, timer: null, facingMode: "user"}
   const recordStatus = editor.querySelector("[data-note-record-status]")
   const recordPreview = editor.querySelector("[data-note-recordings]")
   const setRecordStatus = (message) => {
@@ -1887,7 +1887,7 @@ function noteEditor(board, payload, save) {
     }
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) throw new Error("Recording is not supported in this browser.")
     const mimeType = kind === "audio" ? preferredAudioMime() : preferredVideoMime()
-    const stream = await navigator.mediaDevices.getUserMedia(kind === "audio" ? {audio: true} : {audio: true, video: {facingMode: {ideal: "user"}, width: {ideal: 1280}, height: {ideal: 720}}})
+    const stream = await navigator.mediaDevices.getUserMedia(kind === "audio" ? {audio: true} : {audio: true, video: {facingMode: {ideal: recordings.facingMode}, width: {ideal: 1280}, height: {ideal: 720}}})
     const options = mimeType ? {mimeType, ...(kind === "video" ? {videoBitsPerSecond: 2_000_000} : {})} : undefined
     const recorder = new MediaRecorder(stream, options)
     const chunks = []; const startedAt = Date.now()
@@ -1933,6 +1933,11 @@ function noteEditor(board, payload, save) {
   })
   editor.querySelector("[data-note-audio]").addEventListener("click", () => toggleRecording("audio").catch((error) => setRecordStatus(error.message)))
   editor.querySelector("[data-note-video]").addEventListener("click", () => toggleRecording("video").catch((error) => setRecordStatus(error.message)))
+  editor.querySelector("[data-note-camera]").addEventListener("click", () => {
+    if (recordings.recorder?.state === "recording" || recordings.finalizing) return setRecordStatus("Stop recording before switching cameras.")
+    recordings.facingMode = recordings.facingMode === "user" ? "environment" : "user"
+    setRecordStatus(`The ${recordings.facingMode === "user" ? "front" : "rear"} camera will be used next.`)
+  })
   editor.querySelector("[data-note-cancel]").addEventListener("click", () => { cleanupRecordings(); editor.remove() })
   const submit = async () => {
     const error = editor.querySelector("[data-note-error]")

@@ -543,7 +543,14 @@ defmodule VeejrWeb.MessagesLive do
   end
 
   def handle_event("select_conversation", %{"key" => key}, socket) do
-    {:noreply, push_patch(socket, to: ~p"/messages?conversation=#{key}")}
+    destination =
+      if Enum.any?(socket.assigns.conversations, &(&1.key == key and &1.participants == ["notes to yourself"])) do
+        ~p"/messages?self_notes=true"
+      else
+        ~p"/messages?conversation=#{key}"
+      end
+
+    {:noreply, push_patch(socket, to: destination)}
   end
 
   def handle_event("archive_conversation", %{"key" => key}, socket) do
