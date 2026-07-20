@@ -1835,6 +1835,7 @@ function noteDocument(payload = {}) {
 }
 
 function noteEditor(board, payload, save) {
+  const returnFocus = document.activeElement
   const editor = document.createElement("section")
   editor.setAttribute("data-role", "note-editor")
   editor.className = "mb-5 rounded-2xl border border-primary/30 bg-base-100 p-4 shadow-lg"
@@ -1976,7 +1977,13 @@ function noteEditor(board, payload, save) {
     saveTimer = setTimeout(() => submit(), 600)
   }
   ;[title, body, labels, color, sortChecked].forEach((field) => field.addEventListener("blur", scheduleSave))
-  editor.querySelector("[data-note-cancel]").addEventListener("click", () => { clearTimeout(saveTimer); cleanupRecordings(); editor.remove() })
+  const closeEditor = () => {
+    clearTimeout(saveTimer)
+    cleanupRecordings()
+    editor.remove()
+    if (returnFocus?.isConnected) returnFocus.focus()
+  }
+  editor.querySelector("[data-note-cancel]").addEventListener("click", closeEditor)
   const submit = async () => {
     if (saving) return
     const error = editor.querySelector("[data-note-error]")
@@ -2006,8 +2013,7 @@ function noteEditor(board, payload, save) {
         next.attachments.push(await encryptAndUpload(entry.file, {name: entry.file.name, mime: entry.file.type, size: entry.file.size, durationMs: entry.durationMs}))
       }
       await save(next)
-      cleanupRecordings()
-      editor.remove()
+      closeEditor()
     } catch (saveError) {
       saving = false
       button.disabled = false; button.textContent = "Save note"
@@ -2321,6 +2327,8 @@ export const SelfNotes = {
     const payload = openFrom(this.el.dataset.ciphertext, this.el.dataset.nonce, this.el.dataset.peerKey, secret)
     if (!payload || payload.v !== 2 || payload.kind !== "self_note" || !Array.isArray(payload.checklist) || !Array.isArray(payload.labels) || !Array.isArray(payload.attachments)) { this.el.textContent = "Unsupported or malformed encrypted note."; return }
     const card = this.el.closest(".self-note-card")
+    card.tabIndex = 0
+    card.setAttribute("aria-label", `Open ${payload.title || "untitled note"}`)
     card.dataset.noteSearch = [payload.title, payload.body, ...payload.labels, ...payload.checklist.map((item) => item.text)].join(" ").toLocaleLowerCase()
     card.dataset.noteLabels = JSON.stringify(payload.labels.filter((label) => typeof label === "string").slice(0, 10))
     card.dataset.noteUpdated = payload.updated_at || ""
@@ -2402,7 +2410,12 @@ export const SelfNotes = {
     }
     this.el.append(title, body, list, meta, attachments, actions)
     this.el.closest(".self-note-card").style.background = {sand:"#f8edcf",rose:"#f8dfe1",violet:"#ebe2fb",blue:"#dceefa",mint:"#dff3e7"}[payload.color] || ""
-    this.el.closest(".self-note-card").addEventListener("click", () => window.dispatchEvent(new CustomEvent("veejr:self-note-edit", {detail: {payload, element: this.el}})))
+    card.addEventListener("click", () => window.dispatchEvent(new CustomEvent("veejr:self-note-edit", {detail: {payload, element: this.el}})))
+    card.addEventListener("keydown", (event) => {
+      if (event.target !== card || !["Enter", " "].includes(event.key)) return
+      event.preventDefault()
+      window.dispatchEvent(new CustomEvent("veejr:self-note-edit", {detail: {payload, element: this.el}}))
+    })
   },
 }
 

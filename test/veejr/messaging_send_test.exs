@@ -34,6 +34,27 @@ defmodule Veejr.MessagingSendTest do
     assert Messaging.list_pending_notifications(user) == []
   end
 
+  test "bounds self-note loading while retaining the newest notes" do
+    user = user_fixture()
+
+    for index <- 1..55 do
+      assert {:ok, _batch_id, []} =
+               Messaging.send_batch(user, "self_note", [
+                 %{
+                   "recipient_id" => user.id,
+                   "ciphertext" => "encrypted-note-#{index}",
+                   "nonce" => "nonce-#{index}"
+                 }
+               ])
+    end
+
+    notes = Messaging.list_self_note_envelopes(user, limit: 50)
+
+    assert length(notes) == 50
+    assert hd(notes).ciphertext == "encrypted-note-55"
+    refute Enum.any?(notes, &(&1.ciphertext == "encrypted-note-1"))
+  end
+
   test "rejects a self note with expiry or another recipient" do
     user = user_fixture()
     other = user_fixture()
