@@ -179,7 +179,7 @@ defmodule VeejrWeb.ContactsLive do
           </div>
         </details>
 
-        <details open class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-100">
+        <details class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-100">
           <summary class="collapse-title">
             <div class="flex items-center justify-between gap-3 pr-6">
               <h2 class="text-lg font-semibold">Friends</h2>
@@ -338,7 +338,7 @@ defmodule VeejrWeb.ContactsLive do
           </div>
         </details>
 
-        <details open class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-100">
+        <details class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-100">
           <summary class="collapse-title">
             <div class="flex items-center justify-between gap-3 pr-6">
               <h2 class="text-lg font-semibold">Groups</h2>
