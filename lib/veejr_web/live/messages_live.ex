@@ -260,6 +260,18 @@ defmodule VeejrWeb.MessagesLive do
                 data-peer-key={@current_scope.user.public_key}
                 class="min-h-[26rem] flex-1 overflow-y-auto p-4 sm:p-6"
               >
+                <div
+                  id="self-notes-selection-toolbar"
+                  data-role="selection-toolbar"
+                  class="mb-3 hidden items-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 text-sm"
+                >
+                  <span data-role="selection-count">0 selected</span>
+                  <span class="flex-1"></span>
+                  <button data-role="bulk-pin" type="button" class="btn btn-ghost btn-xs">Pin</button>
+                  <button data-role="bulk-archive" type="button" class="btn btn-ghost btn-xs">Archive</button>
+                  <button data-role="bulk-trash" type="button" class="btn btn-ghost btn-xs">Trash</button>
+                  <button data-role="bulk-clear" type="button" class="btn btn-ghost btn-xs">Clear</button>
+                </div>
                 <div class="mb-5 rounded-2xl border border-base-300 bg-base-100 p-3 shadow-sm">
                   <input
                     id="self-notes-search"
@@ -273,6 +285,29 @@ defmodule VeejrWeb.MessagesLive do
                     type="button"
                     class="mt-3 text-sm font-medium text-primary"
                   >Take a note…</button>
+                  <div class="mt-3 flex flex-wrap gap-2" role="tablist" aria-label="Note filters">
+                    <button
+                      data-role="filter"
+                      data-filter="active"
+                      type="button"
+                      class="btn btn-ghost btn-xs"
+                      aria-pressed="true"
+                    >Notes</button>
+                    <button
+                      data-role="filter"
+                      data-filter="archived"
+                      type="button"
+                      class="btn btn-ghost btn-xs"
+                      aria-pressed="false"
+                    >Archive</button>
+                    <button
+                      data-role="filter"
+                      data-filter="trashed"
+                      type="button"
+                      class="btn btn-ghost btn-xs"
+                      aria-pressed="false"
+                    >Trash</button>
+                  </div>
                 </div>
                 <div id="self-notes-grid" class="columns-1 gap-4 sm:columns-2 xl:columns-3">
                   <p
@@ -614,6 +649,15 @@ defmodule VeejrWeb.MessagesLive do
     end
   end
 
+  def handle_event("delete_self_note", %{"id" => public_id}, socket) do
+    user = socket.assigns.current_scope.user
+
+    case Messaging.delete_self_note(user, public_id) do
+      {:ok, _} -> {:reply, %{ok: true}, refresh(socket)}
+      {:error, _} -> {:reply, %{error: "Could not permanently delete that note."}, socket}
+    end
+  end
+
   def handle_event("message_displayed", %{"id" => public_id}, socket) do
     case Messaging.record_display(socket.assigns.current_scope.user, public_id) do
       {:ok, envelope}
@@ -633,10 +677,17 @@ defmodule VeejrWeb.MessagesLive do
     end
   end
 
-  def handle_event("edit_batch", %{"id" => public_id, "envelopes" => envelopes}, socket) do
-    case Messaging.edit_sent_batch(socket.assigns.current_scope.user, public_id, envelopes) do
+  def handle_event("edit_batch", %{"id" => public_id, "envelopes" => envelopes} = params, socket) do
+    case Messaging.edit_sent_batch(socket.assigns.current_scope.user, public_id, envelopes,
+           attachment_ids: Map.get(params, "attachment_ids", []),
+           expected_updated_at: Map.get(params, "expected_updated_at")
+         ) do
       {:ok, _count} ->
         {:reply, %{ok: true}, socket |> put_flash(:info, "Message updated.") |> refresh()}
+
+      {:error, :stale} ->
+        {:reply, %{error: "This note changed on another device. Reload it before saving."},
+         refresh(socket)}
 
       {:error, _} ->
         {:reply, %{error: "Could not update that message."}, socket}

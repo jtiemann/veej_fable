@@ -19,6 +19,54 @@ defmodule Veejr.MessagingSendTest do
     assert Messaging.list_history(user) == []
   end
 
+  test "stores a self note as one owner-only envelope" do
+    user = user_fixture()
+
+    assert {:ok, _batch_id, []} =
+             Messaging.send_batch(user, "self_note", [
+               %{"recipient_id" => user.id, "ciphertext" => "encrypted note", "nonce" => "nonce"}
+             ])
+
+    [note] = Messaging.list_self_note_envelopes(user)
+    assert note.kind == "self_note"
+    assert note.sender_id == user.id
+    assert note.recipient_id == user.id
+    assert Messaging.list_pending_notifications(user) == []
+  end
+
+  test "rejects a self note with expiry or another recipient" do
+    user = user_fixture()
+    other = user_fixture()
+
+    assert {:error, :invalid_self_note} =
+             Messaging.send_batch(
+               user,
+               "self_note",
+               [%{"recipient_id" => other.id, "ciphertext" => "ct", "nonce" => "nonce"}]
+             )
+
+    assert {:error, :invalid_self_note} =
+             Messaging.send_batch(
+               user,
+               "self_note",
+               [%{"recipient_id" => user.id, "ciphertext" => "ct", "nonce" => "nonce"}],
+               expires_at: DateTime.add(DateTime.utc_now(), 60, :second)
+             )
+  end
+
+  test "self note deletion cannot delete a normal message" do
+    user = user_fixture()
+
+    assert {:ok, _, []} =
+             Messaging.send_batch(user, "message", [
+               %{"recipient_id" => user.id, "ciphertext" => "message", "nonce" => "nonce"}
+             ])
+
+    [message] = Messaging.list_history(user)
+    assert {:error, :not_found} = Messaging.delete_self_note(user, message.public_id)
+    assert Enum.any?(Messaging.list_history(user), &(&1.public_id == message.public_id))
+  end
+
   test "sender deletion frees a batch's tracked attachment" do
     user = user_fixture()
     {:ok, blob} = Messaging.create_blob(user, "encrypted-video")

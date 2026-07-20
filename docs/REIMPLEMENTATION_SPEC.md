@@ -203,7 +203,11 @@ Plaintext is compact UTF-8 JSON:
 }
 ```
 
-Allowed kinds are `message`, `location`, and `note`. Location payloads add
+Allowed kinds are `message`, `location`, `note`, and `self_note`. A `self_note`
+is a single sender-to-self encrypted envelope and MUST NOT create delivery
+notifications, expiry/display limits, or federation work. Its note title,
+body, labels, checklist, attachments, and board state remain encrypted.
+Location payloads add
 `lat`, `lng`, and `located_at`; map notes add `lat`, `lng`, and optional
 `title`. Coordinates exist only inside ciphertext.
 

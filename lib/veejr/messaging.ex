@@ -1072,12 +1072,22 @@ defmodule Veejr.Messaging do
   Replaces every copy in a sent batch with ciphertext produced in the browser.
   The server validates ownership and copy ids but never sees plaintext.
   """
-  def edit_sent_batch(%User{id: user_id}, public_id, entries) when is_binary(public_id) do
+  def edit_sent_batch(%User{id: user_id} = user, public_id, entries, opts \\ [])
+      when is_binary(public_id) do
+    expected_updated_at = normalize_expected_updated_at(opt(opts, :expected_updated_at))
+
     with %Envelope{} = envelope <- Repo.get_by(Envelope, public_id: public_id, sender_id: user_id),
+         true <- expected_updated_at?(envelope.updated_at, expected_updated_at),
          true <- is_list(entries) do
       now = DateTime.utc_now(:second)
 
       Repo.transaction(fn ->
+        link_batch_blobs!(
+          user,
+          envelope.batch_id,
+          normalize_attachment_ids(opt(opts, :attachment_ids))
+        )
+
         for entry <- entries, reduce: 0 do
           count ->
             entry_public_id = entry["public_id"] || entry[:public_id]
@@ -1092,7 +1102,8 @@ defmodule Veejr.Messaging do
                 set: [
                   ciphertext: entry["ciphertext"] || entry[:ciphertext],
                   nonce: entry["nonce"] || entry[:nonce],
-                  edited_at: now
+                  edited_at: now,
+                  updated_at: now
                 ]
               )
 
@@ -1106,9 +1117,25 @@ defmodule Veejr.Messaging do
       end
     else
       nil -> {:error, :not_found}
+      false -> {:error, :stale}
       _ -> {:error, :bad_request}
     end
   end
+
+  defp normalize_expected_updated_at(nil), do: nil
+
+  defp normalize_expected_updated_at(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> DateTime.truncate(datetime, :second)
+      _ -> :invalid
+    end
+  end
+
+  defp normalize_expected_updated_at(_), do: :invalid
+
+  defp expected_updated_at?(_actual, nil), do: true
+  defp expected_updated_at?(_actual, :invalid), do: false
+  defp expected_updated_at?(actual, expected), do: DateTime.compare(actual, expected) == :eq
 
   @doc """
   Removes an envelope from the user's visible history.
@@ -1153,6 +1180,19 @@ defmodule Veejr.Messaging do
 
       true ->
         {:error, :unauthorized}
+    end
+  end
+
+  @doc "Permanently removes one owner-only self-note, never another envelope kind."
+  def delete_self_note(%User{id: user_id} = user, public_id) when is_binary(public_id) do
+    case Repo.get_by(Envelope,
+           public_id: public_id,
+           sender_id: user_id,
+           recipient_id: user_id,
+           kind: "self_note"
+         ) do
+      nil -> {:error, :not_found}
+      _envelope -> delete_envelope(user, public_id)
     end
   end
 

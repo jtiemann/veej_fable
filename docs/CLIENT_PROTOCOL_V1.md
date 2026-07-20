@@ -699,7 +699,12 @@ Each `attachment_ids` entry MUST identify a blob owned by the sender. The
 server links those opaque IDs to the batch atomically without learning file
 names, media types, keys, or other encrypted descriptor fields.
 
-Allowed kinds are `message`, `location`, and `note`. `max_displays` is either
+Allowed kinds are `message`, `location`, `note`, and `self_note`. A `self_note`
+batch MUST contain exactly one envelope addressed to its sender, MUST NOT carry
+an expiry or display limit, and MUST NOT produce a notification or federation
+delivery. Its decrypted payload is a versioned note document; title, body,
+labels, checklist items, attachment descriptors, and card state remain inside
+the ciphertext. `max_displays` is either
 null or 1 through 100. `expires_at` is null or a future timestamp within the
 server's maximum allowed horizon. Invalid options MUST be rejected rather than
 silently normalized by the API.

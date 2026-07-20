@@ -742,6 +742,7 @@ defmodule VeejrWeb.MessagingComponents do
         data-ciphertext={@envelope.ciphertext}
         data-nonce={@envelope.nonce}
         data-public-id={@envelope.public_id}
+        data-updated-at={DateTime.to_iso8601(@envelope.updated_at)}
       >
         <span class="loading loading-dots loading-xs"></span>
       </div>

@@ -1831,10 +1831,11 @@ function noteDocument(payload = {}) {
 function noteEditor(board, payload, save) {
   const editor = document.createElement("form")
   editor.className = "mb-5 rounded-2xl border border-primary/30 bg-base-100 p-4 shadow-lg"
-  editor.innerHTML = `<input data-note-title class="mb-3 w-full bg-transparent text-lg font-semibold outline-none" placeholder="Title"><textarea data-note-body class="min-h-28 w-full resize-y bg-transparent text-sm outline-none" placeholder="Take a note…"></textarea><input data-note-labels class="mt-3 w-full bg-transparent text-xs outline-none" placeholder="Labels, separated by commas"><div class="mt-3 flex flex-wrap items-center gap-2"><button type="button" data-note-checklist class="btn btn-ghost btn-xs">Checklist</button><select data-note-color class="select select-sm"><option value="default">Default</option><option value="sand">Sand</option><option value="rose">Rose</option><option value="violet">Violet</option><option value="blue">Blue</option><option value="mint">Mint</option></select><span class="flex-1"></span><button type="button" data-note-cancel class="btn btn-ghost btn-sm">Cancel</button><button class="btn btn-primary btn-sm">Save note</button></div><div data-note-items class="mt-3 space-y-2"></div>`
+  editor.innerHTML = `<input data-note-title class="mb-3 w-full bg-transparent text-lg font-semibold outline-none" placeholder="Title"><textarea data-note-body class="min-h-28 w-full resize-y bg-transparent text-sm outline-none" placeholder="Take a note…"></textarea><input data-note-labels class="mt-3 w-full bg-transparent text-xs outline-none" placeholder="Labels, separated by commas"><input data-note-files type="file" multiple class="mt-3 block w-full text-xs"><div class="mt-3 flex flex-wrap items-center gap-2"><button type="button" data-note-checklist class="btn btn-ghost btn-xs">Checklist</button><select data-note-color class="select select-sm"><option value="default">Default</option><option value="sand">Sand</option><option value="rose">Rose</option><option value="violet">Violet</option><option value="blue">Blue</option><option value="mint">Mint</option></select><span class="flex-1"></span><button type="button" data-note-cancel class="btn btn-ghost btn-sm">Cancel</button><button class="btn btn-primary btn-sm">Save note</button></div><div data-note-items class="mt-3 space-y-2"></div>`
   const title = editor.querySelector("[data-note-title]")
   const body = editor.querySelector("[data-note-body]")
   const labels = editor.querySelector("[data-note-labels]")
+  const fileInput = editor.querySelector("[data-note-files]")
   const color = editor.querySelector("[data-note-color]")
   const items = editor.querySelector("[data-note-items]")
   title.value = payload.title || ""
@@ -1868,25 +1869,110 @@ function noteEditor(board, payload, save) {
     if (!next.title && !next.body && next.checklist.length === 0) return
     const button = editor.querySelector("button[type=submit]")
     button.disabled = true; button.textContent = "Encrypting…"
-    try { await save(next); editor.remove() } catch (error) { button.disabled = false; button.textContent = error.message || "Could not save" }
+    try {
+      const files = [...fileInput.files]
+      for (const file of files) {
+        button.textContent = `Encrypting ${file.name}…`
+        next.attachments.push(await encryptAndUpload(file))
+      }
+      await save(next)
+      editor.remove()
+    } catch (error) { button.disabled = false; button.textContent = error.message || "Could not save" }
   })
   board.prepend(editor); title.focus()
 }
 
 export const SelfNotesBoard = {
   mounted() {
+    this.filter = "active"
+    this.selected = new Map()
     this.el.addEventListener("self-notes:new", () => this.create())
     this.el.querySelector("[data-role=new-note]")?.addEventListener("click", () => this.create())
     this.el.querySelector("[data-role=search]")?.addEventListener("input", (event) => {
-      const query = event.target.value.toLocaleLowerCase()
-      this.el.querySelectorAll(".self-note-card").forEach((card) => {
-        card.hidden = !!query && !(card.dataset.noteSearch || "").includes(query)
-      })
+      this.query = event.target.value.toLocaleLowerCase()
+      this.applyFilters()
     })
+    this.el.querySelectorAll("[data-role=filter]").forEach((button) => button.addEventListener("click", () => {
+      this.filter = button.dataset.filter
+      this.el.querySelectorAll("[data-role=filter]").forEach((control) => control.setAttribute("aria-pressed", String(control === button)))
+      this.applyFilters()
+    }))
+    this.el.querySelector("[data-role=bulk-clear]")?.addEventListener("click", () => this.clearSelection())
+    this.el.querySelector("[data-role=bulk-pin]")?.addEventListener("click", () => this.bulk((note) => { note.pinned = true }))
+    this.el.querySelector("[data-role=bulk-archive]")?.addEventListener("click", () => this.bulk((note) => { note.archived_at = new Date().toISOString(); note.trashed_at = null }))
+    this.el.querySelector("[data-role=bulk-trash]")?.addEventListener("click", () => this.bulk((note) => { note.trashed_at = new Date().toISOString() }))
     this.onEdit = (event) => this.edit(event.detail)
+    this.onSave = (event) => this.save(event.detail)
+    this.onRendered = () => this.applyFilters()
+    this.onSelected = (event) => this.setSelected(event.detail)
+    this.onKeydown = (event) => {
+      if (!this.el.isConnected) return
+      const editing = event.target.matches("input, textarea, select")
+      if (event.key === "Escape") {
+        const editor = this.el.querySelector("form")
+        if (editor) { editor.remove(); return }
+        if (this.selected.size > 0) this.clearSelection()
+      }
+      if (editing) return
+      if (event.key === "/") { event.preventDefault(); this.el.querySelector("[data-role=search]")?.focus() }
+      if (event.key.toLowerCase() === "c") { event.preventDefault(); this.create() }
+    }
     window.addEventListener("veejr:self-note-edit", this.onEdit)
+    window.addEventListener("veejr:self-note-save", this.onSave)
+    window.addEventListener("veejr:self-note-rendered", this.onRendered)
+    window.addEventListener("veejr:self-note-selected", this.onSelected)
+    window.addEventListener("keydown", this.onKeydown)
   },
-  destroyed() { window.removeEventListener("veejr:self-note-edit", this.onEdit) },
+  destroyed() {
+    window.removeEventListener("veejr:self-note-edit", this.onEdit)
+    window.removeEventListener("veejr:self-note-save", this.onSave)
+    window.removeEventListener("veejr:self-note-rendered", this.onRendered)
+    window.removeEventListener("veejr:self-note-selected", this.onSelected)
+    window.removeEventListener("keydown", this.onKeydown)
+  },
+  setSelected({element, payload, checked}) {
+    if (checked) this.selected.set(element.dataset.publicId, {element, payload})
+    else this.selected.delete(element.dataset.publicId)
+    const toolbar = this.el.querySelector("[data-role=selection-toolbar]")
+    toolbar.classList.toggle("hidden", this.selected.size === 0)
+    toolbar.classList.toggle("flex", this.selected.size > 0)
+    toolbar.querySelector("[data-role=selection-count]").textContent = `${this.selected.size} selected`
+  },
+  clearSelection() {
+    this.selected.clear()
+    this.el.querySelectorAll("[data-role=note-select]").forEach((input) => { input.checked = false })
+    this.el.querySelector("[data-role=selection-toolbar]").classList.add("hidden")
+    this.el.querySelector("[data-role=selection-toolbar]").classList.remove("flex")
+  },
+  async bulk(update) {
+    const selected = [...this.selected.values()]
+    for (const entry of selected) {
+      update(entry.payload)
+      await this.save(entry)
+      const card = entry.element.closest(".self-note-card")
+      card.dataset.notePinned = String(!!entry.payload.pinned)
+      card.dataset.noteArchived = String(!!entry.payload.archived_at)
+      card.dataset.noteTrashed = String(!!entry.payload.trashed_at)
+    }
+    this.clearSelection()
+    this.applyFilters()
+  },
+  applyFilters() {
+    const query = this.query || ""
+    const grid = this.el.querySelector("#self-notes-grid")
+    const cards = [...this.el.querySelectorAll(".self-note-card")]
+    cards
+      .sort((left, right) => Number(right.dataset.notePinned === "true") - Number(left.dataset.notePinned === "true"))
+      .forEach((card) => grid.appendChild(card))
+    cards.forEach((card) => {
+      const stateMatch = this.filter === "trashed"
+        ? card.dataset.noteTrashed === "true"
+        : this.filter === "archived"
+          ? card.dataset.noteArchived === "true" && card.dataset.noteTrashed !== "true"
+          : card.dataset.noteArchived !== "true" && card.dataset.noteTrashed !== "true"
+      card.hidden = !stateMatch || (!!query && !(card.dataset.noteSearch || "").includes(query))
+    })
+  },
   create() {
     const userId = this.el.querySelector("[data-user-id]")?.dataset.userId
     const key = this.el.querySelector("[data-peer-key]")?.dataset.peerKey
@@ -1894,7 +1980,11 @@ export const SelfNotesBoard = {
     noteEditor(this.el, {}, async (note) => {
       const secret = getSecretKey(userId)
       if (!secret) throw new Error("Unlock your keys before saving a note.")
-      await pushWithReply(this, "send_batch", {kind: "self_note", envelopes: [{recipient_id: Number(userId), ...sealFor(key, note, secret)}]})
+      await pushWithReply(this, "send_batch", {
+        kind: "self_note",
+        envelopes: [{recipient_id: Number(userId), ...sealFor(key, note, secret)}],
+        attachment_ids: note.attachments.map((attachment) => attachment.id),
+      })
     })
   },
   edit({payload, element}) {
@@ -1903,8 +1993,17 @@ export const SelfNotesBoard = {
       if (!secret) throw new Error("Unlock your keys before saving a note.")
       const {copies} = await pushWithReply(this, "prepare_edit", {id: element.dataset.publicId})
       const envelopes = copies.map((copy) => ({public_id: copy.public_id, ...sealFor(copy.public_key, note, secret)}))
-      await pushWithReply(this, "edit_batch", {id: element.dataset.publicId, envelopes})
+      await pushWithReply(this, "edit_batch", {id: element.dataset.publicId, envelopes, attachment_ids: note.attachments.map((attachment) => attachment.id), expected_updated_at: element.dataset.updatedAt})
     })
+  },
+  async save({payload, element}) {
+    const secret = getSecretKey(element.dataset.userId)
+    if (!secret) throw new Error("Unlock your keys before saving a note.")
+    const {copies} = await pushWithReply(this, "prepare_edit", {id: element.dataset.publicId})
+    const next = noteDocument(payload)
+    const envelopes = copies.map((copy) => ({public_id: copy.public_id, ...sealFor(copy.public_key, next, secret)}))
+    await pushWithReply(this, "edit_batch", {id: element.dataset.publicId, envelopes, attachment_ids: next.attachments.map((attachment) => attachment.id), expected_updated_at: element.dataset.updatedAt})
+    window.dispatchEvent(new CustomEvent("veejr:self-note-save-complete", {detail: {element}}))
   },
 }
 
@@ -1916,12 +2015,88 @@ export const SelfNotes = {
     const payload = openFrom(this.el.dataset.ciphertext, this.el.dataset.nonce, this.el.dataset.peerKey, secret)
     if (!payload || payload.kind !== "self_note") { this.el.textContent = "Could not decrypt this note."; return }
     this.el.closest(".self-note-card").dataset.noteSearch = [payload.title, payload.body, ...(payload.labels || []), ...(payload.checklist || []).map((item) => item.text)].join(" ").toLocaleLowerCase()
+    this.el.closest(".self-note-card").dataset.noteArchived = String(!!payload.archived_at)
+    this.el.closest(".self-note-card").dataset.noteTrashed = String(!!payload.trashed_at)
+    this.el.closest(".self-note-card").dataset.notePinned = String(!!payload.pinned)
+    window.dispatchEvent(new CustomEvent("veejr:self-note-rendered"))
     const title = document.createElement("h3"); title.className = "font-semibold"; title.textContent = payload.title || "Untitled note"
+    if (payload.pinned) title.textContent = `📌 ${title.textContent}`
     const body = document.createElement("p"); body.className = "mt-2 whitespace-pre-wrap text-sm"; body.textContent = payload.body || ""
     const list = document.createElement("ul"); list.className = "mt-2 space-y-1 text-sm"
     ;(payload.checklist || []).forEach((item) => { const li = document.createElement("li"); li.textContent = `${item.checked ? "✓" : "○"} ${item.text}`; li.className = item.checked ? "opacity-50 line-through" : ""; list.appendChild(li) })
-    const meta = document.createElement("p"); meta.className = "mt-3 text-xs opacity-60"; meta.textContent = (payload.labels || []).map((label) => `#${label}`).join(" ")
-    this.el.append(title, body, list, meta)
+    const meta = document.createElement("div"); meta.className = "mt-3 flex flex-wrap gap-1"
+    ;(payload.labels || []).forEach((label) => {
+      const chip = document.createElement("button")
+      chip.type = "button"; chip.className = "rounded-full bg-base-200 px-2 py-0.5 text-xs opacity-70 hover:opacity-100"; chip.textContent = `#${label}`
+      chip.addEventListener("click", (event) => {
+        event.stopPropagation()
+        const board = document.querySelector("#self-notes-board")
+        const search = board?.querySelector("[data-role=search]")
+        if (!search) return
+        search.value = label
+        search.dispatchEvent(new Event("input", {bubbles: true}))
+        search.focus()
+      })
+      meta.appendChild(chip)
+    })
+    const attachments = document.createElement("div"); attachments.className = "mt-3 flex flex-wrap gap-2"
+    ;(payload.attachments || []).forEach((attachment) => {
+      const button = document.createElement("button")
+      button.type = "button"; button.className = "btn btn-outline btn-xs"; button.textContent = `Attachment: ${attachment.name || "file"}`
+      button.addEventListener("click", (event) => {
+        event.stopPropagation()
+        downloadAttachment(attachment).catch((error) => { button.textContent = error.message || "Could not download" })
+      })
+      attachments.appendChild(button)
+    })
+    const actions = document.createElement("div"); actions.className = "mt-3 flex justify-end gap-1"
+    const select = document.createElement("input")
+    select.type = "checkbox"; select.className = "mr-2"; select.setAttribute("data-role", "note-select"); select.setAttribute("aria-label", `Select ${payload.title || "note"}`)
+    select.addEventListener("click", (event) => event.stopPropagation())
+    select.addEventListener("change", () => window.dispatchEvent(new CustomEvent("veejr:self-note-selected", {detail: {element: this.el, payload, checked: select.checked}})))
+    actions.appendChild(select)
+    const action = (label, update) => {
+      const button = document.createElement("button")
+      button.type = "button"; button.className = "btn btn-ghost btn-xs"; button.textContent = label
+      button.addEventListener("click", async (event) => {
+        event.stopPropagation()
+        button.disabled = true
+        try {
+          update()
+          await new Promise((resolve, reject) => {
+            const listener = async (saveEvent) => {
+              if (saveEvent.detail.element !== this.el) return
+              window.removeEventListener("veejr:self-note-save-complete", listener)
+              resolve()
+            }
+            window.addEventListener("veejr:self-note-save-complete", listener)
+            window.dispatchEvent(new CustomEvent("veejr:self-note-save", {detail: {payload, element: this.el}}))
+            setTimeout(() => reject(new Error("Save timed out")), 15000)
+          })
+          const card = this.el.closest(".self-note-card")
+          card.dataset.noteArchived = String(!!payload.archived_at)
+          card.dataset.noteTrashed = String(!!payload.trashed_at)
+          card.dataset.notePinned = String(!!payload.pinned)
+          window.dispatchEvent(new CustomEvent("veejr:self-note-rendered"))
+        } catch { button.disabled = false }
+      })
+      actions.appendChild(button)
+    }
+    action(payload.pinned ? "Unpin" : "Pin", () => { payload.pinned = !payload.pinned })
+    action(payload.archived_at ? "Unarchive" : "Archive", () => { payload.archived_at = payload.archived_at ? null : new Date().toISOString() })
+    action(payload.trashed_at ? "Restore" : "Trash", () => { payload.trashed_at = payload.trashed_at ? null : new Date().toISOString() })
+    if (payload.trashed_at) {
+      const remove = document.createElement("button")
+      remove.type = "button"; remove.className = "btn btn-error btn-xs"; remove.textContent = "Delete forever"
+      remove.addEventListener("click", async (event) => {
+        event.stopPropagation()
+        if (!window.confirm("Permanently delete this encrypted note?")) return
+        remove.disabled = true
+        try { await pushWithReply(this, "delete_self_note", {id: this.el.dataset.publicId}) } catch { remove.disabled = false }
+      })
+      actions.appendChild(remove)
+    }
+    this.el.append(title, body, list, meta, attachments, actions)
     this.el.closest(".self-note-card").style.background = {sand:"#f8edcf",rose:"#f8dfe1",violet:"#ebe2fb",blue:"#dceefa",mint:"#dff3e7"}[payload.color] || ""
     this.el.closest(".self-note-card").addEventListener("click", () => window.dispatchEvent(new CustomEvent("veejr:self-note-edit", {detail: {payload, element: this.el}})))
   },
