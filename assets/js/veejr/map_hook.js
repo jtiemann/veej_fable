@@ -69,6 +69,10 @@ export const VeejrMap = {
     }
 
     const mySecret = getSecretKey(userId)
+    this.L = L
+    this.mySecret = mySecret
+    this.say = say
+    this.sharedCount = 0
     if (!mySecret) {
       say("🔒 Unlock your keys to see the map content.")
     }
@@ -80,18 +84,21 @@ export const VeejrMap = {
     }).addTo(map)
     this.map = map
 
+    this.handleEvent("map:item_added", (data) => {
+      const entry = this.addEncryptedEntry(data)
+      if (!entry) return
+
+      map.setView([entry.payload.lat, entry.payload.lng], Math.max(map.getZoom(), 14))
+      entry.marker.openPopup()
+      say(`${this.sharedCount} shared location${this.sharedCount === 1 ? "" : "s"} decrypted.`)
+    })
+
     // Decrypt every envelope the server rendered and pin it.
     const points = []
     for (const el of this.el.querySelectorAll("[data-role=map-envelope]")) {
       if (!mySecret) break
-      const {peerKey, ciphertext, nonce, kind, label, time, publicId, deleteLabel, deleteConfirm} = el.dataset
-      const payload = openFrom(ciphertext, nonce, peerKey, mySecret)
-      if (!payload || typeof payload.lat !== "number" || typeof payload.lng !== "number") continue
-      const entry = {payload, kind, label, time, publicId, deleteLabel, deleteConfirm}
-      const marker = L.marker([payload.lat, payload.lng]).addTo(map)
-      entry.marker = marker
-      marker.bindPopup(popupContent(entry, (entry, button) => this.deleteEntry(entry, button)))
-      points.push([payload.lat, payload.lng])
+      const entry = this.addEncryptedEntry(el.dataset)
+      if (entry) points.push([entry.payload.lat, entry.payload.lng])
     }
 
     if (points.length > 0) {
@@ -140,6 +147,36 @@ export const VeejrMap = {
     window.veejrPayloadProviders["location-composer"] = () =>
       this.located ? {...this.located, located_at: new Date().toISOString()} : null
     window.veejrPayloadProviders["note-composer"] = () => (this.picked ? {...this.picked} : null)
+  },
+
+  addEncryptedEntry(data) {
+    if (!this.mySecret) return null
+
+    const peerKey = data.peerKey || data.peer_key
+    const publicId = data.publicId || data.public_id
+    const deleteLabel = data.deleteLabel || data.delete_label
+    const deleteConfirm = data.deleteConfirm || data.delete_confirm
+    const payload = openFrom(data.ciphertext, data.nonce, peerKey, this.mySecret)
+
+    if (!payload || typeof payload.lat !== "number" || typeof payload.lng !== "number") {
+      return null
+    }
+
+    const entry = {
+      payload,
+      kind: data.kind,
+      label: data.label,
+      time: data.time,
+      publicId,
+      deleteLabel,
+      deleteConfirm,
+    }
+    const marker = this.L.marker([payload.lat, payload.lng]).addTo(this.map)
+    entry.marker = marker
+    marker.bindPopup(popupContent(entry, (item, button) => this.deleteEntry(item, button)))
+    this.sharedCount += 1
+
+    return entry
   },
 
   destroyed() {

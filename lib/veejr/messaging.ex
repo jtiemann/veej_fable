@@ -284,6 +284,15 @@ defmodule Veejr.Messaging do
     |> Repo.all()
   end
 
+  @doc "Returns the sender's readable self-copy for a newly created batch."
+  def get_sent_self_copy(%User{id: user_id}, batch_id) when is_binary(batch_id) do
+    from(e in Envelope,
+      where: e.sender_id == ^user_id and e.recipient_id == ^user_id and e.batch_id == ^batch_id,
+      preload: [:sender]
+    )
+    |> Repo.one()
+  end
+
   defp opt(opts, key) when is_list(opts), do: Keyword.get(opts, key)
 
   defp opt(opts, key) when is_map(opts),

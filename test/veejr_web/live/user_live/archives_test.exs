@@ -35,7 +35,7 @@ defmodule VeejrWeb.UserLive.ArchivesTest do
     |> element("#unarchive-#{archive_key}")
     |> render_click()
 
-    refute has_element?(view, "#archive-#{archive_key}")
+    assert_redirect(view, "/messages?conversation=#{archive_key}")
   end
 
   test "requires authentication", %{conn: conn} do

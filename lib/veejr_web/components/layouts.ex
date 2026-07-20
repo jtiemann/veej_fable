@@ -63,6 +63,7 @@ defmodule VeejrWeb.Layouts do
               </span>
             </.link>
           </li>
+          <li><.link navigate={~p"/messages"}>Messages</.link></li>
           <li><.link navigate={~p"/map"}>Map</.link></li>
           <li><.link navigate={~p"/history"}>History</.link></li>
         </ul>
@@ -77,6 +78,7 @@ defmodule VeejrWeb.Layouts do
             {@pending_count}
           </span>
         </.link>
+        <.link navigate={~p"/messages"} class="btn btn-ghost btn-sm">Messages</.link>
         <.link navigate={~p"/map"} class="btn btn-ghost btn-sm">Map</.link>
         <.link navigate={~p"/history"} class="btn btn-ghost btn-sm">History</.link>
       </nav>

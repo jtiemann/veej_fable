@@ -41,6 +41,7 @@ defmodule VeejrWeb.HistoryLive do
           envelope={envelope}
           user={@current_scope.user}
           label={label}
+          conversation_path={~p"/messages?conversation=#{envelope.thread_key}"}
         />
       </ul>
     </Layouts.app>

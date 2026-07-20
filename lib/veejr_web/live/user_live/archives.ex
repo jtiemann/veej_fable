@@ -75,7 +75,7 @@ defmodule VeejrWeb.UserLive.Archives do
         {:noreply,
          socket
          |> put_flash(:info, "Conversation unarchived.")
-         |> refresh()}
+         |> push_navigate(to: ~p"/messages?conversation=#{key}")}
 
       {:error, :not_archived} ->
         {:noreply, put_flash(socket, :error, "That conversation is already unarchived.")}

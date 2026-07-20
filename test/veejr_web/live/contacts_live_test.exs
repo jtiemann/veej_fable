@@ -57,6 +57,16 @@ defmodule VeejrWeb.ContactsLiveTest do
     assert html =~ "Invite someone"
     assert has_element?(invite_view, "img[alt='QR code for this invitation']")
     assert has_element?(invite_view, "#invite-url[value^='http']")
+    assert has_element?(invite_view, "#invite-actions[data-url^='http']")
+    assert has_element?(invite_view, "#invite-actions [data-role='copy-invite']", "Copy link")
+    assert has_element?(invite_view, "#invite-actions [data-role='share-invite']", "Share invite")
+  end
+
+  test "keeps Messages directly available in global navigation", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/contacts")
+
+    assert has_element?(view, "header nav a[href='/messages']", "Messages")
+    assert has_element?(view, "header details a[href='/messages']", "Messages")
   end
 
   test "shows a friend's uploaded image", %{conn: conn, friend: friend} do

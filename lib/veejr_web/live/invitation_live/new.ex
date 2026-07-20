@@ -50,6 +50,22 @@ defmodule VeejrWeb.InvitationLive.New do
             readonly
             class="input mt-1 w-full font-mono text-xs"
           />
+
+          <div
+            id="invite-actions"
+            phx-hook=".InviteActions"
+            phx-update="ignore"
+            data-url={@invite_url}
+            class="mt-3 flex flex-wrap items-center gap-2"
+          >
+            <button type="button" data-role="copy-invite" class="btn btn-primary btn-sm">
+              <.icon name="hero-clipboard-document" class="size-4" /> Copy link
+            </button>
+            <button type="button" data-role="share-invite" class="btn btn-outline btn-sm">
+              <.icon name="hero-share" class="size-4" /> Share invite
+            </button>
+            <span data-role="invite-action-status" aria-live="polite" class="text-xs opacity-70"></span>
+          </div>
         </div>
 
         <div class="mx-auto aspect-square w-full max-w-64 rounded-lg border border-base-300 bg-white p-3">
@@ -66,6 +82,61 @@ defmodule VeejrWeb.InvitationLive.New do
           <.icon name="hero-arrow-path" class="size-4" /> Create another code
         </button>
       </div>
+
+      <script :type={Phoenix.LiveView.ColocatedHook} name=".InviteActions">
+        export default {
+          mounted() {
+            this.copyButton = this.el.querySelector("[data-role=copy-invite]")
+            this.shareButton = this.el.querySelector("[data-role=share-invite]")
+            this.status = this.el.querySelector("[data-role=invite-action-status]")
+
+            this.copyButton.addEventListener("click", () => this.copyInvite())
+            this.shareButton.addEventListener("click", () => this.shareInvite())
+          },
+
+          updated() {
+            this.status.textContent = ""
+          },
+
+          async copyInvite() {
+            try {
+              await this.copyText(this.el.dataset.url)
+              this.status.textContent = "Invitation link copied."
+            } catch (_error) {
+              this.status.textContent = "Could not copy the link."
+            }
+          },
+
+          async shareInvite() {
+            if (navigator.share) {
+              try {
+                await navigator.share({
+                  title: "Join me on veejr",
+                  text: "Use this invitation to join me on veejr.",
+                  url: this.el.dataset.url
+                })
+                this.status.textContent = "Invitation shared."
+              } catch (error) {
+                if (error.name !== "AbortError") this.status.textContent = "Could not share the invitation."
+              }
+            } else {
+              await this.copyInvite()
+            }
+          },
+
+          async copyText(value) {
+            if (navigator.clipboard?.writeText) {
+              return navigator.clipboard.writeText(value)
+            }
+
+            const input = document.querySelector("#invite-url")
+            input.focus()
+            input.select()
+
+            if (!document.execCommand("copy")) throw new Error("copy failed")
+          }
+        }
+      </script>
     </Layouts.app>
     """
   end

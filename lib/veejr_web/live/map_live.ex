@@ -108,9 +108,19 @@ defmodule VeejrWeb.MapLive do
     opts = Map.take(params, ["attachment_ids"])
 
     case Messaging.send_batch(socket.assigns.current_scope.user, kind, envelopes, opts) do
-      {:ok, _batch_id, _queued} ->
-        {:reply, %{ok: true},
-         put_flash(socket, :info, "Shared. It will appear on the map after a refresh.")}
+      {:ok, batch_id, _queued} ->
+        user = socket.assigns.current_scope.user
+
+        socket =
+          case Messaging.get_sent_self_copy(user, batch_id) do
+            %Envelope{} = envelope ->
+              push_event(socket, "map:item_added", map_entry(envelope, user))
+
+            nil ->
+              socket
+          end
+
+        {:reply, %{ok: true}, put_flash(socket, :info, "Shared on the map.")}
 
       {:error, _} ->
         {:reply, %{error: "Sharing failed — are all recipients still your friends?"}, socket}
@@ -158,6 +168,20 @@ defmodule VeejrWeb.MapLive do
 
   defp map_label(%Envelope{sender_id: uid}, %User{id: uid}), do: "You"
   defp map_label(%Envelope{sender: sender}, _user), do: Veejr.Social.Address.handle(sender)
+
+  defp map_entry(envelope, user) do
+    %{
+      ciphertext: envelope.ciphertext,
+      nonce: envelope.nonce,
+      kind: envelope.kind,
+      label: map_label(envelope, user),
+      time: Calendar.strftime(envelope.inserted_at, "%b %d, %H:%M UTC"),
+      public_id: envelope.public_id,
+      peer_key: Messaging.peer_key(envelope, user),
+      delete_label: delete_label(envelope, user),
+      delete_confirm: delete_confirm(envelope, user)
+    }
+  end
 
   defp delete_label(%Envelope{sender_id: uid}, %User{id: uid}), do: "Delete everywhere"
   defp delete_label(_envelope, _user), do: "Hide from my map"

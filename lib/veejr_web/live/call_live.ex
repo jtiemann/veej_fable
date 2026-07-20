@@ -8,7 +8,7 @@ defmodule VeejrWeb.CallLive do
 
   use VeejrWeb, :live_view
 
-  alias Veejr.Calls
+  alias Veejr.{Calls, Messaging, Social}
 
   @impl true
   def render(assigns) do
@@ -44,7 +44,7 @@ defmodule VeejrWeb.CallLive do
             phx-click="hangup"
             class="btn btn-error btn-sm"
           >
-            <.icon name="hero-phone-x-mark" class="size-4" /> Hang up
+            <.icon name="hero-phone-x-mark" class="size-4" /> End call
           </button>
         </div>
 
@@ -91,7 +91,7 @@ defmodule VeejrWeb.CallLive do
 
       <p class="mt-3 text-center text-xs opacity-60">
         Audio and video travel directly between you, end-to-end encrypted. Leaving this
-        page ends the call.
+        page ends the call and returns you to the conversation.
       </p>
     </Layouts.app>
     """
@@ -106,7 +106,7 @@ defmodule VeejrWeb.CallLive do
         {:ok,
          socket
          |> put_flash(:error, "That call does not exist.")
-         |> push_navigate(to: ~p"/messages")}
+         |> push_navigate(to: ~p"/messages", replace: true)}
 
       {:ok, call} ->
         cond do
@@ -116,21 +116,21 @@ defmodule VeejrWeb.CallLive do
             {:ok,
              socket
              |> put_flash(:info, "Call declined.")
-             |> push_navigate(to: ~p"/messages")}
+             |> push_navigate(to: return_to(params, call, user), replace: true)}
 
           call.state not in ["ringing", "accepted"] ->
             {:ok,
              socket
              |> put_flash(:error, "That call has already ended.")
-             |> push_navigate(to: ~p"/messages")}
+             |> push_navigate(to: return_to(params, call, user), replace: true)}
 
           true ->
-            join_and_mount(socket, user, call)
+            join_and_mount(socket, user, call, params)
         end
     end
   end
 
-  defp join_and_mount(socket, user, call) do
+  defp join_and_mount(socket, user, call, params) do
     role = if call.caller_id == user.id, do: "caller", else: "callee"
     peer = if role == "caller", do: call.callee, else: call.caller
 
@@ -163,6 +163,7 @@ defmodule VeejrWeb.CallLive do
        call: call,
        role: role,
        peer: peer,
+       return_to: return_to(params, call, user),
        ice_servers: Jason.encode!(Veejr.Calls.IceConfig.servers())
      )}
   end
@@ -183,7 +184,7 @@ defmodule VeejrWeb.CallLive do
     {:noreply,
      socket
      |> put_flash(:info, "Call ended.")
-     |> push_navigate(to: ~p"/messages")}
+     |> push_navigate(to: socket.assigns.return_to, replace: true)}
   end
 
   @impl true
@@ -210,10 +211,29 @@ defmodule VeejrWeb.CallLive do
     {:noreply,
      socket
      |> put_flash(:info, message)
-     |> push_navigate(to: ~p"/messages")}
+     |> push_navigate(to: socket.assigns.return_to, replace: true)}
   end
 
   def handle_info(_message, socket), do: {:noreply, socket}
+
+  defp return_to(params, call, user) do
+    fallback = conversation_path(call, user)
+
+    case URI.parse(params["return_to"] || "") do
+      %URI{scheme: nil, host: nil, path: "/messages", fragment: nil} = uri ->
+        URI.to_string(uri)
+
+      _uri ->
+        fallback
+    end
+  end
+
+  defp conversation_path(call, user) do
+    peer = if call.caller_id == user.id, do: call.callee, else: call.caller
+    key = Messaging.conversation_key([Social.Address.handle(peer)])
+
+    ~p"/messages?conversation=#{key}"
+  end
 
   @impl true
   def terminate(_reason, socket) do
