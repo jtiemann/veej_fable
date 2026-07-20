@@ -281,9 +281,32 @@ defmodule VeejrWeb.MessagesLive do
                     id="self-notes-search"
                     data-role="search"
                     type="search"
-                    placeholder="Search your notes"
+                    placeholder="Search notes and metadata"
                     class="w-full bg-transparent text-sm outline-none"
                   />
+                  <div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                    <span class="font-medium opacity-70">Updated</span>
+                    <label class="flex items-center gap-1">
+                      <span class="sr-only">Updated on or after</span>
+                      <input
+                        id="self-notes-date-from"
+                        data-role="date-from"
+                        type="date"
+                        class="rounded-md border border-base-300 bg-base-100 px-2 py-1"
+                      />
+                      <span>to</span>
+                    </label>
+                    <label>
+                      <span class="sr-only">Updated on or before</span>
+                      <input
+                        id="self-notes-date-to"
+                        data-role="date-to"
+                        type="date"
+                        class="rounded-md border border-base-300 bg-base-100 px-2 py-1"
+                      />
+                    </label>
+                    <button data-role="clear-dates" type="button" class="btn btn-ghost btn-xs">Clear dates</button>
+                  </div>
                   <button
                     data-role="new-note"
                     type="button"

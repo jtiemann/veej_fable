@@ -2131,11 +2131,30 @@ export const SelfNotesBoard = {
     this.filter = "active"
     this.view = "grid"
     this.label = null
+    this.dateFrom = ""
+    this.dateTo = ""
     this.selected = new Map()
     this.el.addEventListener("self-notes:new", () => this.create())
     this.el.querySelector("[data-role=new-note]")?.addEventListener("click", () => this.create())
     this.el.querySelector("[data-role=search]")?.addEventListener("input", (event) => {
       this.query = event.target.value.toLocaleLowerCase()
+      this.applyFilters()
+    })
+    this.el.querySelector("[data-role=date-from]")?.addEventListener("change", (event) => {
+      this.dateFrom = event.target.value
+      this.applyFilters()
+    })
+    this.el.querySelector("[data-role=date-to]")?.addEventListener("change", (event) => {
+      this.dateTo = event.target.value
+      this.applyFilters()
+    })
+    this.el.querySelector("[data-role=clear-dates]")?.addEventListener("click", () => {
+      this.dateFrom = ""
+      this.dateTo = ""
+      const from = this.el.querySelector("[data-role=date-from]")
+      const to = this.el.querySelector("[data-role=date-to]")
+      if (from) from.value = ""
+      if (to) to.value = ""
       this.applyFilters()
     })
     this.el.querySelectorAll("[data-role=filter]").forEach((button) => button.addEventListener("click", () => {
@@ -2245,13 +2264,16 @@ export const SelfNotesBoard = {
           ? card.dataset.noteArchived === "true" && card.dataset.noteTrashed !== "true"
           : card.dataset.noteArchived !== "true" && card.dataset.noteTrashed !== "true"
       const labelMatch = !this.label || JSON.parse(card.dataset.noteLabels || "[]").includes(this.label)
-      card.hidden = !stateMatch || !labelMatch || (!!query && !(card.dataset.noteSearch || "").includes(query))
+      const updatedOn = (card.dataset.noteUpdated || "").slice(0, 10)
+      const dateMatch = (!this.dateFrom || updatedOn >= this.dateFrom) && (!this.dateTo || updatedOn <= this.dateTo)
+      card.hidden = !stateMatch || !labelMatch || !dateMatch || (!!query && !(card.dataset.noteSearch || "").includes(query))
       if (!card.hidden) visibleCount += 1
     })
     const filterStatus = this.el.querySelector("[data-role=filter-status]")
     if (filterStatus) {
       const suffix = this.filter === "reminders" ? " Reminders are not available yet." : ""
-      filterStatus.textContent = `${visibleCount} note${visibleCount === 1 ? "" : "s"} shown.${suffix}`
+      const dateDescription = this.dateFrom || this.dateTo ? ` Updated ${this.dateFrom || "any time"} to ${this.dateTo || "today"}.` : ""
+      filterStatus.textContent = `${visibleCount} note${visibleCount === 1 ? "" : "s"} shown.${dateDescription}${suffix}`
     }
     this.el.querySelector("[data-role=reminders-empty]")?.classList.toggle("hidden", this.filter !== "reminders")
     const deleteTrashed = this.el.querySelector("[data-role=delete-trashed]")
@@ -2336,7 +2358,20 @@ export const SelfNotes = {
     const card = this.el.closest(".self-note-card")
     card.tabIndex = 0
     card.setAttribute("aria-label", `Open ${payload.title || "untitled note"}`)
-    card.dataset.noteSearch = [payload.title, payload.body, ...payload.labels, ...payload.checklist.map((item) => item.text)].join(" ").toLocaleLowerCase()
+    const attachmentMetadata = payload.attachments.flatMap((attachment) => [attachment.name, attachment.mime, attachment.size, attachment.durationMs])
+    card.dataset.noteSearch = [
+      payload.title,
+      payload.body,
+      ...payload.labels,
+      ...payload.checklist.flatMap((item) => [item.text, item.checked ? "completed" : "open"]),
+      ...attachmentMetadata,
+      payload.color,
+      payload.pinned ? "pinned" : "unpinned",
+      payload.archived_at ? "archived" : "active",
+      payload.trashed_at ? "trashed" : "not trashed",
+      payload.created_at,
+      payload.updated_at
+    ].filter((value) => value !== undefined && value !== null).join(" ").toLocaleLowerCase()
     card.dataset.noteLabels = JSON.stringify(payload.labels.filter((label) => typeof label === "string").slice(0, 10))
     card.dataset.noteUpdated = payload.updated_at || ""
     card.dataset.noteArchived = String(!!payload.archived_at)
