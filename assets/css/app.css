@@ -344,4 +344,26 @@
 @media (prefers-reduced-motion: reduce) { .landing-orbit, .landing-preview { animation: none; } .landing-preview-message { opacity: 1; } .landing-preview-map, .landing-preview-group { display: none; } }
 @media (max-width: 640px) { .landing-showcase { min-height: 21rem; border-radius: 1.4rem; } .landing-preview { inset: 3.5rem 1rem 2.8rem; } }
 
+/* Landing page motion follows a small, cheerful rhythm: introduce, float, then settle. */
+@keyframes landing-copy-rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes landing-title-wiggle { 0%, 100% { transform: rotate(-1deg) scale(1); } 50% { transform: rotate(1deg) scale(1.025); } }
+@keyframes landing-confetti-float { 0%, 100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-14px) rotate(16deg); } }
+@keyframes landing-cta-bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes landing-shine { 0%, 35% { opacity: 0; transform: translateX(-120%); } 48% { opacity: 1; } 62%, 100% { opacity: 0; transform: translateX(120%); } }
+.landing-copy > * { animation: landing-copy-rise 650ms cubic-bezier(.2,.8,.2,1) both; }
+.landing-copy > *:nth-child(2) { animation-delay: 90ms; }
+.landing-copy > *:nth-child(3) { animation-delay: 180ms; }
+.landing-copy > *:nth-child(4) { animation-delay: 270ms; }
+.landing-copy > *:nth-child(5) { animation-delay: 360ms; }
+.landing-copy > *:nth-child(6) { animation-delay: 450ms; }
+.landing-title { display: inline-block; animation-name: landing-copy-rise, landing-title-wiggle !important; animation-duration: 650ms, 4.5s !important; animation-delay: 90ms, 800ms !important; animation-iteration-count: 1, infinite !important; }
+.landing-eyebrow { box-shadow: 0 8px 22px color-mix(in oklab, var(--color-primary) 14%, transparent); }
+.landing-cta { animation: landing-cta-bounce 2.8s ease-in-out infinite; box-shadow: 0 12px 24px color-mix(in oklab, var(--color-primary) 30%, transparent); }
+.landing-showcase::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(115deg, transparent 35%, color-mix(in oklab, white 32%, transparent) 50%, transparent 65%); transform: translateX(-120%); animation: landing-shine 9s ease-in-out infinite; }
+.landing-confetti { position: absolute; z-index: 2; display: grid; width: 2rem; height: 2rem; place-items: center; border-radius: 999px; font-size: 1.2rem; font-weight: 800; color: var(--color-primary); background: color-mix(in oklab, var(--color-base-100) 75%, transparent); box-shadow: 0 10px 22px color-mix(in oklab, var(--color-primary) 15%, transparent); animation: landing-confetti-float 4s ease-in-out infinite; }
+.landing-confetti-one { top: 1.4rem; right: 2rem; animation-delay: -1s; }
+.landing-confetti-two { bottom: 2.5rem; left: 1.2rem; color: var(--color-info); animation-delay: -2.2s; }
+.landing-confetti-three { top: 42%; right: 0.8rem; color: var(--color-success); animation-delay: -3.1s; }
+@media (prefers-reduced-motion: reduce) { .landing-copy > *, .landing-title, .landing-cta, .landing-showcase::after, .landing-confetti { animation: none !important; } }
+
 /* This file is for your main application CSS */

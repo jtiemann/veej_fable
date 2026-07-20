@@ -1,13 +1,13 @@
 <Layouts.app flash={@flash} current_scope={@current_scope}>
   <div id="landing-page" class="landing-page mx-auto max-w-6xl py-8 sm:py-14">
     <section class="grid items-center gap-12 lg:grid-cols-[1fr_0.9fr] lg:gap-16">
-      <div class="max-w-2xl">
-        <div class="mb-5 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary">
+      <div class="landing-copy max-w-2xl">
+        <div class="landing-eyebrow mb-5 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary">
           <.icon name="hero-lock-closed-mini" class="size-4" /> Private by design
         </div>
-        <h1 class="text-5xl font-bold tracking-tight sm:text-6xl">veejr</h1>
+        <h1 class="landing-title text-5xl font-bold tracking-tight sm:text-6xl">veejr</h1>
         <p class="mt-5 max-w-xl text-lg leading-8 opacity-80 sm:text-xl">
-          Private sharing with the people you choose. Messages, locations, and map
+          Your people. Your places. Your little moments. Share messages, locations, and map
           notes — encrypted in your browser before they go anywhere.
         </p>
 
@@ -29,7 +29,7 @@
           <div class="landing-feature">
             <.icon name="hero-user-group-mini" class="size-5 text-primary" />
             <p>
-              <strong>Friends and groups.</strong>
+              <strong>Gather your people.</strong>
               Share with one person, a group, or everyone — friends can be in multiple groups.
             </p>
           </div>
@@ -48,13 +48,16 @@
         </p>
 
         <div class="mt-9 flex flex-wrap gap-3">
-          <.link navigate={~p"/users/register"} class="btn btn-primary">Create an account
+          <.link navigate={~p"/users/register"} class="landing-cta btn btn-primary">Let's go
           <.icon name="hero-arrow-right-mini" class="size-4" /></.link>
           <.link navigate={~p"/users/log-in"} class="btn btn-ghost">Log in</.link>
         </div>
       </div>
 
       <div class="landing-showcase" aria-label="A rotating preview of private sharing in veejr">
+        <span class="landing-confetti landing-confetti-one" aria-hidden="true">*</span>
+        <span class="landing-confetti landing-confetti-two" aria-hidden="true">o</span>
+        <span class="landing-confetti landing-confetti-three" aria-hidden="true">+</span>
         <div class="landing-orbit landing-orbit-one"></div>
         <div class="landing-orbit landing-orbit-two"></div>
         <div class="landing-preview landing-preview-message">
