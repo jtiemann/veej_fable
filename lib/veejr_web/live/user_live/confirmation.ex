@@ -2,6 +2,7 @@ defmodule VeejrWeb.UserLive.Confirmation do
   use VeejrWeb, :live_view
 
   alias Veejr.Accounts
+  alias VeejrWeb.UserAuth
 
   @impl true
   def render(assigns) do
@@ -18,7 +19,7 @@ defmodule VeejrWeb.UserLive.Confirmation do
           id="confirmation_form"
           phx-mounted={JS.focus_first()}
           phx-submit="submit"
-          action={~p"/users/log-in?_action=confirmed"}
+          action={confirmation_path(@return_to)}
           phx-trigger-action={@trigger_submit}
         >
           <input type="hidden" name={@form[:token].name} value={@form[:token].value} />
@@ -41,7 +42,7 @@ defmodule VeejrWeb.UserLive.Confirmation do
           id="login_form"
           phx-submit="submit"
           phx-mounted={JS.focus_first()}
-          action={~p"/users/log-in"}
+          action={login_path(@return_to)}
           phx-trigger-action={@trigger_submit}
         >
           <input type="hidden" name={@form[:token].name} value={@form[:token].value} />
@@ -73,17 +74,24 @@ defmodule VeejrWeb.UserLive.Confirmation do
   end
 
   @impl true
-  def mount(%{"token" => token}, _session, socket) do
+  def mount(%{"token" => token} = params, _session, socket) do
+    return_to = UserAuth.local_return_to(params["return_to"])
+
     if user = Accounts.get_user_by_magic_link_token(token) do
       form = to_form(%{"token" => token}, as: "user")
 
-      {:ok, assign(socket, user: user, form: form, trigger_submit: false),
-       temporary_assigns: [form: nil]}
+      {:ok,
+       assign(socket,
+         user: user,
+         form: form,
+         trigger_submit: false,
+         return_to: return_to
+       ), temporary_assigns: [form: nil]}
     else
       {:ok,
        socket
        |> put_flash(:error, "Magic link is invalid or it has expired.")
-       |> push_navigate(to: ~p"/users/log-in")}
+       |> push_navigate(to: login_path(return_to))}
     end
   end
 
@@ -91,4 +99,12 @@ defmodule VeejrWeb.UserLive.Confirmation do
   def handle_event("submit", %{"user" => params}, socket) do
     {:noreply, assign(socket, form: to_form(params, as: "user"), trigger_submit: true)}
   end
+
+  defp login_path(nil), do: ~p"/users/log-in"
+  defp login_path(return_to), do: ~p"/users/log-in?#{[return_to: return_to]}"
+
+  defp confirmation_path(nil), do: ~p"/users/log-in?_action=confirmed"
+
+  defp confirmation_path(return_to),
+    do: ~p"/users/log-in?#{[_action: "confirmed", return_to: return_to]}"
 end
