@@ -257,7 +257,10 @@ defmodule VeejrWeb.MessagesLive do
                   <span data-note-icon="attachment"><.icon name="hero-paper-clip" class="size-4" /></span>
                   <span data-note-icon="audio"><.icon name="hero-microphone" class="size-4" /></span>
                   <span data-note-icon="video"><.icon name="hero-video-camera" class="size-4" /></span>
-                  <span data-note-icon="camera"><.icon name="hero-arrow-path-rounded-square" class="size-4" /></span>
+                  <span data-note-icon="camera"><.icon
+                    name="hero-arrow-path-rounded-square"
+                    class="size-4"
+                  /></span>
                 </div>
                 <div
                   id="self-notes-selection-toolbar"
@@ -269,6 +272,8 @@ defmodule VeejrWeb.MessagesLive do
                   <button data-role="bulk-pin" type="button" class="btn btn-ghost btn-xs">Pin</button>
                   <button data-role="bulk-archive" type="button" class="btn btn-ghost btn-xs">Archive</button>
                   <button data-role="bulk-trash" type="button" class="btn btn-ghost btn-xs">Trash</button>
+                  <button data-role="bulk-color" type="button" class="btn btn-ghost btn-xs">Color</button>
+                  <button data-role="bulk-label" type="button" class="btn btn-ghost btn-xs">Labels</button>
                   <button data-role="bulk-clear" type="button" class="btn btn-ghost btn-xs">Clear</button>
                 </div>
                 <div class="mb-5 rounded-2xl border border-base-300 bg-base-100 p-3 shadow-sm">
@@ -294,6 +299,13 @@ defmodule VeejrWeb.MessagesLive do
                     >Notes</button>
                     <button
                       data-role="filter"
+                      data-filter="reminders"
+                      type="button"
+                      class="btn btn-ghost btn-xs"
+                      aria-pressed="false"
+                    >Reminders</button>
+                    <button
+                      data-role="filter"
                       data-filter="archived"
                       type="button"
                       class="btn btn-ghost btn-xs"
@@ -306,6 +318,26 @@ defmodule VeejrWeb.MessagesLive do
                       class="btn btn-ghost btn-xs"
                       aria-pressed="false"
                     >Trash</button>
+                    <button
+                      data-role="view"
+                      data-view="grid"
+                      type="button"
+                      title="Grid view"
+                      aria-label="Grid view"
+                      class="btn btn-ghost btn-xs"
+                      aria-pressed="true"
+                    ><.icon name="hero-squares-2x2" class="size-4" /></button>
+                    <button
+                      data-role="view"
+                      data-view="list"
+                      type="button"
+                      title="List view"
+                      aria-label="List view"
+                      class="btn btn-ghost btn-xs"
+                      aria-pressed="false"
+                    ><.icon name="hero-list-bullet" class="size-4" /></button>
+                  </div>
+                  <div id="self-notes-labels" data-role="labels" class="mt-3 flex flex-wrap gap-1">
                   </div>
                   <button
                     data-role="delete-trashed"
@@ -314,6 +346,13 @@ defmodule VeejrWeb.MessagesLive do
                     class="btn btn-error btn-xs mt-3"
                   >Delete all trashed forever</button>
                 </div>
+                <p
+                  id="self-notes-reminders-empty"
+                  data-role="reminders-empty"
+                  class="hidden mb-4 text-sm opacity-70"
+                >
+                  Reminders are coming soon. Your notes remain private and are not scheduled yet.
+                </p>
                 <div id="self-notes-grid" class="columns-1 gap-4 sm:columns-2 xl:columns-3">
                   <p
                     :if={@self_note_envelopes == []}
@@ -328,6 +367,13 @@ defmodule VeejrWeb.MessagesLive do
                     user={@current_scope.user}
                   />
                 </div>
+                <button
+                  :if={@has_more_self_notes}
+                  id="self-notes-load-more"
+                  type="button"
+                  phx-click="load_more_notes"
+                  class="btn btn-outline btn-sm mt-5 w-full"
+                >Load more notes</button>
               </div>
             </div>
             <div
@@ -491,6 +537,7 @@ defmodule VeejrWeb.MessagesLive do
        selected_recipient_id: nil,
        selected_profile: nil,
        message_limit: @message_page_size,
+       self_note_limit: 50,
        self_notes: false,
        self_note_envelopes: []
      )
@@ -543,7 +590,10 @@ defmodule VeejrWeb.MessagesLive do
 
   def handle_event("select_conversation", %{"key" => key}, socket) do
     destination =
-      if Enum.any?(socket.assigns.conversations, &(&1.key == key and &1.participants == ["notes to yourself"])) do
+      if Enum.any?(
+           socket.assigns.conversations,
+           &(&1.key == key and &1.participants == ["notes to yourself"])
+         ) do
         ~p"/messages?self_notes=true"
       else
         ~p"/messages?conversation=#{key}"
@@ -639,6 +689,11 @@ defmodule VeejrWeb.MessagesLive do
     {:noreply, socket |> assign(:message_limit, limit) |> refresh()}
   end
 
+  def handle_event("load_more_notes", _params, socket) do
+    {:noreply,
+     socket |> assign(:self_note_limit, socket.assigns.self_note_limit + 50) |> refresh()}
+  end
+
   def handle_event("delete_envelope", %{"id" => public_id}, socket) do
     case Messaging.delete_envelope(socket.assigns.current_scope.user, public_id) do
       {:ok, {:deleted, _count}} ->
@@ -698,8 +753,7 @@ defmodule VeejrWeb.MessagesLive do
         {:reply, %{ok: true}, socket |> put_flash(:info, "Message updated.") |> refresh()}
 
       {:error, :stale} ->
-        {:reply, %{error: "This note changed on another device. Reload it before saving."},
-         refresh(socket)}
+        {:reply, %{error: "This note changed on another device.", stale: true}, refresh(socket)}
 
       {:error, _} ->
         {:reply, %{error: "Could not update that message."}, socket}
@@ -774,11 +828,15 @@ defmodule VeejrWeb.MessagesLive do
       )
 
     if socket.assigns.self_notes do
+      limit = socket.assigns.self_note_limit || 50
+      self_note_envelopes = Messaging.list_self_note_envelopes(user, limit: limit)
+
       assign(socket,
-        self_note_envelopes: Messaging.list_self_note_envelopes(user)
+        self_note_envelopes: self_note_envelopes,
+        has_more_self_notes: length(self_note_envelopes) == limit and limit < 500
       )
     else
-      assign(socket, self_note_envelopes: [])
+      assign(socket, self_note_envelopes: [], has_more_self_notes: false)
     end
   end
 

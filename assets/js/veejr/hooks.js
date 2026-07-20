@@ -22,7 +22,11 @@ import {ensureLeaflet} from "./map_hook.js"
 function pushWithReply(hook, event, params) {
   return new Promise((resolve, reject) => {
     hook.pushEvent(event, params, (reply) => {
-      if (reply && reply.error) reject(new Error(reply.error))
+      if (reply && reply.error) {
+        const error = new Error(reply.error)
+        error.reply = reply
+        reject(error)
+      }
       else resolve(reply)
     })
   })
@@ -1825,12 +1829,14 @@ function noteDocument(payload = {}) {
     created_at: payload.created_at || now,
     updated_at: now,
     attachments: Array.isArray(payload.attachments) ? payload.attachments : [],
+    settings: {move_checked_to_bottom: !!payload.settings?.move_checked_to_bottom},
     legacy_message_id: payload.legacy_message_id || null,
   }
 }
 
 function noteEditor(board, payload, save) {
   const editor = document.createElement("section")
+  editor.setAttribute("data-role", "note-editor")
   editor.className = "mb-5 rounded-2xl border border-primary/30 bg-base-100 p-4 shadow-lg"
   editor.innerHTML = `<input data-note-title class="mb-3 w-full bg-transparent text-lg font-semibold outline-none" placeholder="Title"><textarea data-note-body class="min-h-28 w-full resize-y bg-transparent text-sm outline-none" placeholder="Take a note…"></textarea><input data-note-labels class="mt-3 w-full bg-transparent text-xs outline-none" placeholder="Labels, separated by commas"><div class="mt-3 flex flex-wrap items-center gap-2"><label title="Attach files" class="flex size-9 cursor-pointer items-center justify-center rounded-full bg-base-200 opacity-70 transition hover:bg-base-300 hover:opacity-100"><span data-note-attachment-icon aria-hidden="true"></span><span class="sr-only">Attach files</span><input data-note-files type="file" multiple class="sr-only" aria-label="Attach files"></label><button type="button" data-note-audio title="Record voice note" aria-label="Record voice note" class="flex size-9 items-center justify-center rounded-full bg-base-200 opacity-70 transition hover:bg-base-300 hover:opacity-100"><span data-note-audio-icon aria-hidden="true"></span></button><button type="button" data-note-video title="Record video note" aria-label="Record video note" class="flex size-9 items-center justify-center rounded-full bg-base-200 opacity-70 transition hover:bg-base-300 hover:opacity-100"><span data-note-video-icon aria-hidden="true"></span></button><button type="button" data-note-camera title="Switch camera" aria-label="Switch camera" class="flex size-9 items-center justify-center rounded-full bg-base-200 opacity-70 transition hover:bg-base-300 hover:opacity-100"><span data-note-camera-icon aria-hidden="true"></span></button><button type="button" data-note-checklist class="btn btn-ghost btn-xs">Checklist</button><select data-note-color class="select select-sm"><option value="default">Default</option><option value="sand">Sand</option><option value="rose">Rose</option><option value="violet">Violet</option><option value="blue">Blue</option><option value="mint">Mint</option></select><span class="flex-1"></span><button type="button" data-note-cancel class="btn btn-ghost btn-sm">Cancel</button><button type="button" data-note-save class="btn btn-primary btn-sm">Save note</button></div><p data-note-record-status class="mt-3 hidden text-sm opacity-70" aria-live="polite"></p><div data-note-recordings class="mt-3 space-y-2"></div><p data-note-error class="mt-3 hidden text-sm text-error" role="alert"></p><div data-note-items class="mt-3 space-y-2"></div>`
   const title = editor.querySelector("[data-note-title]")
@@ -1839,6 +1845,13 @@ function noteEditor(board, payload, save) {
   const fileInput = editor.querySelector("[data-note-files]")
   const color = editor.querySelector("[data-note-color]")
   const items = editor.querySelector("[data-note-items]")
+  const settings = payload.settings || {}
+  const completedLast = document.createElement("label")
+  completedLast.className = "flex items-center gap-1 text-xs"
+  completedLast.innerHTML = '<input data-note-sort-checked type="checkbox"> Completed last'
+  const sortChecked = completedLast.querySelector("input")
+  sortChecked.checked = !!settings.move_checked_to_bottom
+  color.insertAdjacentElement("afterend", completedLast)
   ;[["attachment", "[data-note-attachment-icon]"], ["audio", "[data-note-audio-icon]"], ["video", "[data-note-video-icon]"], ["camera", "[data-note-camera-icon]"]].forEach(([name, target]) => {
     const icon = board.querySelector(`[data-note-icon="${name}"]`)?.cloneNode(true)
     if (icon) editor.querySelector(target)?.replaceChildren(icon)
@@ -1918,7 +1931,7 @@ function noteEditor(board, payload, save) {
   color.value = payload.color || "default"
   const renderItems = () => {
     items.textContent = ""
-    ;(payload.checklist || []).forEach((item) => {
+    ;(payload.checklist || []).forEach((item, index) => {
       const row = document.createElement("label")
       row.className = "flex items-center gap-2 text-sm"
       const check = document.createElement("input")
@@ -1927,6 +1940,19 @@ function noteEditor(board, payload, save) {
       input.value = item.text || ""; input.className = "flex-1 bg-transparent outline-none"
       check.addEventListener("change", () => { item.checked = check.checked })
       input.addEventListener("input", () => { item.text = input.value })
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault()
+          payload.checklist.splice(index + 1, 0, {id: crypto.randomUUID(), text: "", checked: false})
+          renderItems()
+          items.querySelectorAll("input:not([type=checkbox])")[index + 1]?.focus()
+        } else if (event.key === "Backspace" && !input.value && payload.checklist.length > 1) {
+          event.preventDefault()
+          payload.checklist.splice(index, 1)
+          renderItems()
+          items.querySelectorAll("input:not([type=checkbox])")[Math.max(0, index - 1)]?.focus()
+        }
+      })
       row.append(check, input); items.appendChild(row)
     })
   }
@@ -1942,13 +1968,23 @@ function noteEditor(board, payload, save) {
     recordings.facingMode = recordings.facingMode === "user" ? "environment" : "user"
     setRecordStatus(`The ${recordings.facingMode === "user" ? "front" : "rear"} camera will be used next.`)
   })
-  editor.querySelector("[data-note-cancel]").addEventListener("click", () => { cleanupRecordings(); editor.remove() })
+  let saveTimer = null
+  let saving = false
+  const scheduleSave = () => {
+    if (!payload.note_id || saving) return
+    clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => submit(), 600)
+  }
+  ;[title, body, labels, color, sortChecked].forEach((field) => field.addEventListener("blur", scheduleSave))
+  editor.querySelector("[data-note-cancel]").addEventListener("click", () => { clearTimeout(saveTimer); cleanupRecordings(); editor.remove() })
   const submit = async () => {
+    if (saving) return
     const error = editor.querySelector("[data-note-error]")
     error.textContent = ""
     error.classList.add("hidden")
-    const next = noteDocument({...payload, title: title.value.trim(), body: body.value.trim(), color: color.value, labels: labels.value.split(",").map((v) => v.trim()).filter(Boolean).slice(0, 10)})
+    const next = noteDocument({...payload, title: title.value.trim(), body: body.value.trim(), color: color.value, labels: labels.value.split(",").map((v) => v.trim()).filter(Boolean).slice(0, 10), settings: {move_checked_to_bottom: sortChecked.checked}})
     next.checklist = (payload.checklist || []).filter((item) => item.text.trim())
+    if (next.settings.move_checked_to_bottom) next.checklist.sort((left, right) => Number(left.checked) - Number(right.checked))
     const files = [...fileInput.files]
     const captured = [...recordings.audio, ...recordings.video]
     if (recordings.recorder?.state === "recording" || recordings.finalizing) {
@@ -1958,6 +1994,7 @@ function noteEditor(board, payload, save) {
     }
     if (!next.title && !next.body && next.checklist.length === 0 && next.attachments.length === 0 && files.length === 0 && captured.length === 0) return
     const button = editor.querySelector("[data-note-save]")
+    saving = true
     button.disabled = true; button.textContent = "Encrypting…"
     try {
       for (const file of files) {
@@ -1972,6 +2009,7 @@ function noteEditor(board, payload, save) {
       cleanupRecordings()
       editor.remove()
     } catch (saveError) {
+      saving = false
       button.disabled = false; button.textContent = "Save note"
       error.textContent = saveError.message || "Could not save this note."
       error.classList.remove("hidden")
@@ -2085,6 +2123,8 @@ function noteAttachmentPreview(att) {
 export const SelfNotesBoard = {
   mounted() {
     this.filter = "active"
+    this.view = "grid"
+    this.label = null
     this.selected = new Map()
     this.el.addEventListener("self-notes:new", () => this.create())
     this.el.querySelector("[data-role=new-note]")?.addEventListener("click", () => this.create())
@@ -2097,10 +2137,23 @@ export const SelfNotesBoard = {
       this.el.querySelectorAll("[data-role=filter]").forEach((control) => control.setAttribute("aria-pressed", String(control === button)))
       this.applyFilters()
     }))
+    this.el.querySelectorAll("[data-role=view]").forEach((button) => button.addEventListener("click", () => {
+      this.view = button.dataset.view
+      this.el.querySelectorAll("[data-role=view]").forEach((control) => control.setAttribute("aria-pressed", String(control === button)))
+      this.applyFilters()
+    }))
     this.el.querySelector("[data-role=bulk-clear]")?.addEventListener("click", () => this.clearSelection())
     this.el.querySelector("[data-role=bulk-pin]")?.addEventListener("click", () => this.bulk((note) => { note.pinned = true }))
     this.el.querySelector("[data-role=bulk-archive]")?.addEventListener("click", () => this.bulk((note) => { note.archived_at = new Date().toISOString(); note.trashed_at = null }))
     this.el.querySelector("[data-role=bulk-trash]")?.addEventListener("click", () => this.bulk((note) => { note.trashed_at = new Date().toISOString() }))
+    this.el.querySelector("[data-role=bulk-color]")?.addEventListener("click", () => {
+      const color = window.prompt("Color: default, sand, rose, violet, blue, or mint", "default")
+      if (["default", "sand", "rose", "violet", "blue", "mint"].includes(color)) this.bulk((note) => { note.color = color })
+    })
+    this.el.querySelector("[data-role=bulk-label]")?.addEventListener("click", () => {
+      const label = window.prompt("Add a label to selected notes")?.trim()
+      if (label) this.bulk((note) => { note.labels = [...new Set([...(note.labels || []), label])].slice(0, 10) })
+    })
     this.el.querySelector("[data-role=delete-trashed]")?.addEventListener("click", () => this.deleteTrashed())
     this.onEdit = (event) => this.edit(event.detail)
     this.onSave = (event) => this.save(event.detail)
@@ -2110,7 +2163,7 @@ export const SelfNotesBoard = {
       if (!this.el.isConnected) return
       const editing = event.target.matches("input, textarea, select")
       if (event.key === "Escape") {
-        const editor = this.el.querySelector("form")
+        const editor = this.el.querySelector("[data-role=note-editor]")
         if (editor) { editor.remove(); return }
         if (this.selected.size > 0) this.clearSelection()
       }
@@ -2162,17 +2215,32 @@ export const SelfNotesBoard = {
     const query = this.query || ""
     const grid = this.el.querySelector("#self-notes-grid")
     const cards = [...this.el.querySelectorAll(".self-note-card")]
+    grid.className = this.view === "list" ? "space-y-3" : "columns-1 gap-4 sm:columns-2 xl:columns-3"
     cards
-      .sort((left, right) => Number(right.dataset.notePinned === "true") - Number(left.dataset.notePinned === "true"))
+      .sort((left, right) => Number(right.dataset.notePinned === "true") - Number(left.dataset.notePinned === "true") || String(right.dataset.noteUpdated || "").localeCompare(String(left.dataset.noteUpdated || "")))
       .forEach((card) => grid.appendChild(card))
+    const labels = [...new Set(cards.flatMap((card) => JSON.parse(card.dataset.noteLabels || "[]")))].sort()
+    const labelBar = this.el.querySelector("[data-role=labels]")
+    if (labelBar) {
+      labelBar.textContent = ""
+      labels.forEach((label) => {
+        const chip = document.createElement("button")
+        chip.type = "button"; chip.className = "rounded-full bg-base-200 px-2 py-0.5 text-xs hover:bg-base-300"
+        chip.textContent = `#${label}`; chip.setAttribute("aria-pressed", String(this.label === label))
+        chip.addEventListener("click", () => { this.label = this.label === label ? null : label; this.applyFilters() })
+        labelBar.appendChild(chip)
+      })
+    }
     cards.forEach((card) => {
-      const stateMatch = this.filter === "trashed"
+      const stateMatch = this.filter === "reminders" ? false : this.filter === "trashed"
         ? card.dataset.noteTrashed === "true"
         : this.filter === "archived"
           ? card.dataset.noteArchived === "true" && card.dataset.noteTrashed !== "true"
           : card.dataset.noteArchived !== "true" && card.dataset.noteTrashed !== "true"
-      card.hidden = !stateMatch || (!!query && !(card.dataset.noteSearch || "").includes(query))
+      const labelMatch = !this.label || JSON.parse(card.dataset.noteLabels || "[]").includes(this.label)
+      card.hidden = !stateMatch || !labelMatch || (!!query && !(card.dataset.noteSearch || "").includes(query))
     })
+    this.el.querySelector("[data-role=reminders-empty]")?.classList.toggle("hidden", this.filter !== "reminders")
     const deleteTrashed = this.el.querySelector("[data-role=delete-trashed]")
     if (deleteTrashed) {
       const count = cards.filter((card) => card.dataset.noteTrashed === "true").length
@@ -2222,7 +2290,16 @@ export const SelfNotesBoard = {
       if (!secret) throw new Error("Unlock your keys before saving a note.")
       const {copies} = await pushWithReply(this, "prepare_edit", {id: element.dataset.publicId})
       const envelopes = copies.map((copy) => ({public_id: copy.public_id, ...sealFor(copy.public_key, note, secret)}))
-      await pushWithReply(this, "edit_batch", {id: element.dataset.publicId, envelopes, attachment_ids: note.attachments.map((attachment) => attachment.id)})
+      try {
+        await pushWithReply(this, "edit_batch", {id: element.dataset.publicId, envelopes, attachment_ids: note.attachments.map((attachment) => attachment.id), expected_updated_at: element.dataset.updatedAt})
+      } catch (error) {
+        if (!error.reply?.stale) throw error
+        if (!window.confirm("This note changed on another device. Press OK to keep your version, or Cancel to load the latest version.")) {
+          window.location.reload()
+          return
+        }
+        await pushWithReply(this, "edit_batch", {id: element.dataset.publicId, envelopes, attachment_ids: note.attachments.map((attachment) => attachment.id)})
+      }
     })
   },
   async save({payload, element}) {
@@ -2231,7 +2308,7 @@ export const SelfNotesBoard = {
     const {copies} = await pushWithReply(this, "prepare_edit", {id: element.dataset.publicId})
     const next = noteDocument(payload)
     const envelopes = copies.map((copy) => ({public_id: copy.public_id, ...sealFor(copy.public_key, next, secret)}))
-    await pushWithReply(this, "edit_batch", {id: element.dataset.publicId, envelopes, attachment_ids: next.attachments.map((attachment) => attachment.id)})
+    await pushWithReply(this, "edit_batch", {id: element.dataset.publicId, envelopes, attachment_ids: next.attachments.map((attachment) => attachment.id), expected_updated_at: element.dataset.updatedAt})
     window.dispatchEvent(new CustomEvent("veejr:self-note-save-complete", {detail: {element}}))
   },
 }
@@ -2242,11 +2319,14 @@ export const SelfNotes = {
     this.el.textContent = ""
     if (!secret) { this.el.textContent = "Locked — unlock keys to read"; return }
     const payload = openFrom(this.el.dataset.ciphertext, this.el.dataset.nonce, this.el.dataset.peerKey, secret)
-    if (!payload || payload.kind !== "self_note") { this.el.textContent = "Could not decrypt this note."; return }
-    this.el.closest(".self-note-card").dataset.noteSearch = [payload.title, payload.body, ...(payload.labels || []), ...(payload.checklist || []).map((item) => item.text)].join(" ").toLocaleLowerCase()
-    this.el.closest(".self-note-card").dataset.noteArchived = String(!!payload.archived_at)
-    this.el.closest(".self-note-card").dataset.noteTrashed = String(!!payload.trashed_at)
-    this.el.closest(".self-note-card").dataset.notePinned = String(!!payload.pinned)
+    if (!payload || payload.v !== 2 || payload.kind !== "self_note" || !Array.isArray(payload.checklist) || !Array.isArray(payload.labels) || !Array.isArray(payload.attachments)) { this.el.textContent = "Unsupported or malformed encrypted note."; return }
+    const card = this.el.closest(".self-note-card")
+    card.dataset.noteSearch = [payload.title, payload.body, ...payload.labels, ...payload.checklist.map((item) => item.text)].join(" ").toLocaleLowerCase()
+    card.dataset.noteLabels = JSON.stringify(payload.labels.filter((label) => typeof label === "string").slice(0, 10))
+    card.dataset.noteUpdated = payload.updated_at || ""
+    card.dataset.noteArchived = String(!!payload.archived_at)
+    card.dataset.noteTrashed = String(!!payload.trashed_at)
+    card.dataset.notePinned = String(!!payload.pinned)
     if (payload.legacy_message_id) this.el.closest(".self-note-card").dataset.legacySource = payload.legacy_message_id
     window.dispatchEvent(new CustomEvent("veejr:self-note-rendered"))
     const title = document.createElement("h3"); title.className = "font-semibold"; title.textContent = payload.title || "Untitled note"

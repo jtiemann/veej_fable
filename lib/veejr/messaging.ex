@@ -771,11 +771,14 @@ defmodule Veejr.Messaging do
   end
 
   @doc "Returns the owner's encrypted note cards, newest edit first."
-  def list_self_note_envelopes(%User{id: id}) do
+  def list_self_note_envelopes(%User{id: id}, opts \\ []) do
+    limit = opts |> Keyword.get(:limit, 50) |> min(500) |> max(1)
+
     from(e in Envelope,
       where: e.sender_id == ^id and e.recipient_id == ^id and e.kind == "self_note",
       preload: [:sender],
-      order_by: [desc: e.edited_at, desc: e.inserted_at, desc: e.id]
+      order_by: [desc: e.edited_at, desc: e.inserted_at, desc: e.id],
+      limit: ^limit
     )
     |> Repo.all()
   end
@@ -1145,7 +1148,9 @@ defmodule Veejr.Messaging do
 
   defp expected_updated_at?(_actual, nil), do: true
   defp expected_updated_at?(_actual, :invalid), do: false
-  defp expected_updated_at?(actual, expected), do: DateTime.compare(actual, expected) == :eq
+
+  defp expected_updated_at?(actual, expected),
+    do: DateTime.compare(DateTime.truncate(actual, :second), expected) == :eq
 
   @doc """
   Removes an envelope from the user's visible history.
