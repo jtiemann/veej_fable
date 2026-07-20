@@ -1830,9 +1830,9 @@ function noteDocument(payload = {}) {
 }
 
 function noteEditor(board, payload, save) {
-  const editor = document.createElement("form")
+  const editor = document.createElement("section")
   editor.className = "mb-5 rounded-2xl border border-primary/30 bg-base-100 p-4 shadow-lg"
-  editor.innerHTML = `<input data-note-title class="mb-3 w-full bg-transparent text-lg font-semibold outline-none" placeholder="Title"><textarea data-note-body class="min-h-28 w-full resize-y bg-transparent text-sm outline-none" placeholder="Take a note…"></textarea><input data-note-labels class="mt-3 w-full bg-transparent text-xs outline-none" placeholder="Labels, separated by commas"><input data-note-files type="file" multiple class="mt-3 block w-full text-xs"><div class="mt-3 flex flex-wrap items-center gap-2"><button type="button" data-note-checklist class="btn btn-ghost btn-xs">Checklist</button><select data-note-color class="select select-sm"><option value="default">Default</option><option value="sand">Sand</option><option value="rose">Rose</option><option value="violet">Violet</option><option value="blue">Blue</option><option value="mint">Mint</option></select><span class="flex-1"></span><button type="button" data-note-cancel class="btn btn-ghost btn-sm">Cancel</button><button class="btn btn-primary btn-sm">Save note</button></div><div data-note-items class="mt-3 space-y-2"></div>`
+  editor.innerHTML = `<input data-note-title class="mb-3 w-full bg-transparent text-lg font-semibold outline-none" placeholder="Title"><textarea data-note-body class="min-h-28 w-full resize-y bg-transparent text-sm outline-none" placeholder="Take a note…"></textarea><input data-note-labels class="mt-3 w-full bg-transparent text-xs outline-none" placeholder="Labels, separated by commas"><input data-note-files type="file" multiple class="mt-3 block w-full text-xs"><div class="mt-3 flex flex-wrap items-center gap-2"><button type="button" data-note-checklist class="btn btn-ghost btn-xs">Checklist</button><select data-note-color class="select select-sm"><option value="default">Default</option><option value="sand">Sand</option><option value="rose">Rose</option><option value="violet">Violet</option><option value="blue">Blue</option><option value="mint">Mint</option></select><span class="flex-1"></span><button type="button" data-note-cancel class="btn btn-ghost btn-sm">Cancel</button><button type="button" data-note-save class="btn btn-primary btn-sm">Save note</button></div><p data-note-error class="mt-3 hidden text-sm text-error" role="alert"></p><div data-note-items class="mt-3 space-y-2"></div>`
   const title = editor.querySelector("[data-note-title]")
   const body = editor.querySelector("[data-note-body]")
   const labels = editor.querySelector("[data-note-labels]")
@@ -1863,13 +1863,15 @@ function noteEditor(board, payload, save) {
     renderItems(); items.querySelector("input:last-child")?.focus()
   })
   editor.querySelector("[data-note-cancel]").addEventListener("click", () => editor.remove())
-  editor.addEventListener("submit", async (event) => {
-    event.preventDefault()
+  const submit = async () => {
+    const error = editor.querySelector("[data-note-error]")
+    error.textContent = ""
+    error.classList.add("hidden")
     const next = noteDocument({...payload, title: title.value.trim(), body: body.value.trim(), color: color.value, labels: labels.value.split(",").map((v) => v.trim()).filter(Boolean).slice(0, 10)})
     next.checklist = (payload.checklist || []).filter((item) => item.text.trim())
     const files = [...fileInput.files]
     if (!next.title && !next.body && next.checklist.length === 0 && next.attachments.length === 0 && files.length === 0) return
-    const button = editor.querySelector("button[type=submit]")
+    const button = editor.querySelector("[data-note-save]")
     button.disabled = true; button.textContent = "Encrypting…"
     try {
       for (const file of files) {
@@ -1878,7 +1880,15 @@ function noteEditor(board, payload, save) {
       }
       await save(next)
       editor.remove()
-    } catch (error) { button.disabled = false; button.textContent = error.message || "Could not save" }
+    } catch (saveError) {
+      button.disabled = false; button.textContent = "Save note"
+      error.textContent = saveError.message || "Could not save this note."
+      error.classList.remove("hidden")
+    }
+  }
+  editor.querySelector("[data-note-save]").addEventListener("click", submit)
+  editor.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") submit()
   })
   board.prepend(editor); title.focus()
 }
