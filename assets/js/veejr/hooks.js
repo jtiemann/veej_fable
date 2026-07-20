@@ -2237,6 +2237,7 @@ export const SelfNotesBoard = {
         labelBar.appendChild(chip)
       })
     }
+    let visibleCount = 0
     cards.forEach((card) => {
       const stateMatch = this.filter === "reminders" ? false : this.filter === "trashed"
         ? card.dataset.noteTrashed === "true"
@@ -2245,7 +2246,13 @@ export const SelfNotesBoard = {
           : card.dataset.noteArchived !== "true" && card.dataset.noteTrashed !== "true"
       const labelMatch = !this.label || JSON.parse(card.dataset.noteLabels || "[]").includes(this.label)
       card.hidden = !stateMatch || !labelMatch || (!!query && !(card.dataset.noteSearch || "").includes(query))
+      if (!card.hidden) visibleCount += 1
     })
+    const filterStatus = this.el.querySelector("[data-role=filter-status]")
+    if (filterStatus) {
+      const suffix = this.filter === "reminders" ? " Reminders are not available yet." : ""
+      filterStatus.textContent = `${visibleCount} note${visibleCount === 1 ? "" : "s"} shown.${suffix}`
+    }
     this.el.querySelector("[data-role=reminders-empty]")?.classList.toggle("hidden", this.filter !== "reminders")
     const deleteTrashed = this.el.querySelector("[data-role=delete-trashed]")
     if (deleteTrashed) {

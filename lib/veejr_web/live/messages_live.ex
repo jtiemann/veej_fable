@@ -339,6 +339,13 @@ defmodule VeejrWeb.MessagesLive do
                   </div>
                   <div id="self-notes-labels" data-role="labels" class="mt-3 flex flex-wrap gap-1">
                   </div>
+                  <p
+                    id="self-notes-filter-status"
+                    data-role="filter-status"
+                    class="mt-3 text-xs opacity-70"
+                    aria-live="polite"
+                  >
+                  </p>
                   <button
                     data-role="delete-trashed"
                     type="button"
