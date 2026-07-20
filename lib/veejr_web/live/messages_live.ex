@@ -260,6 +260,12 @@ defmodule VeejrWeb.MessagesLive do
                 data-peer-key={@current_scope.user.public_key}
                 class="min-h-[26rem] flex-1 overflow-y-auto p-4 sm:p-6"
               >
+                <div id="self-notes-icon-kit" class="hidden" aria-hidden="true">
+                  <span data-note-icon="attachment"><.icon name="hero-paper-clip" class="size-4" /></span>
+                  <span data-note-icon="audio"><.icon name="hero-microphone" class="size-4" /></span>
+                  <span data-note-icon="video"><.icon name="hero-video-camera" class="size-4" /></span>
+                  <span data-note-icon="camera"><.icon name="hero-arrow-path-rounded-square" class="size-4" /></span>
+                </div>
                 <div
                   id="self-notes-selection-toolbar"
                   data-role="selection-toolbar"
@@ -800,10 +806,17 @@ defmodule VeejrWeb.MessagesLive do
   end
 
   defp apply_message_params(%{"conversation" => key}, socket) when is_binary(key) do
-    socket
-    |> assign(:self_notes, false)
-    |> assign(:selected_conversation_key, key)
-    |> clear_selected_recipient()
+    if key == Messaging.conversation_key(["notes to yourself"]) do
+      socket
+      |> assign(:self_notes, true)
+      |> assign(:selected_conversation_key, nil)
+      |> clear_selected_recipient()
+    else
+      socket
+      |> assign(:self_notes, false)
+      |> assign(:selected_conversation_key, key)
+      |> clear_selected_recipient()
+    end
   end
 
   defp apply_message_params(%{"self_notes" => value}, socket) when value in ["true", "1"] do
@@ -1090,6 +1103,7 @@ defmodule VeejrWeb.MessagesLive do
         _ -> false
       end
     end)
+    |> Enum.reject(&(&1.participants == ["notes to yourself"]))
     |> Enum.map(fn summary ->
       archive = archives[summary.key]
       participants = summary.participants
