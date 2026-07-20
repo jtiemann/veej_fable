@@ -1984,8 +1984,7 @@ export const SelfNotesBoard = {
     else button.textContent = `Copy ${remaining} old self messages into notes`
   },
   create() {
-    const userId = this.el.querySelector("[data-user-id]")?.dataset.userId
-    const key = this.el.querySelector("[data-peer-key]")?.dataset.peerKey
+    const {userId, peerKey: key} = this.el.dataset
     if (!userId || !key) return
     noteEditor(this.el, {}, async (note) => {
       const secret = getSecretKey(userId)
