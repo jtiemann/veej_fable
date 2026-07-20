@@ -412,13 +412,7 @@ defmodule VeejrWeb.MessagesLive do
   end
 
   def handle_event("select_conversation", %{"key" => key}, socket) do
-    {:noreply,
-     socket
-     |> assign(:selected_conversation_key, key)
-     |> reset_message_limit()
-     |> clear_selected_recipient()
-     |> refresh()
-     |> scroll_to_selected()}
+    {:noreply, push_patch(socket, to: ~p"/messages?conversation=#{key}")}
   end
 
   def handle_event("archive_conversation", %{"key" => key}, socket) do
@@ -426,11 +420,8 @@ defmodule VeejrWeb.MessagesLive do
       {:ok, _archive} ->
         {:noreply,
          socket
-         |> assign(:selected_conversation_key, nil)
-         |> reset_message_limit()
-         |> clear_selected_recipient()
          |> put_flash(:info, "Conversation archived.")
-         |> refresh()}
+         |> push_patch(to: ~p"/messages", replace: true)}
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Could not archive that conversation.")}
@@ -438,42 +429,24 @@ defmodule VeejrWeb.MessagesLive do
   end
 
   def handle_event("new_message", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:selected_conversation_key, nil)
-     |> reset_message_limit()
-     |> clear_selected_recipient()
-     |> refresh()}
+    {:noreply, push_patch(socket, to: ~p"/messages")}
   end
 
   def handle_event("select_friend", %{"id" => id}, socket) do
-    {:noreply,
-     socket
-     |> assign(
-       selected_conversation_key: nil,
-       selected_recipient_type: :friend,
-       selected_recipient_id: id,
-       message_limit: @message_page_size
-     )
-     |> refresh()}
+    {:noreply, push_patch(socket, to: ~p"/messages?friend_id=#{id}")}
   end
 
   def handle_event("select_group", %{"id" => id}, socket) do
-    {:noreply,
-     socket
-     |> assign(
-       selected_conversation_key: nil,
-       selected_recipient_type: :group,
-       selected_recipient_id: id,
-       message_limit: @message_page_size
-     )
-     |> refresh()}
+    {:noreply, push_patch(socket, to: ~p"/messages?group_id=#{id}")}
   end
 
   def handle_event("start_call", %{"id" => id}, socket) do
     case Veejr.Calls.start_call(socket.assigns.current_scope.user, id) do
       {:ok, call} ->
-        {:noreply, push_navigate(socket, to: ~p"/call/#{call.public_id}")}
+        return_to = ~p"/messages?conversation=#{socket.assigns.selected_conversation_key}"
+        call_path = ~p"/call/#{call.public_id}?#{[return_to: return_to]}"
+
+        {:noreply, push_navigate(socket, to: call_path)}
 
       {:error, :callee_unreachable} ->
         {:noreply,

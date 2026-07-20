@@ -127,7 +127,33 @@ defmodule VeejrWeb.MessagesLiveTest do
 
     view |> element("button[phx-click='close_profile']") |> render_click()
     view |> element("#conversation-#{key}") |> render_click()
+    assert_patch(view, "/messages?conversation=#{key}")
     assert has_element?(view, "#thread-#{key}")
+  end
+
+  test "starts a call with the selected conversation as its return destination", %{
+    conn: conn,
+    user: user
+  } do
+    friend = user_fixture()
+    {:ok, request} = Social.send_friend_request(user, friend.username)
+    {:ok, _friendship} = Social.accept_friend_request(friend, request.id)
+
+    {:ok, _batch_id, []} =
+      Messaging.send_batch(user, "message", [
+        %{"recipient_id" => friend.id, "ciphertext" => "friend", "nonce" => "nonce-1"},
+        %{"recipient_id" => user.id, "ciphertext" => "self", "nonce" => "nonce-2"}
+      ])
+
+    key = Messaging.conversation_key([Social.Address.handle(friend)])
+    {:ok, view, _html} = live(conn, "/messages?conversation=#{key}")
+
+    view |> element("#start-call") |> render_click()
+    {call_path, _flash} = assert_redirect(view)
+    call_uri = URI.parse(call_path)
+
+    assert String.starts_with?(call_uri.path, "/call/")
+    assert URI.decode_query(call_uri.query)["return_to"] == "/messages?conversation=#{key}"
   end
 
   test "starts with the newest 50 messages and loads older rows on demand", %{

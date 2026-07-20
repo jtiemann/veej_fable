@@ -480,13 +480,23 @@ defmodule VeejrWeb.MessagingComponents do
   attr :envelope, Envelope, required: true, doc: "sender preloaded"
   attr :user, User, required: true
   attr :label, :string, required: true
+  attr :conversation_path, :string, required: true
 
   def envelope_item(assigns) do
     ~H"""
     <li class="rounded-lg border border-base-300 p-3">
-      <div class="flex items-center justify-between text-sm opacity-70">
+      <div class="flex flex-wrap items-center justify-between gap-2 text-sm text-base-content/70">
         <span>{kind_icon(@envelope.kind)} {@label}</span>
-        <span>{Calendar.strftime(@envelope.inserted_at, "%b %d, %H:%M")} UTC</span>
+        <span class="flex flex-wrap items-center gap-3">
+          <span>{Calendar.strftime(@envelope.inserted_at, "%b %d, %H:%M")} UTC</span>
+          <.link
+            id={"history-open-#{@envelope.public_id}"}
+            navigate={@conversation_path}
+            class="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+          >
+            Open conversation <.icon name="hero-arrow-right" class="size-3.5" />
+          </.link>
+        </span>
       </div>
       <div
         id={"env-#{@envelope.public_id}"}
