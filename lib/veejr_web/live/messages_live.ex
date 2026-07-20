@@ -42,13 +42,6 @@ defmodule VeejrWeb.MessagesLive do
               >
                 <.icon name="hero-qr-code" class="size-4" /> Invite person
               </.link>
-              <.link
-                id="messages-self-notes"
-                patch={~p"/messages?self_notes=true"}
-                class="btn btn-ghost btn-sm"
-              >
-                <.icon name="hero-squares-2x2" class="size-4" /> Notes
-              </.link>
               <.conversation_builder
                 id="messages-conversation-builder"
                 form_id="messages-conversation-builder-form"
