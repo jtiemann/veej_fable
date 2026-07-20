@@ -12,6 +12,40 @@ defmodule VeejrWeb.Layouts do
   embed_templates "layouts/*"
 
   @doc """
+  The veejr logo mark: a map-pin / teardrop with a keyhole knocked out of it —
+  "your private place". Inherits the surrounding text color via `currentColor`,
+  so it adapts to every theme. Pass a unique `id` when more than one mark can
+  appear on the same page (the keyhole knockout uses an SVG `<mask>`).
+  """
+  attr :class, :string, default: "size-6"
+  attr :id, :string, default: "veejr-mark"
+  attr :rest, :global
+
+  def veejr_mark(assigns) do
+    ~H"""
+    <svg
+      class={@class}
+      viewBox="0 0 100 128"
+      fill="currentColor"
+      role="img"
+      aria-label="veejr"
+      xmlns="http://www.w3.org/2000/svg"
+      {@rest}
+    >
+      <mask id={"#{@id}-cut"}>
+        <rect x="0" y="0" width="100" height="128" fill="#fff" />
+        <circle cx="50" cy="45" r="15.5" fill="#000" />
+        <path d="M42.5 52 L57.5 52 L53.5 80 L46.5 80 Z" fill="#000" />
+      </mask>
+      <path
+        d="M50 3 C24.5 3 5 23 5 47 C5 80 50 122 50 122 C50 122 95 80 95 47 C95 23 75.5 3 50 3 Z"
+        mask={"url(##{@id}-cut)"}
+      />
+    </svg>
+    """
+  end
+
+  @doc """
   Renders your app layout.
 
   This function is typically invoked from every template,
@@ -46,9 +80,10 @@ defmodule VeejrWeb.Layouts do
     <header class="sticky top-0 z-40 flex min-h-16 flex-wrap items-center gap-2 border-b border-base-300 bg-base-100/95 px-4 py-2 shadow-sm backdrop-blur sm:flex-nowrap sm:px-6 lg:px-8">
       <.link
         navigate={~p"/"}
-        class="order-1 text-lg font-bold tracking-tight whitespace-nowrap"
+        class="order-1 flex items-center gap-2 text-lg font-bold tracking-tight whitespace-nowrap"
       >
-        🔐 veejr
+        <.veejr_mark class="size-6 veejr-brand" id="header-mark" />
+        <span class="lowercase">veejr</span>
       </.link>
       <details :if={@current_scope} class="dropdown order-2 md:hidden">
         <summary class="btn btn-ghost btn-sm" aria-label="Open navigation menu">
