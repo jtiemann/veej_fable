@@ -308,23 +308,6 @@ defmodule VeejrWeb.MessagesLive do
                       aria-pressed="false"
                     >Trash</button>
                   </div>
-                  <button
-                    :if={@legacy_self_messages != []}
-                    data-role="backfill"
-                    type="button"
-                    class="btn btn-outline btn-xs mt-3"
-                  >Copy {@legacy_self_messages |> length()} old self messages into notes</button>
-                </div>
-                <div class="hidden">
-                  <div
-                    :for={envelope <- @legacy_self_messages}
-                    data-role="legacy-note"
-                    data-public-id={envelope.public_id}
-                    data-peer-key={Veejr.Messaging.peer_key(envelope, @current_scope.user)}
-                    data-ciphertext={envelope.ciphertext}
-                    data-nonce={envelope.nonce}
-                  >
-                  </div>
                 </div>
                 <div id="self-notes-grid" class="columns-1 gap-4 sm:columns-2 xl:columns-3">
                   <p
@@ -504,8 +487,7 @@ defmodule VeejrWeb.MessagesLive do
        selected_profile: nil,
        message_limit: @message_page_size,
        self_notes: false,
-       self_note_envelopes: [],
-       legacy_self_messages: []
+       self_note_envelopes: []
      )
      |> refresh()}
   end
@@ -781,11 +763,10 @@ defmodule VeejrWeb.MessagesLive do
 
     if socket.assigns.self_notes do
       assign(socket,
-        self_note_envelopes: Messaging.list_self_note_envelopes(user),
-        legacy_self_messages: Messaging.list_legacy_self_messages(user)
+        self_note_envelopes: Messaging.list_self_note_envelopes(user)
       )
     else
-      assign(socket, self_note_envelopes: [], legacy_self_messages: [])
+      assign(socket, self_note_envelopes: [])
     end
   end
 
