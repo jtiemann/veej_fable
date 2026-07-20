@@ -2167,8 +2167,10 @@ export const SelfNotesBoard = {
     const deleteTrashed = this.el.querySelector("[data-role=delete-trashed]")
     if (deleteTrashed) {
       const count = cards.filter((card) => card.dataset.noteTrashed === "true").length
-      deleteTrashed.classList.toggle("hidden", this.filter !== "trashed" || count === 0)
-      deleteTrashed.textContent = `Delete all ${count} trashed note${count === 1 ? "" : "s"}`
+      deleteTrashed.disabled = count === 0
+      deleteTrashed.textContent = count === 0
+        ? "Delete all trashed forever"
+        : `Delete all ${count} trashed note${count === 1 ? "" : "s"} forever`
     }
   },
   async deleteTrashed() {
