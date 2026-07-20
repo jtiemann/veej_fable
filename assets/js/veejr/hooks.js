@@ -2148,6 +2148,21 @@ export const SelfNotesBoard = {
       this.dateTo = event.target.value
       this.applyFilters()
     })
+    this.el.querySelectorAll("[data-role=date-preset]").forEach((button) => button.addEventListener("click", () => {
+      const days = Number(button.dataset.days)
+      const today = new Date()
+      const from = new Date(today)
+      from.setDate(today.getDate() - days)
+      const formatDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+      this.dateFrom = formatDate(from)
+      this.dateTo = formatDate(today)
+      const fromInput = this.el.querySelector("[data-role=date-from]")
+      const toInput = this.el.querySelector("[data-role=date-to]")
+      if (fromInput) fromInput.value = this.dateFrom
+      if (toInput) toInput.value = this.dateTo
+      this.el.querySelectorAll("[data-role=date-preset]").forEach((control) => control.setAttribute("aria-pressed", String(control === button)))
+      this.applyFilters()
+    }))
     this.el.querySelector("[data-role=clear-dates]")?.addEventListener("click", () => {
       this.dateFrom = ""
       this.dateTo = ""
@@ -2155,6 +2170,7 @@ export const SelfNotesBoard = {
       const to = this.el.querySelector("[data-role=date-to]")
       if (from) from.value = ""
       if (to) to.value = ""
+      this.el.querySelectorAll("[data-role=date-preset]").forEach((control) => control.setAttribute("aria-pressed", "false"))
       this.applyFilters()
     })
     this.el.querySelectorAll("[data-role=filter]").forEach((button) => button.addEventListener("click", () => {

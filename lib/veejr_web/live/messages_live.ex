@@ -305,6 +305,27 @@ defmodule VeejrWeb.MessagesLive do
                         class="rounded-md border border-base-300 bg-base-100 px-2 py-1"
                       />
                     </label>
+                    <button
+                      data-role="date-preset"
+                      data-days="0"
+                      type="button"
+                      class="btn btn-ghost btn-xs"
+                      aria-pressed="false"
+                    >Today</button>
+                    <button
+                      data-role="date-preset"
+                      data-days="7"
+                      type="button"
+                      class="btn btn-ghost btn-xs"
+                      aria-pressed="false"
+                    >Last 7 days</button>
+                    <button
+                      data-role="date-preset"
+                      data-days="30"
+                      type="button"
+                      class="btn btn-ghost btn-xs"
+                      aria-pressed="false"
+                    >Last 30 days</button>
                     <button data-role="clear-dates" type="button" class="btn btn-ghost btn-xs">Clear dates</button>
                   </div>
                   <button
