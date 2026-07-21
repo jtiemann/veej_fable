@@ -2241,6 +2241,8 @@ export const SelfNotesBoard = {
     this.filter = "active"
     this.view = "grid"
     this.label = null
+    this.searchTerm = ""
+    this.query = ""
     this.dateFrom = ""
     this.dateTo = ""
     this.selected = new Map()
@@ -2253,7 +2255,8 @@ export const SelfNotesBoard = {
       if (file) this.importKeep(file)
     })
     this.el.querySelector("[data-role=search]")?.addEventListener("input", (event) => {
-      this.query = event.target.value.toLocaleLowerCase()
+      this.searchTerm = event.target.value
+      this.query = this.searchTerm.toLocaleLowerCase()
       this.applyFilters()
     })
     this.el.querySelector("[data-role=date-from]")?.addEventListener("change", (event) => {
@@ -2333,6 +2336,11 @@ export const SelfNotesBoard = {
     window.addEventListener("veejr:self-note-rendered", this.onRendered)
     window.addEventListener("veejr:self-note-selected", this.onSelected)
     window.addEventListener("keydown", this.onKeydown)
+  },
+  updated() {
+    const search = this.el.querySelector("[data-role=search]")
+    if (search) search.value = this.searchTerm
+    this.applyFilters()
   },
   destroyed() {
     window.removeEventListener("veejr:self-note-edit", this.onEdit)
