@@ -27,6 +27,9 @@ defmodule Veejr.Messaging.Envelope do
     # opaque, client-computed idempotency token for imported self-notes; NULL for
     # everything else. Unique per recipient so re-importing skips existing notes.
     field :dedup_key, :string
+    # opaque content fingerprint of an imported note, so a re-import can tell a
+    # changed note (update) from an unchanged one (skip).
+    field :dedup_version, :string
 
     belongs_to :sender, Veejr.Accounts.User
     belongs_to :recipient, Veejr.Accounts.User
@@ -46,7 +49,8 @@ defmodule Veejr.Messaging.Envelope do
       :nonce,
       :expires_at,
       :max_displays,
-      :dedup_key
+      :dedup_key,
+      :dedup_version
     ])
     |> validate_required([:recipient_id, :kind, :ciphertext, :nonce])
     |> validate_inclusion(:kind, @kinds)

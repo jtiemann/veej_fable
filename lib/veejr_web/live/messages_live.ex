@@ -846,31 +846,32 @@ defmodule VeejrWeb.MessagesLive do
   end
 
   # Idempotency pre-check for a Keep import: given the opaque dedup keys the
-  # client computed for its notes, reply with the subset already imported so the
-  # client can skip them (no wasted re-encrypt / re-upload).
+  # client computed for its notes, reply with a {key => content-fingerprint} map
+  # of the ones already imported. The client skips unchanged notes and re-sends
+  # only new or changed ones (no wasted re-encrypt / re-upload).
   def handle_event("check_self_note_dedup", %{"keys" => keys}, socket) when is_list(keys) do
-    present = Messaging.self_note_dedup_present(socket.assigns.current_scope.user, keys)
-    {:reply, %{present: present}, socket}
+    versions = Messaging.self_note_dedup_versions(socket.assigns.current_scope.user, keys)
+    {:reply, %{versions: versions}, socket}
   end
 
   # Bulk import of self-notes (e.g. a Google Keep Takeout). The browser has
-  # already encrypted each note; here we persist a chunk idempotently (an
-  # envelope whose dedup_key already exists is skipped) and reply with the
-  # counts. No per-note flash/refresh — the client reloads the board once the
-  # whole import finishes.
+  # already encrypted each note; here we persist a chunk idempotently — a note
+  # is inserted if new or updated in place if its fingerprint changed — and
+  # reply with the counts. No per-note flash/refresh — the client reloads the
+  # board once the whole import finishes.
   def handle_event("import_self_notes", %{"notes" => notes}, socket) when is_list(notes) do
     user = socket.assigns.current_scope.user
 
-    {imported, skipped} =
-      Enum.reduce(notes, {0, 0}, fn note, {imp, skip} ->
+    {imported, updated} =
+      Enum.reduce(notes, {0, 0}, fn note, {imp, upd} ->
         case Messaging.import_self_note(user, note) do
-          {:ok, :imported} -> {imp + 1, skip}
-          {:ok, :skipped} -> {imp, skip + 1}
-          {:error, _} -> {imp, skip}
+          {:ok, :imported} -> {imp + 1, upd}
+          {:ok, :updated} -> {imp, upd + 1}
+          _ -> {imp, upd}
         end
       end)
 
-    {:reply, %{ok: true, imported: imported, skipped: skipped}, socket}
+    {:reply, %{ok: true, imported: imported, updated: updated}, socket}
   end
 
   @impl true

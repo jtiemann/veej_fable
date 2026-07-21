@@ -262,70 +262,112 @@ defmodule Veejr.Messaging do
   end
 
   @doc """
-  Returns the subset of `keys` that already exist as this user's imported
-  self-notes. The client uses this to skip re-importing notes it has already
-  imported (idempotent Google Keep import).
+  For the given dedup `keys`, returns a `%{dedup_key => dedup_version}` map of
+  the ones already imported as this user's self-notes. The client compares the
+  stored version (an opaque content fingerprint) against a fresh one to decide
+  skip (same) vs update (changed); keys absent from the map are new.
   """
-  def self_note_dedup_present(%User{id: id}, keys) when is_list(keys) do
+  def self_note_dedup_versions(%User{id: id}, keys) when is_list(keys) do
     keys = keys |> Enum.filter(&is_binary/1) |> Enum.uniq()
 
     if keys == [] do
-      []
+      %{}
     else
-      Repo.all(
-        from(e in Envelope,
-          where: e.recipient_id == ^id and e.kind == "self_note" and e.dedup_key in ^keys,
-          select: e.dedup_key
-        )
+      from(e in Envelope,
+        where: e.recipient_id == ^id and e.kind == "self_note" and e.dedup_key in ^keys,
+        select: {e.dedup_key, e.dedup_version}
       )
+      |> Repo.all()
+      |> Map.new()
     end
   end
 
   @doc """
-  Persists one imported self-note idempotently. If an envelope with the same
-  `dedup_key` already exists for this user it is skipped (`{:ok, :skipped}`);
-  otherwise it is inserted and its attachment blobs linked (`{:ok, :imported}`).
-  The unique `(recipient_id, dedup_key)` index makes concurrent re-imports safe.
+  Persists one imported self-note idempotently. If no envelope with this
+  `dedup_key` exists it is inserted (`{:ok, :imported}`); if one exists it is
+  updated in place with the new ciphertext, fingerprint, and re-linked
+  attachments, releasing the previous version's blobs (`{:ok, :updated}`). The
+  client only sends new or changed notes — unchanged ones are filtered out by
+  the dedup pre-check — and the unique `(recipient_id, dedup_key)` index keeps
+  concurrent re-imports safe.
   """
   def import_self_note(%User{} = user, attrs) do
-    batch_id = random_id()
-    participants = self_copy_participants(user, [user])
+    dedup_key = attrs["dedup_key"] || attrs[:dedup_key]
+    dedup_version = attrs["dedup_version"] || attrs[:dedup_version]
+    ciphertext = attrs["ciphertext"] || attrs[:ciphertext]
+    nonce = attrs["nonce"] || attrs[:nonce]
 
     Repo.transaction(fn ->
       attachment_ids = normalize_attachment_ids(attrs["attachment_ids"] || attrs[:attachment_ids])
 
-      changeset =
-        %Envelope{
-          sender_id: user.id,
-          public_id: random_id(),
-          batch_id: batch_id,
-          sender_public_key: user.public_key,
-          thread_key: conversation_key(participants),
-          participants: Jason.encode!(participants)
-        }
-        |> Envelope.changeset(%{
-          recipient_id: user.id,
-          kind: "self_note",
-          ciphertext: attrs["ciphertext"] || attrs[:ciphertext],
-          nonce: attrs["nonce"] || attrs[:nonce],
-          dedup_key: attrs["dedup_key"] || attrs[:dedup_key]
-        })
+      existing =
+        dedup_key &&
+          Repo.one(
+            from(e in Envelope,
+              where:
+                e.recipient_id == ^user.id and e.kind == "self_note" and
+                  e.dedup_key == ^dedup_key
+            )
+          )
 
-      unless changeset.valid?, do: Repo.rollback(changeset)
+      case existing do
+        %Envelope{} = envelope ->
+          new_batch = random_id()
+          release_batch_blobs!(user.id, envelope.batch_id)
 
-      case Repo.insert(changeset,
-             on_conflict: :nothing,
-             conflict_target: [:recipient_id, :dedup_key]
-           ) do
-        {:ok, %Envelope{id: nil}} ->
-          :skipped
+          envelope
+          |> Envelope.changeset(%{
+            ciphertext: ciphertext,
+            nonce: nonce,
+            dedup_version: dedup_version
+          })
+          |> Ecto.Changeset.put_change(:batch_id, new_batch)
+          |> case do
+            %{valid?: true} = changeset -> Repo.update!(changeset)
+            changeset -> Repo.rollback(changeset)
+          end
 
-        {:ok, %Envelope{}} ->
-          link_batch_blobs!(user, batch_id, attachment_ids)
-          :imported
+          link_batch_blobs!(user, new_batch, attachment_ids)
+          :updated
 
-        {:error, changeset} ->
-          Repo.rollback(changeset)
+        _ ->
+          batch_id = random_id()
+          participants = self_copy_participants(user, [user])
+
+          changeset =
+            %Envelope{
+              sender_id: user.id,
+              public_id: random_id(),
+              batch_id: batch_id,
+              sender_public_key: user.public_key,
+              thread_key: conversation_key(participants),
+              participants: Jason.encode!(participants)
+            }
+            |> Envelope.changeset(%{
+              recipient_id: user.id,
+              kind: "self_note",
+              ciphertext: ciphertext,
+              nonce: nonce,
+              dedup_key: dedup_key,
+              dedup_version: dedup_version
+            })
+
+          unless changeset.valid?, do: Repo.rollback(changeset)
+
+          case Repo.insert(changeset,
+                 on_conflict: :nothing,
+                 conflict_target: [:recipient_id, :dedup_key]
+               ) do
+            {:ok, %Envelope{id: nil}} ->
+              :skipped
+
+            {:ok, %Envelope{}} ->
+              link_batch_blobs!(user, batch_id, attachment_ids)
+              :imported
+
+            {:error, changeset} ->
+              Repo.rollback(changeset)
+          end
       end
     end)
   end
