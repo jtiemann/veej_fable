@@ -2591,12 +2591,34 @@ export const SelfNotesBoard = {
 
 export const SelfNotes = {
   mounted() {
+    this.card = this.el.closest(".self-note-card")
+    this.onCardClick = () => {
+      if (this.payload) window.dispatchEvent(new CustomEvent("veejr:self-note-edit", {detail: {payload: this.payload, element: this.el}}))
+    }
+    this.onCardKeydown = (event) => {
+      if (event.target !== this.card || !["Enter", " "].includes(event.key) || !this.payload) return
+      event.preventDefault()
+      window.dispatchEvent(new CustomEvent("veejr:self-note-edit", {detail: {payload: this.payload, element: this.el}}))
+    }
+    this.card.addEventListener("click", this.onCardClick)
+    this.card.addEventListener("keydown", this.onCardKeydown)
+    this.render()
+  },
+  updated() {
+    this.render()
+  },
+  destroyed() {
+    this.card?.removeEventListener("click", this.onCardClick)
+    this.card?.removeEventListener("keydown", this.onCardKeydown)
+  },
+  render() {
     const secret = getSecretKey(this.el.dataset.userId)
     this.el.textContent = ""
-    if (!secret) { this.el.textContent = "Locked — unlock keys to read"; return }
+    if (!secret) { this.payload = null; this.el.textContent = "Locked — unlock keys to read"; return }
     const payload = openFrom(this.el.dataset.ciphertext, this.el.dataset.nonce, this.el.dataset.peerKey, secret)
-    if (!payload || payload.v !== 2 || payload.kind !== "self_note" || !Array.isArray(payload.checklist) || !Array.isArray(payload.labels) || !Array.isArray(payload.attachments)) { this.el.textContent = "Unsupported or malformed encrypted note."; return }
-    const card = this.el.closest(".self-note-card")
+    if (!payload || payload.v !== 2 || payload.kind !== "self_note" || !Array.isArray(payload.checklist) || !Array.isArray(payload.labels) || !Array.isArray(payload.attachments)) { this.payload = null; this.el.textContent = "Unsupported or malformed encrypted note."; return }
+    this.payload = payload
+    const card = this.card || this.el.closest(".self-note-card")
     card.tabIndex = 0
     card.setAttribute("aria-label", `Open ${payload.title || "untitled note"}`)
     const attachmentMetadata = payload.attachments.flatMap((attachment) => [attachment.name, attachment.mime, attachment.size, attachment.durationMs])
@@ -2692,13 +2714,7 @@ export const SelfNotes = {
       actions.appendChild(remove)
     }
     this.el.append(title, body, list, meta, attachments, actions)
-    this.el.closest(".self-note-card").style.background = {sand:"#f8edcf",rose:"#f8dfe1",violet:"#ebe2fb",blue:"#dceefa",mint:"#dff3e7"}[payload.color] || ""
-    card.addEventListener("click", () => window.dispatchEvent(new CustomEvent("veejr:self-note-edit", {detail: {payload, element: this.el}})))
-    card.addEventListener("keydown", (event) => {
-      if (event.target !== card || !["Enter", " "].includes(event.key)) return
-      event.preventDefault()
-      window.dispatchEvent(new CustomEvent("veejr:self-note-edit", {detail: {payload, element: this.el}}))
-    })
+    card.style.background = {sand:"#f8edcf",rose:"#f8dfe1",violet:"#ebe2fb",blue:"#dceefa",mint:"#dff3e7"}[payload.color] || ""
   },
 }
 
