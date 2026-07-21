@@ -571,13 +571,16 @@ defmodule VeejrWeb.MessagesLive do
                   user={@current_scope.user}
                   friends={@friends}
                   groups={@groups}
-                  kind="message"
+                  kind={if(is_nil(@selected_recipient), do: "self_note", else: "message")}
                   surface="messages"
                   show_recipients={false}
                   selected_self={selected_recipient_self?(@selected_recipient)}
                   selected_friend_ids={selected_recipient_friend_ids(@selected_recipient)}
                   selected_group_ids={selected_recipient_group_ids(@selected_recipient)}
-                  submit_label="Send"
+                  text_placeholder={
+                    if(is_nil(@selected_recipient), do: "Take a note…", else: "Write a message…")
+                  }
+                  submit_label={if(is_nil(@selected_recipient), do: "Save note", else: "Send")}
                 />
               </section>
             </div>
@@ -838,7 +841,22 @@ defmodule VeejrWeb.MessagesLive do
 
     case Messaging.send_batch(socket.assigns.current_scope.user, kind, envelopes, opts) do
       {:ok, _batch_id, _queued} ->
-        {:reply, %{ok: true}, socket |> put_flash(:info, "Encrypted and sent.") |> refresh()}
+        socket =
+          socket
+          |> put_flash(
+            :info,
+            if(kind == "self_note", do: "Note saved.", else: "Encrypted and sent.")
+          )
+          |> refresh()
+
+        socket =
+          if kind == "self_note" and not socket.assigns.self_notes do
+            push_patch(socket, to: ~p"/messages?self_notes=true")
+          else
+            socket
+          end
+
+        {:reply, %{ok: true}, socket}
 
       {:error, _} ->
         {:reply, %{error: "Sending failed — are all recipients still your friends?"}, socket}

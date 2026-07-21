@@ -170,6 +170,7 @@ defmodule VeejrWeb.MessagingComponents do
     >
       <p data-role="error" class="hidden text-error text-sm"></p>
       <div
+        :if={@kind != "self_note"}
         data-role="message-options"
         class="hidden rounded-2xl border border-base-300 bg-base-200 p-3"
       >
@@ -377,7 +378,7 @@ defmodule VeejrWeb.MessagingComponents do
         @surface != "messages" && "space-y-3"
       ]}>
         <button
-          :if={@surface == "messages"}
+          :if={@surface == "messages" && @kind != "self_note"}
           type="button"
           data-role="toggle-options"
           title="Message options"

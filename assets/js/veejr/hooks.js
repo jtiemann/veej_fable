@@ -1328,7 +1328,9 @@ export const Composer = {
       // recipient handles ride inside the encrypted payload so group
       // messages can show all participants after decryption
       const to = recipients.map((r) => r.handle || `@${r.username}`)
-      const payload = {v: 1, kind, text, attachments, to, sent_at: new Date().toISOString(), ...extra}
+      const payload = kind === "self_note"
+        ? noteDocument({body: text, attachments})
+        : {v: 1, kind, text, attachments, to, sent_at: new Date().toISOString(), ...extra}
       const ttl = parseInt(form.querySelector("[data-role=ttl]")?.value || "", 10)
       const maxDisplays = parseInt(form.querySelector("[data-role=max-displays]")?.value || "", 10)
       const messageOptions = {}

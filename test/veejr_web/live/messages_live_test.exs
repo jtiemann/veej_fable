@@ -30,6 +30,30 @@ defmodule VeejrWeb.MessagesLiveTest do
     assert has_element?(view, "#messages-conversation-builder-form")
   end
 
+  test "defaults the unselected composer to a self note", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/messages")
+
+    assert has_element?(view, "#message-composer[data-kind='self_note']")
+    assert has_element?(view, "#message-composer input[type='hidden'][name='self']")
+    assert has_element?(view, "#message-composer textarea[placeholder='Take a note…']")
+    refute has_element?(view, "#message-composer [data-role='toggle-options']")
+  end
+
+  test "opens the notes board after the unselected composer saves", %{conn: conn, user: user} do
+    {:ok, view, _html} = live(conn, "/messages")
+
+    render_hook(view, "send_batch", %{
+      "kind" => "self_note",
+      "envelopes" => [
+        %{"recipient_id" => user.id, "ciphertext" => "ciphertext", "nonce" => "nonce"}
+      ]
+    })
+
+    assert_patch(view, "/messages?self_notes=true")
+    [note] = Messaging.list_self_note_envelopes(user)
+    assert has_element?(view, "#self-note-#{note.public_id}")
+  end
+
   test "starts a multi-selected conversation from the Messages dropdown", %{
     conn: conn,
     user: user
