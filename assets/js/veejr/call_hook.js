@@ -66,8 +66,13 @@ export const CallSession = {
     this.videoProfileIndex = 0
     this.goodQualitySamples = 0
     this.degradedQualitySamples = 0
+    this.remoteSharing = false
+    this.remoteFitMode = "contain"
+    this.popoutWindow = null
+    this.popoutVideo = null
     this.remoteVideo = this.el.querySelector("[data-role=remote-video]")
     this.localVideo = this.el.querySelector("[data-role=local-video]")
+    this.remoteShareStatus = this.el.querySelector("[data-role=remote-share-status]")
     this.setupVideo = this.el.querySelector("[data-role=setup-video]")
     this.setupEl = this.el.querySelector("[data-role=device-setup]")
     this.statusEl = this.el.querySelector("[data-role=call-status]")
@@ -109,6 +114,14 @@ export const CallSession = {
     clearTimeout(this.noticeTimer)
     if (navigator.mediaDevices && navigator.mediaDevices.removeEventListener) {
       navigator.mediaDevices.removeEventListener("devicechange", this.deviceChangeHandler)
+    }
+    if (this.fullscreenChangeHandler) {
+      document.removeEventListener("fullscreenchange", this.fullscreenChangeHandler)
+      document.removeEventListener("webkitfullscreenchange", this.fullscreenChangeHandler)
+    }
+    this.closeSharePopout()
+    if (document.pictureInPictureElement === this.remoteVideo && document.exitPictureInPicture) {
+      document.exitPictureInPicture().catch(() => {})
     }
     if (this.screenTrack) this.screenTrack.stop()
     if (this.localStream) this.localStream.getTracks().forEach((t) => t.stop())
@@ -392,6 +405,7 @@ export const CallSession = {
       await this.applyScreenShareProfile(sender)
       if (this.localVideo) this.localVideo.srcObject = stream
       this.setShareUi(true)
+      this.sendSignal({kind: "share_state", sharing: true})
     } catch (err) {
       this.screenTrack = null
       stream.getTracks().forEach((t) => t.stop())
@@ -420,6 +434,7 @@ export const CallSession = {
 
     if (this.localVideo) this.localVideo.srcObject = this.localStream
     this.setShareUi(false)
+    this.sendSignal({kind: "share_state", sharing: false})
   },
 
   // While sharing, the camera controls would silently fight the screen
@@ -477,6 +492,7 @@ export const CallSession = {
     this.pc.ontrack = (event) => {
       if (this.remoteVideo && event.streams[0]) {
         this.remoteVideo.srcObject = event.streams[0]
+        if (this.popoutVideo) this.popoutVideo.srcObject = event.streams[0]
         // Nudge playback in case the browser's autoplay policy paused it.
         this.remoteVideo.play().catch(() => {})
       }
@@ -540,6 +556,8 @@ export const CallSession = {
         }
       } else if (payload.kind === "restart_request" && this.role === "caller") {
         await this.restartConnection()
+      } else if (payload.kind === "share_state") {
+        this.setRemoteShareState(payload.sharing === true)
       }
     } catch (err) {
       this.showError(`Call negotiation failed: ${err.message}`)
@@ -780,6 +798,141 @@ export const CallSession = {
     this.noticeTimer = setTimeout(() => this.noticeEl.classList.add("hidden"), 5_000)
   },
 
+  setRemoteShareState(sharing) {
+    this.remoteSharing = sharing
+
+    if (this.remoteShareStatus) {
+      this.remoteShareStatus.classList.toggle("hidden", !sharing)
+      this.remoteShareStatus.classList.toggle("inline-flex", sharing)
+    }
+
+    const popout = this.el.querySelector("[data-role=popout-share]")
+    if (popout) popout.classList.toggle("hidden", !sharing)
+
+    if (sharing) {
+      this.setRemoteFit("contain")
+      this.showCallNotice("The other person started sharing their screen.")
+    } else {
+      this.closeSharePopout()
+      this.showCallNotice("Screen sharing stopped.")
+    }
+  },
+
+  toggleRemoteFit() {
+    this.setRemoteFit(this.remoteFitMode === "contain" ? "cover" : "contain")
+  },
+
+  setRemoteFit(mode) {
+    this.remoteFitMode = mode
+    if (this.remoteVideo) {
+      this.remoteVideo.classList.toggle("object-contain", mode === "contain")
+      this.remoteVideo.classList.toggle("object-cover", mode === "cover")
+    }
+
+    const label = this.el.querySelector("[data-role=fit-label]")
+    if (label) label.textContent = mode === "contain" ? "Fill" : "Fit"
+
+    const button = this.el.querySelector("[data-role=toggle-fit]")
+    if (button) button.setAttribute("aria-pressed", String(mode === "cover"))
+  },
+
+  async toggleFullscreen() {
+    try {
+      const fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement
+      if (fullscreenElement) {
+        if (document.exitFullscreen) await document.exitFullscreen()
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen()
+      } else if (this.el.requestFullscreen) {
+        await this.el.requestFullscreen()
+      } else if (this.el.webkitRequestFullscreen) {
+        this.el.webkitRequestFullscreen()
+      }
+    } catch (err) {
+      this.showCallNotice(`Fullscreen is unavailable: ${err.message}`)
+    }
+  },
+
+  updateFullscreenUi() {
+    const active =
+      document.fullscreenElement === this.el || document.webkitFullscreenElement === this.el
+    const label = this.el.querySelector("[data-role=fullscreen-label]")
+    if (label) label.textContent = active ? "Exit fullscreen" : "Fullscreen"
+  },
+
+  async togglePictureInPicture() {
+    if (!this.remoteVideo || !document.pictureInPictureEnabled) return
+
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture()
+      } else {
+        if (!this.remoteVideo.srcObject) {
+          return this.showCallNotice("Picture in picture is available once the call connects.")
+        }
+        await this.remoteVideo.play()
+        await this.remoteVideo.requestPictureInPicture()
+      }
+    } catch (err) {
+      this.showCallNotice(`Picture in picture is unavailable: ${err.message}`)
+    }
+  },
+
+  updatePictureInPictureUi() {
+    const label = this.el.querySelector("[data-role=pip-label]")
+    if (label) {
+      label.textContent =
+        document.pictureInPictureElement === this.remoteVideo
+          ? "Exit picture in picture"
+          : "Picture in picture"
+    }
+  },
+
+  openSharePopout() {
+    if (!this.remoteSharing) {
+      return this.showCallNotice("The pop-out is available while the other person is sharing.")
+    }
+
+    if (this.popoutWindow && !this.popoutWindow.closed) {
+      this.popoutWindow.focus()
+      return
+    }
+
+    const popup = window.open(
+      "",
+      `veejr-share-${this.el.dataset.callId}`,
+      "popup=yes,width=1100,height=760,resizable=yes"
+    )
+    if (!popup) return this.showCallNotice("Allow pop-ups to open the shared screen.")
+
+    popup.document.title = "Shared screen · veejr"
+    popup.document.body.replaceChildren()
+    popup.document.body.style.cssText =
+      "margin:0;display:grid;place-items:center;width:100vw;height:100vh;overflow:hidden;background:#050505;"
+
+    const video = popup.document.createElement("video")
+    video.autoplay = true
+    video.playsInline = true
+    video.muted = true
+    video.style.cssText = "width:100%;height:100%;object-fit:contain;background:#050505;"
+    video.srcObject = this.remoteVideo && this.remoteVideo.srcObject
+    popup.document.body.appendChild(video)
+
+    this.popoutWindow = popup
+    this.popoutVideo = video
+    video.play().catch(() => {})
+    popup.addEventListener("beforeunload", () => {
+      this.popoutWindow = null
+      this.popoutVideo = null
+    })
+  },
+
+  closeSharePopout() {
+    const popup = this.popoutWindow
+    this.popoutWindow = null
+    this.popoutVideo = null
+    if (popup && !popup.closed) popup.close()
+  },
+
   sendSignal(payload) {
     const sealed = sealFor(this.peerKey, payload, this.mySecret)
     this.pushEvent("signal", sealed)
@@ -818,6 +971,34 @@ export const CallSession = {
       share.classList.remove("hidden")
       share.addEventListener("click", () => this.toggleScreenShare())
     }
+
+    const fit = this.el.querySelector("[data-role=toggle-fit]")
+    if (fit) fit.addEventListener("click", () => this.toggleRemoteFit())
+
+    const fullscreen = this.el.querySelector("[data-role=toggle-fullscreen]")
+    if (fullscreen && (this.el.requestFullscreen || this.el.webkitRequestFullscreen)) {
+      fullscreen.classList.remove("hidden")
+      fullscreen.addEventListener("click", () => this.toggleFullscreen())
+      this.remoteVideo.addEventListener("dblclick", () => this.toggleFullscreen())
+      this.fullscreenChangeHandler = () => this.updateFullscreenUi()
+      document.addEventListener("fullscreenchange", this.fullscreenChangeHandler)
+      document.addEventListener("webkitfullscreenchange", this.fullscreenChangeHandler)
+    }
+
+    const pip = this.el.querySelector("[data-role=toggle-pip]")
+    if (pip && document.pictureInPictureEnabled && this.remoteVideo.requestPictureInPicture) {
+      pip.classList.remove("hidden")
+      pip.addEventListener("click", () => this.togglePictureInPicture())
+      this.remoteVideo.addEventListener("enterpictureinpicture", () =>
+        this.updatePictureInPictureUi()
+      )
+      this.remoteVideo.addEventListener("leavepictureinpicture", () =>
+        this.updatePictureInPictureUi()
+      )
+    }
+
+    const popout = this.el.querySelector("[data-role=popout-share]")
+    if (popout) popout.addEventListener("click", () => this.openSharePopout())
 
     const complete = this.el.querySelector("[data-role=complete-setup]")
     if (complete) complete.addEventListener("click", () => this.completeDeviceSetup())

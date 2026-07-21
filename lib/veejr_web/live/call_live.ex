@@ -47,6 +47,13 @@ defmodule VeejrWeb.CallLive do
               >
                 Measuring…
               </span>
+              <span
+                id="call-share-status"
+                data-role="remote-share-status"
+                class="hidden items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary"
+              >
+                <.icon name="hero-computer-desktop" class="size-3.5" /> Screen shared
+              </span>
             </div>
           </div>
           <button
@@ -58,11 +65,13 @@ defmodule VeejrWeb.CallLive do
           </button>
         </div>
 
-        <div class="relative min-h-[60vh] bg-black">
+        <div id="call-stage" data-role="call-stage" class="relative min-h-[60vh] bg-black">
           <video
+            id="call-remote-video"
             data-role="remote-video"
             autoplay
             playsinline
+            title="Double-click for fullscreen"
             class="h-[60vh] w-full object-contain"
           ></video>
           <video
@@ -191,6 +200,45 @@ defmodule VeejrWeb.CallLive do
             class="btn btn-outline btn-sm hidden"
           >
             🖥 Share screen
+          </button>
+          <button
+            id="call-fit"
+            type="button"
+            data-role="toggle-fit"
+            title="Switch between fitting the whole video and filling the frame"
+            class="btn btn-outline btn-sm"
+          >
+            <.icon name="hero-arrows-pointing-in" class="size-4" />
+            <span data-role="fit-label">Fill</span>
+          </button>
+          <button
+            id="call-pip"
+            type="button"
+            data-role="toggle-pip"
+            title="Keep the remote video visible over other windows"
+            class="btn btn-outline btn-sm hidden"
+          >
+            <.icon name="hero-window" class="size-4" />
+            <span data-role="pip-label">Picture in picture</span>
+          </button>
+          <button
+            id="call-popout"
+            type="button"
+            data-role="popout-share"
+            title="Open the shared screen in its own window"
+            class="btn btn-outline btn-sm hidden"
+          >
+            <.icon name="hero-arrow-top-right-on-square" class="size-4" /> Pop out
+          </button>
+          <button
+            id="call-fullscreen"
+            type="button"
+            data-role="toggle-fullscreen"
+            title="Show the call fullscreen"
+            class="btn btn-outline btn-sm hidden"
+          >
+            <.icon name="hero-arrows-pointing-out" class="size-4" />
+            <span data-role="fullscreen-label">Fullscreen</span>
           </button>
           <button
             id="call-devices"

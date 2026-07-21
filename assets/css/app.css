@@ -397,3 +397,28 @@
 }
 
 /* This file is for your main application CSS */
+
+/* The call frame becomes a true immersive workspace in browser fullscreen. */
+#call-session:fullscreen,
+#call-session:-webkit-full-screen {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+  border: 0;
+  border-radius: 0;
+  background: var(--color-base-200);
+}
+
+#call-session:fullscreen [data-role="call-stage"],
+#call-session:-webkit-full-screen [data-role="call-stage"] {
+  flex: 1;
+  min-height: 0;
+}
+
+#call-session:fullscreen [data-role="remote-video"],
+#call-session:-webkit-full-screen [data-role="remote-video"] {
+  height: 100%;
+  min-height: 0;
+}

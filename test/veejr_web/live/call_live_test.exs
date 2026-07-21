@@ -49,6 +49,20 @@ defmodule VeejrWeb.CallLiveTest do
     assert has_element?(view, "#call-network-adjustment[data-role='call-notice']")
   end
 
+  test "renders remote video viewing controls", %{conn: conn, user: user, friend: friend} do
+    {:ok, call} = Calls.start_call(user, friend.id)
+
+    {:ok, view, _html} = live(conn, "/call/#{call.public_id}")
+
+    assert has_element?(view, "#call-stage[data-role='call-stage']")
+    assert has_element?(view, "#call-remote-video[data-role='remote-video']")
+    assert has_element?(view, "#call-share-status[data-role='remote-share-status']")
+    assert has_element?(view, "#call-fit[data-role='toggle-fit']")
+    assert has_element?(view, "#call-pip[data-role='toggle-pip']")
+    assert has_element?(view, "#call-popout[data-role='popout-share']")
+    assert has_element?(view, "#call-fullscreen[data-role='toggle-fullscreen']")
+  end
+
   test "renders the private device setup before joining", %{
     conn: conn,
     user: user,
