@@ -237,14 +237,24 @@ defmodule VeejrWeb.MessagesLive do
                   <h2 class="text-lg font-semibold text-base-content">Notes to yourself</h2>
                   <p class="text-xs opacity-70">Private, end-to-end encrypted notes</p>
                 </div>
-                <button
-                  id="self-notes-new"
-                  type="button"
-                  class="btn btn-primary btn-sm"
-                  phx-click={JS.dispatch("self-notes:new", to: "#self-notes-board")}
-                >
-                  <.icon name="hero-plus" class="size-4" /> New note
-                </button>
+                <div class="flex items-center gap-2">
+                  <button
+                    id="self-notes-import"
+                    type="button"
+                    class="btn btn-ghost btn-sm"
+                    phx-click={JS.dispatch("self-notes:import", to: "#self-notes-board")}
+                  >
+                    <.icon name="hero-arrow-down-tray" class="size-4" /> Import
+                  </button>
+                  <button
+                    id="self-notes-new"
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    phx-click={JS.dispatch("self-notes:new", to: "#self-notes-board")}
+                  >
+                    <.icon name="hero-plus" class="size-4" /> New note
+                  </button>
+                </div>
               </div>
               <div
                 id="self-notes-board"
@@ -253,6 +263,13 @@ defmodule VeejrWeb.MessagesLive do
                 data-peer-key={@current_scope.user.public_key}
                 class="min-h-[26rem] flex-1 overflow-y-auto p-4 sm:p-6"
               >
+                <input
+                  type="file"
+                  data-role="import-file"
+                  accept=".zip,application/zip"
+                  class="hidden"
+                  aria-hidden="true"
+                />
                 <div id="self-notes-icon-kit" class="hidden" aria-hidden="true">
                   <span data-note-icon="attachment"><.icon name="hero-paper-clip" class="size-4" /></span>
                   <span data-note-icon="audio"><.icon name="hero-microphone" class="size-4" /></span>
@@ -826,6 +843,27 @@ defmodule VeejrWeb.MessagesLive do
       {:error, _} ->
         {:reply, %{error: "Sending failed — are all recipients still your friends?"}, socket}
     end
+  end
+
+  # Bulk import of self-notes (e.g. a Google Keep Takeout). The browser has
+  # already encrypted each note; here we just persist a chunk of them and
+  # reply with the count. No per-note flash/refresh — the client reloads the
+  # board once the whole import finishes.
+  def handle_event("import_self_notes", %{"notes" => notes}, socket) when is_list(notes) do
+    user = socket.assigns.current_scope.user
+
+    imported =
+      Enum.reduce(notes, 0, fn note, acc ->
+        envelopes = List.wrap(note["envelopes"])
+        opts = [attachment_ids: note["attachment_ids"] || []]
+
+        case Messaging.send_batch(user, "self_note", envelopes, opts) do
+          {:ok, _batch_id, _queued} -> acc + 1
+          {:error, _} -> acc
+        end
+      end)
+
+    {:reply, %{ok: true, imported: imported}, socket}
   end
 
   @impl true

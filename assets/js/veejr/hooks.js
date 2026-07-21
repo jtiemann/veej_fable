@@ -17,6 +17,7 @@ import {
   decryptBlob,
 } from "./crypto.js"
 import {ensureLeaflet} from "./map_hook.js"
+import {unzipSync, strFromU8} from "../../vendor/fflate.js"
 
 // Promise wrapper around pushEvent-with-reply, shared by several hooks.
 function pushWithReply(hook, event, params) {
@@ -2126,6 +2127,71 @@ function noteAttachmentPreview(att) {
   return wrap
 }
 
+// --- Google Keep (Takeout) import ---------------------------------------
+// The zip is read, mapped, encrypted, and uploaded entirely in the browser;
+// Keep note content never reaches the server as plaintext.
+const KEEP_PREFIX = "Takeout/Keep/"
+
+// A Keep note is imported only if it is active (not archived/trashed) and
+// carries something — text, a non-empty checklist item, or an attachment.
+function keepNoteIsImportable(k) {
+  if (k.isArchived || k.isTrashed) return false
+  const hasText = typeof k.textContent === "string" && k.textContent.trim() !== ""
+  const hasList = Array.isArray(k.listContent) && k.listContent.some((i) => (i.text || "").trim() !== "")
+  const hasAttach = Array.isArray(k.attachments) && k.attachments.length > 0
+  return hasText || hasList || hasAttach
+}
+
+function keepUsecToIso(usec) {
+  const n = Number(usec)
+  return Number.isFinite(n) && n > 0 ? new Date(Math.round(n / 1000)).toISOString() : new Date().toISOString()
+}
+
+// Maps one Keep note (with already-uploaded attachment descriptors) into a
+// v2 self_note document matching noteDocument()'s shape.
+function keepNoteToDocument(k, attachments) {
+  const checklist = (Array.isArray(k.listContent) ? k.listContent : [])
+    .filter((i) => (i.text || "").trim() !== "")
+    .map((i) => ({id: crypto.randomUUID(), text: i.text || "", checked: !!i.isChecked}))
+  return {
+    v: 2,
+    kind: "self_note",
+    note_id: crypto.randomUUID(),
+    title: k.title || "",
+    body: k.textContent || "",
+    checklist,
+    labels: [],
+    color: "default",
+    pinned: !!k.isPinned,
+    archived_at: null,
+    trashed_at: null,
+    created_at: keepUsecToIso(k.createdTimestampUsec),
+    updated_at: keepUsecToIso(k.userEditedTimestampUsec),
+    attachments,
+    settings: {move_checked_to_bottom: false},
+    legacy_message_id: null,
+  }
+}
+
+// A small fixed progress banner for the import run.
+function keepImportStatus() {
+  const wrap = document.createElement("div")
+  wrap.className =
+    "fixed inset-x-0 bottom-4 z-50 mx-auto w-[min(92vw,28rem)] rounded-xl border border-base-300 bg-base-100 p-4 shadow-xl"
+  wrap.setAttribute("role", "status")
+  wrap.setAttribute("aria-live", "polite")
+  wrap.innerHTML =
+    '<p data-msg class="text-sm font-medium"></p><progress data-bar class="progress progress-primary mt-2 w-full" value="0" max="1"></progress>'
+  document.body.appendChild(wrap)
+  const msg = wrap.querySelector("[data-msg]")
+  const bar = wrap.querySelector("[data-bar]")
+  return {
+    set(text, value) { msg.textContent = text; if (value != null) bar.value = value },
+    done(text) { msg.textContent = text; bar.value = 1 },
+    fail(text) { msg.textContent = text; bar.classList.add("progress-error"); setTimeout(() => wrap.remove(), 6000) },
+  }
+}
+
 export const SelfNotesBoard = {
   mounted() {
     this.filter = "active"
@@ -2136,6 +2202,12 @@ export const SelfNotesBoard = {
     this.selected = new Map()
     this.el.addEventListener("self-notes:new", () => this.create())
     this.el.querySelector("[data-role=new-note]")?.addEventListener("click", () => this.create())
+    this.el.addEventListener("self-notes:import", () => this.el.querySelector("[data-role=import-file]")?.click())
+    this.el.querySelector("[data-role=import-file]")?.addEventListener("change", (event) => {
+      const file = event.target.files?.[0]
+      event.target.value = ""
+      if (file) this.importKeep(file)
+    })
     this.el.querySelector("[data-role=search]")?.addEventListener("input", (event) => {
       this.query = event.target.value.toLocaleLowerCase()
       this.applyFilters()
@@ -2320,6 +2392,82 @@ export const SelfNotesBoard = {
     } catch (error) {
       button.textContent = error.message || "Could not delete all trashed notes"
       button.disabled = false
+    }
+  },
+  async importKeep(file) {
+    if (this._importing) return
+    const {userId, peerKey: key} = this.el.dataset
+    if (!userId || !key) return
+    const secret = getSecretKey(userId)
+    const status = keepImportStatus()
+    if (!secret) return status.fail("Unlock your keys before importing.")
+    this._importing = true
+    try {
+      status.set("Reading your Takeout zip…")
+      const raw = new Uint8Array(await file.arrayBuffer())
+      // Keep the note JSON and any attachment media; skip the redundant
+      // per-note .html and the Labels.txt.
+      const entries = unzipSync(raw, {
+        filter: (f) => f.name.startsWith(KEEP_PREFIX) && !f.name.endsWith(".html") && !f.name.endsWith(".txt"),
+      })
+
+      const notes = []
+      for (const [name, bytes] of Object.entries(entries)) {
+        if (!name.endsWith(".json")) continue
+        let note
+        try { note = JSON.parse(strFromU8(bytes)) } catch { continue }
+        if (keepNoteIsImportable(note)) notes.push(note)
+      }
+      const total = notes.length
+      if (total === 0) return status.fail("No importable notes found in that zip.")
+
+      let imported = 0
+      let unreadable = 0
+      let chunk = []
+      const flush = async () => {
+        if (chunk.length === 0) return
+        const batch = chunk
+        chunk = []
+        const reply = await pushWithReply(this, "import_self_notes", {notes: batch})
+        imported += reply?.imported ?? batch.length
+      }
+
+      for (let i = 0; i < total; i++) {
+        const note = notes[i]
+        status.set(`Encrypting note ${i + 1} of ${total}…`, (i + 1) / total)
+        const attachments = []
+        for (const att of note.attachments || []) {
+          const bytes = entries[KEEP_PREFIX + att.filePath]
+          if (!bytes) continue
+          try {
+            const upload = new File([bytes], att.filePath, {type: att.mimetype})
+            attachments.push(await encryptAndUpload(upload, {name: att.filePath, mime: att.mimetype}))
+          } catch {
+            // A failed attachment upload should not lose the note's text.
+          }
+        }
+        try {
+          const doc = keepNoteToDocument(note, attachments)
+          chunk.push({
+            envelopes: [{recipient_id: Number(userId), ...sealFor(key, doc, secret)}],
+            attachment_ids: attachments.map((a) => a.id),
+          })
+        } catch {
+          unreadable++
+        }
+        if (chunk.length >= 25) await flush()
+      }
+      await flush()
+
+      status.done(
+        `Imported ${imported} note${imported === 1 ? "" : "s"} from Google Keep.` +
+          (unreadable ? ` (${unreadable} could not be read.)` : ""),
+      )
+      setTimeout(() => window.location.reload(), 1600)
+    } catch (error) {
+      status.fail(error.message || "Import failed.")
+    } finally {
+      this._importing = false
     }
   },
   create() {
