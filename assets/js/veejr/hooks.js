@@ -1977,7 +1977,14 @@ function noteEditor(board, payload, save) {
     clearTimeout(saveTimer)
     saveTimer = setTimeout(() => submit(), 600)
   }
-  ;[title, body, labels, color, sortChecked].forEach((field) => field.addEventListener("blur", scheduleSave))
+  // Auto-save only when focus leaves the editor entirely (Keep-style
+  // "click away to save"), never when moving between the editor's own fields —
+  // otherwise editing a note would save and close it mid-edit.
+  ;[title, body, labels, color, sortChecked].forEach((field) =>
+    field.addEventListener("blur", (event) => {
+      if (!editor.contains(event.relatedTarget)) scheduleSave()
+    }),
+  )
   const closeEditor = () => {
     clearTimeout(saveTimer)
     cleanupRecordings()
