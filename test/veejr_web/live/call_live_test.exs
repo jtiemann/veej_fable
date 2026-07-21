@@ -40,6 +40,14 @@ defmodule VeejrWeb.CallLiveTest do
     assert_redirect(view, return_to)
   end
 
+  test "renders local call quality feedback", %{conn: conn, user: user, friend: friend} do
+    {:ok, call} = Calls.start_call(user, friend.id)
+
+    {:ok, view, _html} = live(conn, "/call/#{call.public_id}")
+
+    assert has_element?(view, "#call-quality[data-role='call-quality']")
+  end
+
   test "an incoming call without an origin returns to the peer conversation", %{
     conn: conn,
     user: user,

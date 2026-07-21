@@ -31,13 +31,22 @@ defmodule VeejrWeb.CallLive do
         class="overflow-hidden rounded-[32px] border border-base-300 bg-base-200 shadow-sm"
       >
         <div class="flex items-center justify-between gap-3 border-b border-base-300 bg-base-100 px-5 py-4">
-          <div>
+          <div class="min-w-0">
             <h1 class="text-xl font-semibold tracking-tight">
               📞 {@peer.display_name || Veejr.Social.Address.handle(@peer)}
             </h1>
-            <p data-role="call-status" class="text-sm opacity-70">
-              {if @role == "caller", do: "Ringing…", else: "Connecting…"}
-            </p>
+            <div class="mt-0.5 flex flex-wrap items-center gap-2">
+              <p data-role="call-status" class="text-sm opacity-70">
+                {if @role == "caller", do: "Ringing…", else: "Connecting…"}
+              </p>
+              <span
+                id="call-quality"
+                data-role="call-quality"
+                class="hidden rounded-full border px-2 py-0.5 text-xs font-medium"
+              >
+                Measuring…
+              </span>
+            </div>
           </div>
           <button
             id="hang-up"

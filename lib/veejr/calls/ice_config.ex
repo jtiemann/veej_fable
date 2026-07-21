@@ -3,7 +3,7 @@ defmodule Veejr.Calls.IceConfig do
   ICE server configuration handed to browsers for WebRTC calls.
 
   Defaults to a public STUN server. Operators can override with their own
-  STUN and add a TURN relay (`VEEJR_STUN_URLS`, `VEEJR_TURN_URL`,
+  STUN and add TURN relays (`VEEJR_STUN_URLS`, `VEEJR_TURN_URLS`,
   `VEEJR_TURN_USERNAME`, `VEEJR_TURN_PASSWORD` in prod) — see OPERATIONS.md
   for running a coturn sidecar. TURN relays only encrypted SRTP, so the
   trust model is unchanged.

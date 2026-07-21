@@ -34,8 +34,8 @@ if config_env() == :prod do
     config :veejr, update_repo: repo
   end
 
-  # WebRTC ICE servers: comma-separated STUN URLs, plus an optional TURN
-  # relay with static credentials (see OPERATIONS.md for a coturn sidecar).
+  # WebRTC ICE servers: comma-separated STUN URLs, plus optional TURN relay
+  # URLs with static credentials (see OPERATIONS.md for a coturn sidecar).
   stun_servers =
     case System.get_env("VEEJR_STUN_URLS") do
       nil -> [%{urls: ["stun:stun.l.google.com:19302"]}]
@@ -43,15 +43,28 @@ if config_env() == :prod do
     end
 
   turn_servers =
-    case System.get_env("VEEJR_TURN_URL") do
+    case System.get_env("VEEJR_TURN_URLS") || System.get_env("VEEJR_TURN_URL") do
       nil ->
         []
 
-      url ->
-        # Advertise a TCP variant alongside UDP: VPNs and strict firewalls
-        # often drop UDP, and TURN-over-TCP still relays to UDP media fine.
+      configured_urls ->
+        # Advertise TCP alongside UDP when the URL does not pin a transport.
+        # `turns:` is TLS-over-TCP, so it only needs its explicit TCP variant.
         urls =
-          if String.contains?(url, "transport="), do: [url], else: [url, url <> "?transport=tcp"]
+          configured_urls
+          |> String.split(",", trim: true)
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.flat_map(fn url ->
+            separator = if String.contains?(url, "?"), do: "&", else: "?"
+
+            cond do
+              String.contains?(url, "transport=") -> [url]
+              String.starts_with?(url, "turns:") -> [url <> separator <> "transport=tcp"]
+              true -> [url, url <> separator <> "transport=tcp"]
+            end
+          end)
+          |> Enum.uniq()
 
         [
           %{

@@ -8,6 +8,18 @@
 
 import {getSecretKey, sealFor, openFrom} from "./crypto.js"
 
+export function classifyCallQuality({loss = 0, rtt = 0, jitter = 0, bitrate} = {}) {
+  if (loss >= 0.08 || rtt >= 0.6 || jitter >= 0.08 || (bitrate && bitrate < 150_000)) {
+    return "poor"
+  }
+
+  if (loss >= 0.03 || rtt >= 0.3 || jitter >= 0.04 || (bitrate && bitrate < 400_000)) {
+    return "unstable"
+  }
+
+  return "good"
+}
+
 export const CallSession = {
   mounted() {
     const {callId, role, userId, peerKey} = this.el.dataset
@@ -18,9 +30,14 @@ export const CallSession = {
     this.pc = null
     this.localStream = null
     this.pendingIce = []
+    this.restartAttempts = 0
+    this.maxRestartAttempts = 2
+    this.restartInProgress = false
+    this.previousInbound = null
     this.remoteVideo = this.el.querySelector("[data-role=remote-video]")
     this.localVideo = this.el.querySelector("[data-role=local-video]")
     this.statusEl = this.el.querySelector("[data-role=call-status]")
+    this.qualityEl = this.el.querySelector("[data-role=call-quality]")
 
     if (!this.mySecret) {
       return this.fail("🔒 Your keys are locked — unlock them and try the call again.")
@@ -45,6 +62,8 @@ export const CallSession = {
   },
 
   destroyed() {
+    this.clearRecoveryTimers()
+    this.stopQualityMonitoring()
     if (this.screenTrack) this.screenTrack.stop()
     if (this.localStream) this.localStream.getTracks().forEach((t) => t.stop())
     if (this.pc) this.pc.close()
@@ -57,8 +76,14 @@ export const CallSession = {
       try {
         this.localStream = await navigator.mediaDevices.getUserMedia({audio: true})
         this.showError("No camera available — continuing with audio only.")
-      } catch (err) {
-        return this.fail(`Could not access microphone or camera: ${err.message}`)
+      } catch {
+        try {
+          this.localStream = await navigator.mediaDevices.getUserMedia({video: true})
+          this.showError("Microphone unavailable — continuing with video only.")
+        } catch (err) {
+          this.fail(`Could not access microphone or camera: ${err.message}`)
+          return false
+        }
       }
     }
 
@@ -67,6 +92,7 @@ export const CallSession = {
     }
 
     this.offerCameraSwitch()
+    return true
   },
 
   // Shows the switch-camera button when more than one camera exists. Device
@@ -188,7 +214,11 @@ export const CallSession = {
   async startAsCaller() {
     if (this.negotiating || this.pc) return
     this.negotiating = true
-    await this.mediaReady
+    const mediaAvailable = await this.mediaReady
+    if (!mediaAvailable) {
+      this.negotiating = false
+      return
+    }
     if (this.pc) return
     this.createPeer()
     const offer = await this.pc.createOffer()
@@ -217,15 +247,26 @@ export const CallSession = {
 
     this.pc.onconnectionstatechange = () => {
       const state = this.pc.connectionState
-      if (state === "connected") this.say("Connected — end-to-end encrypted")
-      if (state === "disconnected") this.say("Connection interrupted…")
-      if (state === "failed") {
-        this.showError(
-          "Could not establish a direct connection between your networks. " +
-            "The instance may need a TURN relay (see the operations guide)."
-        )
-        this.say("Connection failed")
+      if (state === "connected") {
+        this.clearRecoveryTimers()
+        this.restartAttempts = 0
+        this.say("Connected — end-to-end encrypted")
+        this.startQualityMonitoring()
       }
+    }
+
+    this.pc.oniceconnectionstatechange = () => {
+      const state = this.pc.iceConnectionState
+
+      if (state === "checking") this.say("Connecting…")
+
+      if (state === "disconnected") {
+        this.say("Connection interrupted — reconnecting…")
+        clearTimeout(this.disconnectTimer)
+        this.disconnectTimer = setTimeout(() => this.requestIceRecovery(), 5_000)
+      }
+
+      if (state === "failed") this.requestIceRecovery()
     }
   },
 
@@ -236,7 +277,8 @@ export const CallSession = {
           // Wait for capture before answering — an answer built without
           // local tracks would be receive-only and the caller would never
           // see or hear this side.
-          await this.mediaReady
+          const mediaAvailable = await this.mediaReady
+          if (!mediaAvailable) return
           if (!this.pc) this.createPeer()
         }
 
@@ -255,6 +297,8 @@ export const CallSession = {
         } else {
           this.pendingIce.push(payload.candidate)
         }
+      } else if (payload.kind === "restart_request" && this.role === "caller") {
+        await this.restartConnection()
       }
     } catch (err) {
       this.showError(`Call negotiation failed: ${err.message}`)
@@ -265,6 +309,145 @@ export const CallSession = {
     while (this.pendingIce.length > 0) {
       await this.pc.addIceCandidate(this.pendingIce.shift())
     }
+  },
+
+  clearRecoveryTimers() {
+    clearTimeout(this.disconnectTimer)
+    clearTimeout(this.restartTimer)
+    this.disconnectTimer = null
+    this.restartTimer = null
+  },
+
+  async requestIceRecovery() {
+    if (!this.pc || this.pc.connectionState === "closed") return
+
+    if (this.restartAttempts >= this.maxRestartAttempts) {
+      this.clearRecoveryTimers()
+      this.stopQualityMonitoring()
+      this.say("Connection failed")
+      return this.showError(
+        "The call could not reconnect after two attempts. Check your connection and try again."
+      )
+    }
+
+    if (this.role === "caller") {
+      await this.restartConnection()
+    } else {
+      this.restartAttempts += 1
+      this.say(`Reconnecting (attempt ${this.restartAttempts}/${this.maxRestartAttempts})…`)
+      this.sendSignal({kind: "restart_request"})
+      clearTimeout(this.restartTimer)
+      this.restartTimer = setTimeout(() => this.requestIceRecovery(), 8_000)
+    }
+  },
+
+  // Only the original caller creates restart offers. That fixed ownership
+  // avoids offer glare when both browsers notice the same network change.
+  async restartConnection() {
+    if (
+      !this.pc ||
+      this.restartInProgress ||
+      this.restartAttempts >= this.maxRestartAttempts ||
+      this.pc.signalingState !== "stable"
+    ) {
+      return
+    }
+
+    this.restartInProgress = true
+    this.restartAttempts += 1
+    this.say(`Reconnecting (attempt ${this.restartAttempts}/${this.maxRestartAttempts})…`)
+
+    try {
+      this.pc.restartIce()
+      const offer = await this.pc.createOffer({iceRestart: true})
+      await this.pc.setLocalDescription(offer)
+      this.sendSignal({kind: "offer", sdp: this.pc.localDescription.sdp, restart: true})
+    } catch (err) {
+      this.showError(`Could not restart the connection: ${err.message}`)
+    } finally {
+      this.restartInProgress = false
+    }
+
+    clearTimeout(this.restartTimer)
+    this.restartTimer = setTimeout(() => this.requestIceRecovery(), 8_000)
+  },
+
+  startQualityMonitoring() {
+    if (!this.pc || this.qualityTimer) return
+    if (this.qualityEl) this.qualityEl.classList.remove("hidden")
+    this.updateCallQuality()
+    this.qualityTimer = setInterval(() => this.updateCallQuality(), 2_000)
+  },
+
+  stopQualityMonitoring() {
+    clearInterval(this.qualityTimer)
+    this.qualityTimer = null
+    this.previousInbound = null
+  },
+
+  // WebRTC statistics stay in this browser. Only a coarse quality label is
+  // rendered; no IP addresses, candidate details, or metrics reach Phoenix.
+  async updateCallQuality() {
+    if (!this.pc || !this.qualityEl || this.pc.connectionState !== "connected") return
+
+    try {
+      const stats = await this.pc.getStats()
+      let pair
+      let transport
+      let received = 0
+      let lost = 0
+      let jitter = 0
+
+      stats.forEach((report) => {
+        if (report.type === "transport" && report.selectedCandidatePairId) transport = report
+        if (report.type === "candidate-pair" && report.state === "succeeded" && report.nominated) {
+          pair = report
+        }
+        if (report.type === "inbound-rtp" && !report.isRemote) {
+          received += report.packetsReceived || 0
+          lost += report.packetsLost || 0
+          jitter = Math.max(jitter, report.jitter || 0)
+        }
+      })
+
+      if (transport) pair = stats.get(transport.selectedCandidatePairId) || pair
+
+      const previous = this.previousInbound
+      const receivedDelta = previous ? Math.max(0, received - previous.received) : 0
+      const lostDelta = previous ? Math.max(0, lost - previous.lost) : 0
+      const packetDelta = receivedDelta + lostDelta
+      const loss = packetDelta > 0 ? lostDelta / packetDelta : 0
+      this.previousInbound = {received, lost}
+
+      const localCandidate = pair && stats.get(pair.localCandidateId)
+      const remoteCandidate = pair && stats.get(pair.remoteCandidateId)
+      const relayed =
+        (localCandidate && localCandidate.candidateType === "relay") ||
+        (remoteCandidate && remoteCandidate.candidateType === "relay")
+      const rtt = (pair && pair.currentRoundTripTime) || 0
+      const bitrate = pair && pair.availableOutgoingBitrate
+      const quality = classifyCallQuality({loss, rtt, jitter, bitrate})
+
+      this.renderCallQuality(quality, relayed, {loss, rtt})
+    } catch {
+      // Stats availability differs across browsers; the call itself should
+      // never be interrupted because a quality sample is unavailable.
+    }
+  },
+
+  renderCallQuality(quality, relayed, {loss, rtt}) {
+    const styles = {
+      good: "border-success/40 bg-success/10 text-success",
+      unstable: "border-warning/50 bg-warning/10 text-warning",
+      poor: "border-error/50 bg-error/10 text-error",
+    }
+
+    this.qualityEl.className =
+      `rounded-full border px-2 py-0.5 text-xs font-medium ${styles[quality]}`
+    this.qualityEl.textContent =
+      `${quality === "good" ? "Good" : quality === "unstable" ? "Unstable" : "Poor"}` +
+      ` · ${relayed ? "relayed" : "direct"}`
+    this.qualityEl.title = `Round trip ${Math.round(rtt * 1000)} ms · packet loss ${Math.round(loss * 100)}%`
   },
 
   sendSignal(payload) {

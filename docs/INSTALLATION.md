@@ -140,6 +140,9 @@ Runtime variables:
 | `VEEJR_BLOB_DIR` | No | Encrypted attachment path; defaults to `/var/lib/veejr/uploads`. |
 | `VEEJR_MIGRATION_DIR` | No | Private account-move packages; defaults to `/var/lib/veejr/migrations`. Never serve this directory publicly. |
 | `VEEJR_PROVISIONER_TOKEN` | No | Enables the protected host-provisioner API. Use at least 32 random characters. |
+| `VEEJR_STUN_URLS` | No | Comma-separated STUN URLs; defaults to Google's public STUN service. |
+| `VEEJR_TURN_URLS` | No | Comma-separated TURN URLs. Include UDP/TCP `turn:` and TLS `turns:` endpoints for resilient calls. The singular `VEEJR_TURN_URL` remains supported. |
+| `VEEJR_TURN_USERNAME` / `VEEJR_TURN_PASSWORD` | When TURN is used | Static coturn credentials shared by the configured TURN URLs. |
 | `POOL_SIZE` | No | SQLite connection-pool size; defaults to `5`. |
 | `PORT` | No | Phoenix HTTP port; defaults to `4000`. |
 | `FCM_SERVICE_ACCOUNT_JSON_FILE` | No | Mounted Firebase service-account path for Android push. |

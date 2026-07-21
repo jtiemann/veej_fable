@@ -115,14 +115,16 @@ $Response.StatusCode
 ).Value | Sort-Object -Unique
 ```
 
-## Calls: STUN and optional TURN
+## Calls: STUN and TURN
 
 Calls default to a public STUN server, which suffices for most NAT
 combinations. When both parties sit behind symmetric NAT the direct
 connection fails (the call page reports it); a TURN relay fixes this. TURN
 only relays already-encrypted SRTP — it never sees call content.
 
-Run a coturn sidecar and point the instance at it:
+Production deployments should advertise TURN over UDP, TCP, and TLS so calls
+can cross restrictive VPNs and firewalls. Run a coturn sidecar and point the
+instance at it:
 
 ```powershell
 docker run -d --name veej_coturn --restart unless-stopped `
@@ -143,17 +145,27 @@ VPN'd devices, whose traffic arrives from the internet) still relay fine
 through their own allocation, provided the router forwards 3478 (TCP and
 UDP) and the relay UDP range to the host. The instance automatically
 advertises a `?transport=tcp` TURN variant for clients whose VPN or
-firewall drops UDP.
+firewall drops UDP. Each `turn:` URL without an explicit transport gets that
+TCP variant automatically.
 
 Then set on the application service (and open the UDP ports on the
 firewall/router):
 
 ```text
-VEEJR_TURN_URL=turn:your-host:3478
+VEEJR_TURN_URLS=turn:your-host:3478,turns:your-host:5349
 VEEJR_TURN_USERNAME=veejr
 VEEJR_TURN_PASSWORD=CHOOSE_A_LONG_SECRET
 VEEJR_STUN_URLS=stun:stun.l.google.com:19302   # optional override
 ```
+
+The command above is a UDP/TCP baseline. To serve `turns:` as well, expose
+TCP 5349 and configure coturn with a publicly trusted certificate and key,
+for example `--tls-listening-port=5349 --cert=/certs/fullchain.pem
+--pkey=/certs/privkey.pem`. Mount those files read-only into the coturn
+container and remove `--no-tls`. Browsers reject a `turns:` endpoint whose
+certificate does not match `your-host`. Keep UDP 3478 available because it
+normally gives the best media performance; TLS is the restrictive-network
+fallback.
 
 For parties outside the LAN the router must forward 3478 (TCP+UDP) and the
 relay UDP range to the host.
