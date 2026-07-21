@@ -261,6 +261,75 @@ defmodule Veejr.Messaging do
     end
   end
 
+  @doc """
+  Returns the subset of `keys` that already exist as this user's imported
+  self-notes. The client uses this to skip re-importing notes it has already
+  imported (idempotent Google Keep import).
+  """
+  def self_note_dedup_present(%User{id: id}, keys) when is_list(keys) do
+    keys = keys |> Enum.filter(&is_binary/1) |> Enum.uniq()
+
+    if keys == [] do
+      []
+    else
+      Repo.all(
+        from(e in Envelope,
+          where: e.recipient_id == ^id and e.kind == "self_note" and e.dedup_key in ^keys,
+          select: e.dedup_key
+        )
+      )
+    end
+  end
+
+  @doc """
+  Persists one imported self-note idempotently. If an envelope with the same
+  `dedup_key` already exists for this user it is skipped (`{:ok, :skipped}`);
+  otherwise it is inserted and its attachment blobs linked (`{:ok, :imported}`).
+  The unique `(recipient_id, dedup_key)` index makes concurrent re-imports safe.
+  """
+  def import_self_note(%User{} = user, attrs) do
+    batch_id = random_id()
+    participants = self_copy_participants(user, [user])
+
+    Repo.transaction(fn ->
+      attachment_ids = normalize_attachment_ids(attrs["attachment_ids"] || attrs[:attachment_ids])
+
+      changeset =
+        %Envelope{
+          sender_id: user.id,
+          public_id: random_id(),
+          batch_id: batch_id,
+          sender_public_key: user.public_key,
+          thread_key: conversation_key(participants),
+          participants: Jason.encode!(participants)
+        }
+        |> Envelope.changeset(%{
+          recipient_id: user.id,
+          kind: "self_note",
+          ciphertext: attrs["ciphertext"] || attrs[:ciphertext],
+          nonce: attrs["nonce"] || attrs[:nonce],
+          dedup_key: attrs["dedup_key"] || attrs[:dedup_key]
+        })
+
+      unless changeset.valid?, do: Repo.rollback(changeset)
+
+      case Repo.insert(changeset,
+             on_conflict: :nothing,
+             conflict_target: [:recipient_id, :dedup_key]
+           ) do
+        {:ok, %Envelope{id: nil}} ->
+          :skipped
+
+        {:ok, %Envelope{}} ->
+          link_batch_blobs!(user, batch_id, attachment_ids)
+          :imported
+
+        {:error, changeset} ->
+          Repo.rollback(changeset)
+      end
+    end)
+  end
+
   defp self_copy_participants(%User{} = sender, recipients) do
     recipients
     |> Enum.reject(&(&1.id == sender.id))

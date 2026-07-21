@@ -2173,6 +2173,22 @@ function keepNoteToDocument(k, attachments) {
   }
 }
 
+// An opaque, deterministic idempotency key for a Keep note. Derived from the
+// account secret + the note's stable Keep identity (its creation timestamp), so
+// re-importing the same note yields the same key while the server learns nothing
+// about the note's content or its Keep timestamp.
+async function keepDedupKey(secret, k) {
+  const identity = k.createdTimestampUsec
+    ? "c:" + k.createdTimestampUsec
+    : "h:" + (k.title || "") + "|" + (k.textContent || "").slice(0, 200)
+  const suffix = new TextEncoder().encode("|keep-dedup|" + identity)
+  const material = new Uint8Array(secret.length + suffix.length)
+  material.set(secret, 0)
+  material.set(suffix, secret.length)
+  const digest = await crypto.subtle.digest("SHA-256", material)
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")
+}
+
 // A small fixed progress banner for the import run.
 function keepImportStatus() {
   const wrap = document.createElement("div")
@@ -2418,8 +2434,27 @@ export const SelfNotesBoard = {
         try { note = JSON.parse(strFromU8(bytes)) } catch { continue }
         if (keepNoteIsImportable(note)) notes.push(note)
       }
-      const total = notes.length
-      if (total === 0) return status.fail("No importable notes found in that zip.")
+      if (notes.length === 0) return status.fail("No importable notes found in that zip.")
+
+      // Idempotency: compute an opaque key per note and ask the server which are
+      // already imported, so re-running skips them instead of duplicating.
+      status.set("Checking for notes you've already imported…")
+      const keyed = []
+      for (const note of notes) keyed.push({note, dedupKey: await keepDedupKey(secret, note)})
+      const present = new Set()
+      for (let i = 0; i < keyed.length; i += 400) {
+        const slice = keyed.slice(i, i + 400).map((x) => x.dedupKey)
+        const reply = await pushWithReply(this, "check_self_note_dedup", {keys: slice})
+        for (const k of reply?.present || []) present.add(k)
+      }
+      const fresh = keyed.filter((x) => !present.has(x.dedupKey))
+      const already = keyed.length - fresh.length
+      const total = fresh.length
+      if (total === 0) {
+        status.done(`Nothing new — all ${keyed.length} notes were already imported.`)
+        setTimeout(() => window.location.reload(), 1600)
+        return
+      }
 
       let imported = 0
       let unreadable = 0
@@ -2433,7 +2468,7 @@ export const SelfNotesBoard = {
       }
 
       for (let i = 0; i < total; i++) {
-        const note = notes[i]
+        const {note, dedupKey} = fresh[i]
         status.set(`Encrypting note ${i + 1} of ${total}…`, (i + 1) / total)
         const attachments = []
         for (const att of note.attachments || []) {
@@ -2449,7 +2484,8 @@ export const SelfNotesBoard = {
         try {
           const doc = keepNoteToDocument(note, attachments)
           chunk.push({
-            envelopes: [{recipient_id: Number(userId), ...sealFor(key, doc, secret)}],
+            ...sealFor(key, doc, secret),
+            dedup_key: dedupKey,
             attachment_ids: attachments.map((a) => a.id),
           })
         } catch {
@@ -2460,10 +2496,12 @@ export const SelfNotesBoard = {
       await flush()
 
       status.done(
-        `Imported ${imported} note${imported === 1 ? "" : "s"} from Google Keep.` +
-          (unreadable ? ` (${unreadable} could not be read.)` : ""),
+        `Imported ${imported} new note${imported === 1 ? "" : "s"} from Google Keep` +
+          (already ? `, skipped ${already} already imported` : "") +
+          (unreadable ? ` (${unreadable} could not be read)` : "") +
+          ".",
       )
-      setTimeout(() => window.location.reload(), 1600)
+      setTimeout(() => window.location.reload(), 1800)
     } catch (error) {
       status.fail(error.message || "Import failed.")
     } finally {
