@@ -845,25 +845,32 @@ defmodule VeejrWeb.MessagesLive do
     end
   end
 
+  # Idempotency pre-check for a Keep import: given the opaque dedup keys the
+  # client computed for its notes, reply with the subset already imported so the
+  # client can skip them (no wasted re-encrypt / re-upload).
+  def handle_event("check_self_note_dedup", %{"keys" => keys}, socket) when is_list(keys) do
+    present = Messaging.self_note_dedup_present(socket.assigns.current_scope.user, keys)
+    {:reply, %{present: present}, socket}
+  end
+
   # Bulk import of self-notes (e.g. a Google Keep Takeout). The browser has
-  # already encrypted each note; here we just persist a chunk of them and
-  # reply with the count. No per-note flash/refresh — the client reloads the
-  # board once the whole import finishes.
+  # already encrypted each note; here we persist a chunk idempotently (an
+  # envelope whose dedup_key already exists is skipped) and reply with the
+  # counts. No per-note flash/refresh — the client reloads the board once the
+  # whole import finishes.
   def handle_event("import_self_notes", %{"notes" => notes}, socket) when is_list(notes) do
     user = socket.assigns.current_scope.user
 
-    imported =
-      Enum.reduce(notes, 0, fn note, acc ->
-        envelopes = List.wrap(note["envelopes"])
-        opts = [attachment_ids: note["attachment_ids"] || []]
-
-        case Messaging.send_batch(user, "self_note", envelopes, opts) do
-          {:ok, _batch_id, _queued} -> acc + 1
-          {:error, _} -> acc
+    {imported, skipped} =
+      Enum.reduce(notes, {0, 0}, fn note, {imp, skip} ->
+        case Messaging.import_self_note(user, note) do
+          {:ok, :imported} -> {imp + 1, skip}
+          {:ok, :skipped} -> {imp, skip + 1}
+          {:error, _} -> {imp, skip}
         end
       end)
 
-    {:reply, %{ok: true, imported: imported}, socket}
+    {:reply, %{ok: true, imported: imported, skipped: skipped}, socket}
   end
 
   @impl true
