@@ -36,8 +36,13 @@ export const CallSession = {
     this.previousInbound = null
     this.remoteVideo = this.el.querySelector("[data-role=remote-video]")
     this.localVideo = this.el.querySelector("[data-role=local-video]")
+    this.setupVideo = this.el.querySelector("[data-role=setup-video]")
+    this.setupEl = this.el.querySelector("[data-role=device-setup]")
     this.statusEl = this.el.querySelector("[data-role=call-status]")
     this.qualityEl = this.el.querySelector("[data-role=call-quality]")
+    this.mediaReady = new Promise((resolve) => {
+      this.resolveMediaReady = resolve
+    })
 
     if (!this.mySecret) {
       return this.fail("🔒 Your keys are locked — unlock them and try the call again.")
@@ -55,15 +60,22 @@ export const CallSession = {
     })
 
     this.setupControls()
+    this.deviceChangeHandler = () => this.refreshDeviceChoices({recoverMissing: true})
+    if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+      navigator.mediaDevices.addEventListener("devicechange", this.deviceChangeHandler)
+    }
     // Negotiation awaits this promise: building the peer connection before
-    // capture resolves (e.g. while a permission prompt is open) would create
-    // a receive-only session and the other side would never see this party.
-    this.mediaReady = this.acquireMedia()
+    // the user confirms their preview would create a receive-only session or
+    // send from a device they did not mean to use.
+    this.acquireMedia()
   },
 
   destroyed() {
     this.clearRecoveryTimers()
     this.stopQualityMonitoring()
+    if (navigator.mediaDevices && navigator.mediaDevices.removeEventListener) {
+      navigator.mediaDevices.removeEventListener("devicechange", this.deviceChangeHandler)
+    }
     if (this.screenTrack) this.screenTrack.stop()
     if (this.localStream) this.localStream.getTracks().forEach((t) => t.stop())
     if (this.pc) this.pc.close()
@@ -81,7 +93,7 @@ export const CallSession = {
           this.localStream = await navigator.mediaDevices.getUserMedia({video: true})
           this.showError("Microphone unavailable — continuing with video only.")
         } catch (err) {
-          this.fail(`Could not access microphone or camera: ${err.message}`)
+          this.captureFailed(err)
           return false
         }
       }
@@ -90,22 +102,206 @@ export const CallSession = {
     if (this.localVideo && this.localStream.getVideoTracks().length > 0) {
       this.localVideo.srcObject = this.localStream
     }
+    if (this.setupVideo && this.localStream.getVideoTracks().length > 0) {
+      this.setupVideo.srcObject = this.localStream
+    }
 
-    this.offerCameraSwitch()
+    await this.refreshDeviceChoices()
+    this.setSetupReady()
     return true
   },
 
-  // Shows the switch-camera button when more than one camera exists. Device
-  // labels/ids are fully available here because capture is already active.
-  async offerCameraSwitch() {
-    if (!this.localStream || this.localStream.getVideoTracks().length === 0) return
+  async refreshDeviceChoices({recoverMissing = false} = {}) {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices()
       this.cameras = devices.filter((d) => d.kind === "videoinput")
+      this.microphones = devices.filter((d) => d.kind === "audioinput")
+      this.populateDeviceSelect("camera-select", this.cameras, "Camera")
+      this.populateDeviceSelect("microphone-select", this.microphones, "Microphone")
+
       const btn = this.el.querySelector("[data-role=switch-cam]")
-      if (btn && this.cameras.length > 1) btn.classList.remove("hidden")
+      if (btn) btn.classList.toggle("hidden", this.cameras.length < 2)
+
+      if (recoverMissing && this.localStream) await this.recoverMissingDevices()
     } catch {
       this.cameras = []
+      this.microphones = []
+    }
+  },
+
+  populateDeviceSelect(role, devices, fallbackLabel) {
+    const select = this.el.querySelector(`[data-role=${role}]`)
+    if (!select) return
+
+    const kind = role === "camera-select" ? "video" : "audio"
+    const track = this.localStream && this.localStream.getTracks().find((item) => item.kind === kind)
+    const selectedId = track && track.getSettings().deviceId
+    select.replaceChildren()
+
+    if (devices.length === 0) {
+      const option = document.createElement("option")
+      option.textContent = `No ${fallbackLabel.toLowerCase()} available`
+      option.value = ""
+      select.appendChild(option)
+      select.disabled = true
+      return
+    }
+
+    devices.forEach((device, index) => {
+      const option = document.createElement("option")
+      option.value = device.deviceId
+      option.textContent = device.label || `${fallbackLabel} ${index + 1}`
+      option.selected = device.deviceId === selectedId
+      select.appendChild(option)
+    })
+    select.disabled = false
+  },
+
+  async recoverMissingDevices() {
+    for (const [kind, devices] of [
+      ["audio", this.microphones],
+      ["video", this.cameras],
+    ]) {
+      const track = this.localStream.getTracks().find((item) => item.kind === kind)
+      const activeId = track && track.getSettings().deviceId
+      const missing = track && !devices.some((device) => device.deviceId === activeId)
+      if (!track || (track.readyState !== "ended" && !missing)) continue
+
+      if (devices.length > 0) {
+        await this.replaceInput(kind, devices[0].deviceId)
+        this.say(`${kind === "audio" ? "Microphone" : "Camera"} changed automatically`)
+      } else {
+        this.showError(`${kind === "audio" ? "Microphone" : "Camera"} disconnected.`)
+      }
+    }
+  },
+
+  captureFailed(err) {
+    const blocked = err && ["NotAllowedError", "PermissionDeniedError"].includes(err.name)
+    const message = blocked
+      ? "Camera and microphone access is blocked. Allow access in your browser's site settings, then retry."
+      : `Could not access a microphone or camera: ${err.message}`
+
+    this.showError(message)
+    this.say("Waiting for device access")
+    const retry = this.el.querySelector("[data-role=retry-media]")
+    const complete = this.el.querySelector("[data-role=complete-setup]")
+    if (retry) retry.classList.remove("hidden")
+    if (complete) {
+      complete.disabled = true
+      complete.textContent = "Devices unavailable"
+    }
+  },
+
+  setSetupReady() {
+    this.clearError()
+    const complete = this.el.querySelector("[data-role=complete-setup]")
+    const retry = this.el.querySelector("[data-role=retry-media]")
+    const empty = this.el.querySelector("[data-role=setup-video-empty]")
+    const help = this.el.querySelector("[data-role=setup-help]")
+    const hasVideo = this.localStream && this.localStream.getVideoTracks().length > 0
+    const hasAudio = this.localStream && this.localStream.getAudioTracks().length > 0
+
+    if (complete) {
+      complete.disabled = false
+      complete.textContent = this.joinedCall ? "Done" : "Join call"
+    }
+    if (retry) retry.classList.add("hidden")
+    if (help && !this.joinedCall) {
+      help.textContent = hasVideo
+        ? hasAudio
+          ? "Your preview stays on this device. Choose what you want to use, then join."
+          : "No microphone is active. You can join with video only or choose another device."
+        : "No camera is active. You can join with audio only or choose another device."
+    }
+    if (empty) {
+      empty.classList.toggle("hidden", hasVideo)
+      empty.classList.toggle("flex", !hasVideo)
+    }
+  },
+
+  completeDeviceSetup() {
+    if (!this.localStream || this.localStream.getTracks().length === 0) return
+    if (this.setupEl) this.setupEl.classList.add("hidden")
+
+    if (!this.joinedCall) {
+      this.joinedCall = true
+      if (this.resolveMediaReady) this.resolveMediaReady(true)
+      this.resolveMediaReady = null
+      this.say(this.role === "caller" ? "Ringing…" : "Ready — connecting…")
+    }
+  },
+
+  openDeviceSetup() {
+    if (!this.setupEl || !this.localStream) return
+    const title = this.el.querySelector("[data-role=setup-title]")
+    const help = this.el.querySelector("[data-role=setup-help]")
+    if (title) title.textContent = this.joinedCall ? "Call devices" : "Check your devices"
+    if (help) {
+      help.textContent = this.joinedCall
+        ? "Changes apply immediately and stay on this device."
+        : "Your preview stays on this device. Choose what you want to use, then join."
+    }
+    this.setSetupReady()
+    this.setupEl.classList.remove("hidden")
+  },
+
+  async retryCapture() {
+    if (this.localStream) this.localStream.getTracks().forEach((track) => track.stop())
+    this.localStream = null
+    const retry = this.el.querySelector("[data-role=retry-media]")
+    const complete = this.el.querySelector("[data-role=complete-setup]")
+    if (retry) retry.classList.add("hidden")
+    if (complete) {
+      complete.disabled = true
+      complete.textContent = "Preparing devices…"
+    }
+    this.clearError()
+    await this.acquireMedia()
+  },
+
+  async replaceInput(kind, deviceId) {
+    if (!deviceId || !this.localStream) return
+    if (kind === "video" && this.screenTrack) {
+      return this.showError("Stop screen sharing before changing cameras.")
+    }
+
+    const constraints =
+      kind === "audio"
+        ? {audio: {deviceId: {exact: deviceId}}, video: false}
+        : {audio: false, video: {deviceId: {exact: deviceId}}}
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(constraints)
+      const newTrack = stream.getTracks().find((track) => track.kind === kind)
+      const oldTrack = this.localStream.getTracks().find((track) => track.kind === kind)
+      if (!newTrack) throw new Error(`The selected ${kind} device did not provide a track.`)
+      if (oldTrack) newTrack.enabled = oldTrack.enabled
+
+      const sender =
+        this.pc && this.pc.getSenders().find((item) => item.track && item.track.kind === kind)
+      if (this.pc && !sender) {
+        newTrack.stop()
+        throw new Error(`A new ${kind} track can only be added before joining the call.`)
+      }
+      if (sender) await sender.replaceTrack(newTrack)
+
+      if (oldTrack) {
+        this.localStream.removeTrack(oldTrack)
+        oldTrack.stop()
+      }
+      this.localStream.addTrack(newTrack)
+
+      if (kind === "video") {
+        if (this.localVideo) this.localVideo.srcObject = this.localStream
+        if (this.setupVideo) this.setupVideo.srcObject = this.localStream
+      }
+
+      this.clearError()
+      await this.refreshDeviceChoices()
+    } catch (err) {
+      this.showError(`Could not change ${kind === "audio" ? "microphone" : "camera"}: ${err.message}`)
+      await this.refreshDeviceChoices()
     }
   },
 
@@ -188,24 +384,7 @@ export const CallSession = {
     const index = this.cameras.findIndex((d) => d.deviceId === currentId)
     const next = this.cameras[(index + 1) % this.cameras.length]
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {deviceId: {exact: next.deviceId}},
-      })
-      const newTrack = stream.getVideoTracks()[0]
-      newTrack.enabled = oldTrack.enabled
-
-      const sender =
-        this.pc && this.pc.getSenders().find((s) => s.track && s.track.kind === "video")
-      if (sender) await sender.replaceTrack(newTrack)
-
-      this.localStream.removeTrack(oldTrack)
-      oldTrack.stop()
-      this.localStream.addTrack(newTrack)
-      if (this.localVideo) this.localVideo.srcObject = this.localStream
-    } catch (err) {
-      this.showError(`Could not switch camera: ${err.message}`)
-    }
+    await this.replaceInput("video", next.deviceId)
   },
 
   // The caller starts negotiation only after the callee's page joined, so
@@ -488,6 +667,29 @@ export const CallSession = {
       share.classList.remove("hidden")
       share.addEventListener("click", () => this.toggleScreenShare())
     }
+
+    const complete = this.el.querySelector("[data-role=complete-setup]")
+    if (complete) complete.addEventListener("click", () => this.completeDeviceSetup())
+
+    const retry = this.el.querySelector("[data-role=retry-media]")
+    if (retry) retry.addEventListener("click", () => this.retryCapture())
+
+    const devices = this.el.querySelector("[data-role=open-devices]")
+    if (devices) devices.addEventListener("click", () => this.openDeviceSetup())
+
+    const microphone = this.el.querySelector("[data-role=microphone-select]")
+    if (microphone) {
+      microphone.addEventListener("change", (event) =>
+        this.replaceInput("audio", event.target.value)
+      )
+    }
+
+    const camera = this.el.querySelector("[data-role=camera-select]")
+    if (camera) {
+      camera.addEventListener("change", (event) =>
+        this.replaceInput("video", event.target.value)
+      )
+    }
   },
 
   say(text) {
@@ -499,6 +701,14 @@ export const CallSession = {
     if (el) {
       el.textContent = text
       el.classList.remove("hidden")
+    }
+  },
+
+  clearError() {
+    const el = this.el.querySelector("[data-role=media-error]")
+    if (el) {
+      el.textContent = ""
+      el.classList.add("hidden")
     }
   },
 

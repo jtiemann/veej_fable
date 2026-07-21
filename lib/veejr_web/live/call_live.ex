@@ -22,6 +22,7 @@ defmodule VeejrWeb.CallLive do
       <div
         id="call-session"
         phx-hook="CallSession"
+        phx-update="ignore"
         data-call-id={@call.public_id}
         data-role={@role}
         data-user-id={@current_scope.user.id}
@@ -73,12 +74,102 @@ defmodule VeejrWeb.CallLive do
           ></video>
           <p
             data-role="media-error"
-            class="absolute inset-x-0 top-4 mx-auto hidden w-fit rounded-full bg-error/90 px-4 py-2 text-sm text-error-content"
+            class="absolute inset-x-4 top-4 z-30 mx-auto hidden w-fit max-w-xl rounded-2xl bg-error/95 px-4 py-2 text-center text-sm text-error-content shadow-lg"
           >
           </p>
+
+          <div
+            id="call-device-setup"
+            data-role="device-setup"
+            class="absolute inset-0 z-20 flex items-center justify-center overflow-y-auto bg-base-300/95 p-4 backdrop-blur-sm"
+          >
+            <div class="my-auto grid w-full max-w-3xl overflow-hidden rounded-3xl border border-base-300 bg-base-100 shadow-2xl md:grid-cols-[1.15fr_0.85fr]">
+              <div class="relative min-h-40 bg-black sm:min-h-56 md:min-h-80">
+                <video
+                  id="call-setup-preview"
+                  data-role="setup-video"
+                  autoplay
+                  playsinline
+                  muted
+                  class="absolute inset-0 size-full object-cover"
+                ></video>
+                <div
+                  data-role="setup-video-empty"
+                  class="absolute inset-0 hidden items-center justify-center p-6 text-center text-sm text-white/70"
+                >
+                  Camera preview unavailable
+                </div>
+              </div>
+
+              <div class="flex flex-col justify-center gap-3 p-4 sm:gap-5 sm:p-7">
+                <div>
+                  <p class="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+                    Private preview
+                  </p>
+                  <h2
+                    data-role="setup-title"
+                    class="mt-1 text-xl font-semibold tracking-tight sm:text-2xl"
+                  >
+                    Check your devices
+                  </h2>
+                  <p data-role="setup-help" class="mt-2 text-sm opacity-65">
+                    Your preview stays on this device. Choose what you want to use, then join.
+                  </p>
+                </div>
+
+                <div class="space-y-3">
+                  <label class="block" for="call-microphone">
+                    <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wide opacity-60">
+                      Microphone
+                    </span>
+                    <select
+                      id="call-microphone"
+                      data-role="microphone-select"
+                      class="w-full rounded-xl border border-base-300 bg-base-100 px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    >
+                      <option>Detecting microphones…</option>
+                    </select>
+                  </label>
+
+                  <label class="block" for="call-camera">
+                    <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wide opacity-60">
+                      Camera
+                    </span>
+                    <select
+                      id="call-camera"
+                      data-role="camera-select"
+                      class="w-full rounded-xl border border-base-300 bg-base-100 px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    >
+                      <option>Detecting cameras…</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                  <button
+                    id="call-join"
+                    type="button"
+                    data-role="complete-setup"
+                    disabled
+                    class="btn btn-primary flex-1 rounded-xl"
+                  >
+                    Preparing devices…
+                  </button>
+                  <button
+                    id="call-retry-media"
+                    type="button"
+                    data-role="retry-media"
+                    class="btn btn-outline hidden rounded-xl"
+                  >
+                    Retry
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div class="flex items-center justify-center gap-3 border-t border-base-300 bg-base-100 px-5 py-4">
+        <div class="flex flex-wrap items-center justify-center gap-3 border-t border-base-300 bg-base-100 px-5 py-4">
           <button data-role="toggle-mic" class="btn btn-outline btn-sm">🎙 Mute</button>
           <button data-role="toggle-cam" class="btn btn-outline btn-sm">🎥 Camera off</button>
           <button
@@ -94,6 +185,15 @@ defmodule VeejrWeb.CallLive do
             class="btn btn-outline btn-sm hidden"
           >
             🖥 Share screen
+          </button>
+          <button
+            id="call-devices"
+            type="button"
+            data-role="open-devices"
+            title="Choose a microphone or camera"
+            class="btn btn-outline btn-sm"
+          >
+            <.icon name="hero-cog-6-tooth" class="size-4" /> Devices
           </button>
         </div>
       </div>

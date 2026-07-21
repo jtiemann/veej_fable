@@ -48,6 +48,22 @@ defmodule VeejrWeb.CallLiveTest do
     assert has_element?(view, "#call-quality[data-role='call-quality']")
   end
 
+  test "renders the private device setup before joining", %{
+    conn: conn,
+    user: user,
+    friend: friend
+  } do
+    {:ok, call} = Calls.start_call(user, friend.id)
+
+    {:ok, view, _html} = live(conn, "/call/#{call.public_id}")
+
+    assert has_element?(view, "#call-device-setup[data-role='device-setup']")
+    assert has_element?(view, "#call-microphone[data-role='microphone-select']")
+    assert has_element?(view, "#call-camera[data-role='camera-select']")
+    assert has_element?(view, "#call-join[disabled]")
+    assert has_element?(view, "#call-devices[data-role='open-devices']")
+  end
+
   test "an incoming call without an origin returns to the peer conversation", %{
     conn: conn,
     user: user,
