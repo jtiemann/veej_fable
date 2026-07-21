@@ -117,12 +117,17 @@ export const CallSession = {
     this.chatFiles = []
     this.chatObjectUrls = []
     this.incomingChatFiles = new Map()
+    this.connectedAt = null
+    this.callTimer = null
+    this.wakeLock = null
+    this.remoteMediaState = {audio: true, video: true}
     this.remoteVideo = this.el.querySelector("[data-role=remote-video]")
     this.localVideo = this.el.querySelector("[data-role=local-video]")
     this.remoteShareStatus = this.el.querySelector("[data-role=remote-share-status]")
     this.setupVideo = this.el.querySelector("[data-role=setup-video]")
     this.setupEl = this.el.querySelector("[data-role=device-setup]")
     this.statusEl = this.el.querySelector("[data-role=call-status]")
+    this.durationEl = this.el.querySelector("[data-role=call-duration]")
     this.qualityEl = this.el.querySelector("[data-role=call-quality]")
     this.noticeEl = this.el.querySelector("[data-role=call-notice]")
     this.chatPanel = this.el.querySelector("[data-role=chat-panel]")
@@ -138,7 +143,7 @@ export const CallSession = {
     }
 
     this.handleEvent("call:peer_joined", () => {
-      this.say("Connecting…")
+      this.setLifecycle("connecting", "Connecting…")
       if (this.role === "caller") this.startAsCaller()
     })
 
@@ -163,6 +168,7 @@ export const CallSession = {
     this.clearRecoveryTimers()
     this.stopQualityMonitoring()
     clearTimeout(this.noticeTimer)
+    clearInterval(this.callTimer)
     if (navigator.mediaDevices && navigator.mediaDevices.removeEventListener) {
       navigator.mediaDevices.removeEventListener("devicechange", this.deviceChangeHandler)
     }
@@ -170,6 +176,9 @@ export const CallSession = {
       document.removeEventListener("fullscreenchange", this.fullscreenChangeHandler)
       document.removeEventListener("webkitfullscreenchange", this.fullscreenChangeHandler)
     }
+    if (this.keyboardHandler) document.removeEventListener("keydown", this.keyboardHandler)
+    if (this.visibilityHandler) document.removeEventListener("visibilitychange", this.visibilityHandler)
+    this.releaseWakeLock()
     this.closeSharePopout()
     this.chatObjectUrls.forEach((url) => URL.revokeObjectURL(url))
     if (this.chatChannel) this.chatChannel.close()
@@ -225,8 +234,10 @@ export const CallSession = {
       const devices = await navigator.mediaDevices.enumerateDevices()
       this.cameras = devices.filter((d) => d.kind === "videoinput")
       this.microphones = devices.filter((d) => d.kind === "audioinput")
+      this.speakers = devices.filter((d) => d.kind === "audiooutput")
       this.populateDeviceSelect("camera-select", this.cameras, "Camera")
       this.populateDeviceSelect("microphone-select", this.microphones, "Microphone")
+      this.populateSpeakerSelect()
 
       const btn = this.el.querySelector("[data-role=switch-cam]")
       if (btn) btn.classList.toggle("hidden", this.cameras.length < 2)
@@ -235,6 +246,7 @@ export const CallSession = {
     } catch {
       this.cameras = []
       this.microphones = []
+      this.speakers = []
     }
   },
 
@@ -266,6 +278,27 @@ export const CallSession = {
     select.disabled = false
   },
 
+  populateSpeakerSelect() {
+    const field = this.el.querySelector("[data-role=speaker-field]")
+    const select = this.el.querySelector("[data-role=speaker-select]")
+    const supported = this.remoteVideo && typeof this.remoteVideo.setSinkId === "function"
+    if (!field || !select) return
+
+    field.classList.toggle("hidden", !supported || this.speakers.length === 0)
+    field.classList.toggle("block", supported && this.speakers.length > 0)
+    if (!supported || this.speakers.length === 0) return
+
+    const selectedId = this.remoteVideo.sinkId || ""
+    select.replaceChildren()
+    this.speakers.forEach((device, index) => {
+      const option = document.createElement("option")
+      option.value = device.deviceId
+      option.textContent = device.label || (index === 0 ? "System default" : `Speaker ${index + 1}`)
+      option.selected = device.deviceId === selectedId
+      select.appendChild(option)
+    })
+  },
+
   async recoverMissingDevices() {
     for (const [kind, devices] of [
       ["audio", this.microphones],
@@ -278,10 +311,38 @@ export const CallSession = {
 
       if (devices.length > 0) {
         await this.replaceInput(kind, devices[0].deviceId)
-        this.say(`${kind === "audio" ? "Microphone" : "Camera"} changed automatically`)
+        this.showCallNotice(
+          `${kind === "audio" ? "Microphone" : "Camera"} disconnected · switched automatically.`
+        )
       } else {
         this.showError(`${kind === "audio" ? "Microphone" : "Camera"} disconnected.`)
+        this.sendMediaState()
       }
+    }
+
+    const sinkId = this.remoteVideo && this.remoteVideo.sinkId
+    if (
+      sinkId &&
+      typeof this.remoteVideo.setSinkId === "function" &&
+      !this.speakers.some((device) => device.deviceId === sinkId)
+    ) {
+      try {
+        await this.remoteVideo.setSinkId("")
+        this.showCallNotice("Speaker disconnected · switched to the system default.")
+      } catch {
+        this.showCallNotice("Speaker disconnected. Choose another output in Devices.")
+      }
+    }
+  },
+
+  async selectSpeaker(deviceId) {
+    if (!this.remoteVideo || typeof this.remoteVideo.setSinkId !== "function") return
+    try {
+      await this.remoteVideo.setSinkId(deviceId)
+      this.showCallNotice("Speaker changed.")
+    } catch (err) {
+      this.showError(`Could not change speaker: ${err.message}`)
+      await this.refreshDeviceChoices()
     }
   },
 
@@ -292,7 +353,7 @@ export const CallSession = {
       : `Could not access a microphone or camera: ${err.message}`
 
     this.showError(message)
-    this.say("Waiting for device access")
+    this.setLifecycle("device", "Waiting for device access")
     const retry = this.el.querySelector("[data-role=retry-media]")
     const complete = this.el.querySelector("[data-role=complete-setup]")
     if (retry) retry.classList.remove("hidden")
@@ -337,7 +398,11 @@ export const CallSession = {
       this.joinedCall = true
       if (this.resolveMediaReady) this.resolveMediaReady(true)
       this.resolveMediaReady = null
-      this.say(this.role === "caller" ? "Ringing…" : "Ready — connecting…")
+      this.setLifecycle(
+        this.role === "caller" ? "ringing" : "connecting",
+        this.role === "caller" ? "Ringing…" : "Ready — connecting…"
+      )
+      this.requestWakeLock()
     }
   },
 
@@ -416,6 +481,7 @@ export const CallSession = {
 
       this.clearError()
       await this.refreshDeviceChoices()
+      this.sendMediaState()
     } catch (err) {
       this.showError(`Could not change ${kind === "audio" ? "microphone" : "camera"}: ${err.message}`)
       await this.refreshDeviceChoices()
@@ -459,6 +525,7 @@ export const CallSession = {
       if (this.localVideo) this.localVideo.srcObject = stream
       this.setShareUi(true)
       this.sendSignal({kind: "share_state", sharing: true})
+      this.sendMediaState()
     } catch (err) {
       this.screenTrack = null
       stream.getTracks().forEach((t) => t.stop())
@@ -488,6 +555,7 @@ export const CallSession = {
     if (this.localVideo) this.localVideo.srcObject = this.localStream
     this.setShareUi(false)
     this.sendSignal({kind: "share_state", sharing: false})
+    this.sendMediaState()
   },
 
   // While sharing, the camera controls would silently fight the screen
@@ -554,6 +622,11 @@ export const CallSession = {
         // Nudge playback in case the browser's autoplay policy paused it.
         this.remoteVideo.play().catch(() => {})
       }
+      if (event.track) {
+        event.track.addEventListener("ended", () =>
+          this.setRemoteMediaState({[event.track.kind]: false})
+        )
+      }
     }
 
     this.pc.onicecandidate = (event) => {
@@ -565,18 +638,23 @@ export const CallSession = {
       if (state === "connected") {
         this.clearRecoveryTimers()
         this.restartAttempts = 0
-        this.say("Connected — end-to-end encrypted")
+        this.setLifecycle("connected", "Connected — end-to-end encrypted")
+        this.startCallTimer()
+        this.requestWakeLock()
+        this.sendMediaState()
         this.startQualityMonitoring()
+      } else if (state === "closed") {
+        this.setLifecycle("ended", "Call ended")
       }
     }
 
     this.pc.oniceconnectionstatechange = () => {
       const state = this.pc.iceConnectionState
 
-      if (state === "checking") this.say("Connecting…")
+      if (state === "checking") this.setLifecycle("connecting", "Connecting…")
 
       if (state === "disconnected") {
-        this.say("Connection interrupted — reconnecting…")
+        this.setLifecycle("reconnecting", "Connection interrupted — reconnecting…")
         clearTimeout(this.disconnectTimer)
         this.disconnectTimer = setTimeout(() => this.requestIceRecovery(), 5_000)
       }
@@ -616,6 +694,8 @@ export const CallSession = {
         await this.restartConnection()
       } else if (payload.kind === "share_state") {
         this.setRemoteShareState(payload.sharing === true)
+      } else if (payload.kind === "media_state") {
+        this.setRemoteMediaState({audio: payload.audio === true, video: payload.video === true})
       }
     } catch (err) {
       this.showError(`Call negotiation failed: ${err.message}`)
@@ -641,7 +721,7 @@ export const CallSession = {
     if (this.restartAttempts >= this.maxRestartAttempts) {
       this.clearRecoveryTimers()
       this.stopQualityMonitoring()
-      this.say("Connection failed")
+      this.setLifecycle("failed", "Connection failed")
       return this.showError(
         "The call could not reconnect after two attempts. Check your connection and try again."
       )
@@ -651,7 +731,10 @@ export const CallSession = {
       await this.restartConnection()
     } else {
       this.restartAttempts += 1
-      this.say(`Reconnecting (attempt ${this.restartAttempts}/${this.maxRestartAttempts})…`)
+      this.setLifecycle(
+        "reconnecting",
+        `Reconnecting (attempt ${this.restartAttempts}/${this.maxRestartAttempts})…`
+      )
       this.sendSignal({kind: "restart_request"})
       clearTimeout(this.restartTimer)
       this.restartTimer = setTimeout(() => this.requestIceRecovery(), 8_000)
@@ -672,7 +755,10 @@ export const CallSession = {
 
     this.restartInProgress = true
     this.restartAttempts += 1
-    this.say(`Reconnecting (attempt ${this.restartAttempts}/${this.maxRestartAttempts})…`)
+    this.setLifecycle(
+      "reconnecting",
+      `Reconnecting (attempt ${this.restartAttempts}/${this.maxRestartAttempts})…`
+    )
 
     try {
       this.pc.restartIce()
@@ -846,6 +932,77 @@ export const CallSession = {
     this.qualityEl.title =
       `Round trip ${Math.round(rtt * 1000)} ms · packet loss ${Math.round(loss * 100)}%` +
       ` · video ${VIDEO_PROFILES[this.videoProfileIndex].label}`
+  },
+
+  setLifecycle(state, text) {
+    this.el.dataset.lifecycle = state
+    this.say(text)
+  },
+
+  startCallTimer() {
+    if (!this.connectedAt) this.connectedAt = Date.now()
+    if (this.callTimer) return
+    if (this.durationEl) this.durationEl.classList.remove("hidden")
+    this.updateCallTimer()
+    this.callTimer = setInterval(() => this.updateCallTimer(), 1_000)
+  },
+
+  updateCallTimer() {
+    if (!this.durationEl || !this.connectedAt) return
+    const elapsed = Math.max(0, Math.floor((Date.now() - this.connectedAt) / 1_000))
+    const hours = Math.floor(elapsed / 3_600)
+    const minutes = Math.floor((elapsed % 3_600) / 60)
+    const seconds = elapsed % 60
+    this.durationEl.textContent =
+      hours > 0
+        ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+        : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+  },
+
+  sendMediaState() {
+    if (!this.pc || this.pc.connectionState === "closed") return
+    const audio = this.localStream?.getAudioTracks()[0]
+    const video = this.localStream?.getVideoTracks()[0]
+    this.sendSignal({
+      kind: "media_state",
+      audio: Boolean(audio && audio.enabled && audio.readyState === "live"),
+      video: Boolean(this.screenTrack || (video && video.enabled && video.readyState === "live")),
+    })
+  },
+
+  setRemoteMediaState(next) {
+    for (const kind of ["audio", "video"]) {
+      if (typeof next[kind] === "boolean") this.remoteMediaState[kind] = next[kind]
+    }
+
+    for (const [role, active] of [
+      ["peer-muted", this.remoteMediaState.audio],
+      ["peer-camera-off", this.remoteMediaState.video],
+    ]) {
+      const badge = this.el.querySelector(`[data-role=${role}]`)
+      if (!badge) continue
+      badge.classList.toggle("hidden", active)
+      badge.classList.toggle("inline-flex", !active)
+    }
+  },
+
+  async requestWakeLock() {
+    if (!this.joinedCall || document.hidden || !navigator.wakeLock || this.wakeLock) return
+    try {
+      const lock = await navigator.wakeLock.request("screen")
+      this.wakeLock = lock
+      lock.addEventListener("release", () => {
+        if (this.wakeLock === lock) this.wakeLock = null
+      })
+    } catch {
+      // Wake lock is an enhancement; calls continue normally when denied.
+    }
+  },
+
+  releaseWakeLock() {
+    const lock = this.wakeLock
+    this.wakeLock = null
+    if (lock) lock.release().catch(() => {})
   },
 
   showCallNotice(text) {
@@ -1412,6 +1569,8 @@ export const CallSession = {
         if (!track) return
         track.enabled = !track.enabled
         mic.textContent = track.enabled ? "🎙 Mute" : "🎙 Unmute"
+        mic.setAttribute("aria-pressed", String(!track.enabled))
+        this.sendMediaState()
       })
     }
 
@@ -1421,6 +1580,8 @@ export const CallSession = {
         if (!track) return
         track.enabled = !track.enabled
         cam.textContent = track.enabled ? "🎥 Camera off" : "🎥 Camera on"
+        cam.setAttribute("aria-pressed", String(!track.enabled))
+        this.sendMediaState()
       })
     }
 
@@ -1486,6 +1647,40 @@ export const CallSession = {
         this.replaceInput("video", event.target.value)
       )
     }
+
+    const speaker = this.el.querySelector("[data-role=speaker-select]")
+    if (speaker) {
+      speaker.addEventListener("change", (event) => this.selectSpeaker(event.target.value))
+    }
+
+    this.keyboardHandler = (event) => {
+      if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return
+      const target = event.target
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        target?.isContentEditable
+      ) {
+        return
+      }
+
+      const role = {m: "toggle-mic", v: "toggle-cam", c: "toggle-chat", f: "toggle-fullscreen"}[
+        event.key.toLowerCase()
+      ]
+      if (!role) return
+      const button = this.el.querySelector(`[data-role=${role}]`)
+      if (!button || button.disabled || button.classList.contains("hidden")) return
+      event.preventDefault()
+      button.click()
+    }
+    document.addEventListener("keydown", this.keyboardHandler)
+
+    this.visibilityHandler = () => {
+      if (document.hidden) this.releaseWakeLock()
+      else this.requestWakeLock()
+    }
+    document.addEventListener("visibilitychange", this.visibilityHandler)
   },
 
   say(text) {
@@ -1510,7 +1705,7 @@ export const CallSession = {
 
   fail(text) {
     this.showError(text)
-    this.say("Cannot start the call")
+    this.setLifecycle("failed", "Cannot start the call")
   },
 }
 

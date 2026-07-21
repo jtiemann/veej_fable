@@ -47,6 +47,9 @@ defmodule VeejrWeb.CallLiveTest do
 
     assert has_element?(view, "#call-quality[data-role='call-quality']")
     assert has_element?(view, "#call-network-adjustment[data-role='call-notice']")
+    assert has_element?(view, "#call-duration[data-role='call-duration']")
+    assert has_element?(view, "#call-peer-muted[data-role='peer-muted']")
+    assert has_element?(view, "#call-peer-camera-off[data-role='peer-camera-off']")
   end
 
   test "renders remote video viewing controls", %{conn: conn, user: user, friend: friend} do
@@ -93,6 +96,7 @@ defmodule VeejrWeb.CallLiveTest do
     assert has_element?(view, "#call-device-setup[data-role='device-setup']")
     assert has_element?(view, "#call-microphone[data-role='microphone-select']")
     assert has_element?(view, "#call-camera[data-role='camera-select']")
+    assert has_element?(view, "#call-speaker[data-role='speaker-select']")
     assert has_element?(view, "#call-join[disabled]")
     assert has_element?(view, "#call-devices[data-role='open-devices']")
   end

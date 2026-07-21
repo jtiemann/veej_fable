@@ -31,7 +31,10 @@ defmodule VeejrWeb.CallLive do
         data-ice-servers={@ice_servers}
         class="overflow-hidden rounded-[32px] border border-base-300 bg-base-200 shadow-sm"
       >
-        <div class="flex items-center justify-between gap-3 border-b border-base-300 bg-base-100 px-5 py-4">
+        <div
+          data-role="call-header"
+          class="flex items-center justify-between gap-3 border-b border-base-300 bg-base-100 px-5 py-4"
+        >
           <div class="min-w-0">
             <h1 class="text-xl font-semibold tracking-tight">
               📞 {@peer.display_name || Veejr.Social.Address.handle(@peer)}
@@ -40,6 +43,13 @@ defmodule VeejrWeb.CallLive do
               <p data-role="call-status" class="text-sm opacity-70">
                 {if @role == "caller", do: "Ringing…", else: "Connecting…"}
               </p>
+              <span
+                id="call-duration"
+                data-role="call-duration"
+                class="hidden rounded-full bg-base-200 px-2 py-0.5 font-mono text-xs tabular-nums opacity-70"
+              >
+                00:00
+              </span>
               <span
                 id="call-quality"
                 data-role="call-quality"
@@ -53,6 +63,20 @@ defmodule VeejrWeb.CallLive do
                 class="hidden items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary"
               >
                 <.icon name="hero-computer-desktop" class="size-3.5" /> Screen shared
+              </span>
+              <span
+                id="call-peer-muted"
+                data-role="peer-muted"
+                class="hidden items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning"
+              >
+                <.icon name="hero-microphone" class="size-3.5" /> Peer muted
+              </span>
+              <span
+                id="call-peer-camera-off"
+                data-role="peer-camera-off"
+                class="hidden items-center gap-1 rounded-full border border-base-300 bg-base-200 px-2 py-0.5 text-xs font-medium opacity-70"
+              >
+                <.icon name="hero-video-camera-slash" class="size-3.5" /> Peer camera off
               </span>
             </div>
           </div>
@@ -240,6 +264,22 @@ defmodule VeejrWeb.CallLive do
                       <option>Detecting cameras…</option>
                     </select>
                   </label>
+                  <label
+                    data-role="speaker-field"
+                    class="hidden"
+                    for="call-speaker"
+                  >
+                    <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wide opacity-60">
+                      Speaker
+                    </span>
+                    <select
+                      id="call-speaker"
+                      data-role="speaker-select"
+                      class="w-full rounded-xl border border-base-300 bg-base-100 px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    >
+                      <option>System default</option>
+                    </select>
+                  </label>
                 </div>
 
                 <div class="flex flex-wrap gap-2">
@@ -266,9 +306,21 @@ defmodule VeejrWeb.CallLive do
           </div>
         </div>
 
-        <div class="flex flex-wrap items-center justify-center gap-3 border-t border-base-300 bg-base-100 px-5 py-4">
-          <button data-role="toggle-mic" class="btn btn-outline btn-sm">🎙 Mute</button>
-          <button data-role="toggle-cam" class="btn btn-outline btn-sm">🎥 Camera off</button>
+        <div
+          id="call-controls"
+          data-role="call-controls"
+          class="flex flex-wrap items-center justify-center gap-3 border-t border-base-300 bg-base-100 px-5 py-4"
+        >
+          <button
+            data-role="toggle-mic"
+            title="Mute microphone (M)"
+            class="btn btn-outline btn-sm"
+          >🎙 Mute</button>
+          <button
+            data-role="toggle-cam"
+            title="Turn camera off (V)"
+            class="btn btn-outline btn-sm"
+          >🎥 Camera off</button>
           <button
             data-role="switch-cam"
             title="Switch to the next camera"
@@ -299,7 +351,7 @@ defmodule VeejrWeb.CallLive do
             data-role="toggle-chat"
             aria-controls="call-chat-panel"
             aria-expanded="false"
-            title="Open encrypted call chat"
+            title="Open encrypted call chat (C)"
             class="btn btn-outline btn-sm"
           >
             <.icon name="hero-chat-bubble-left-right" class="size-4" /> Chat
@@ -333,7 +385,7 @@ defmodule VeejrWeb.CallLive do
             id="call-fullscreen"
             type="button"
             data-role="toggle-fullscreen"
-            title="Show the call fullscreen"
+            title="Show the call fullscreen (F)"
             class="btn btn-outline btn-sm hidden"
           >
             <.icon name="hero-arrows-pointing-out" class="size-4" />
