@@ -2189,6 +2189,27 @@ async function keepDedupKey(secret, k) {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")
 }
 
+// A canonical string of a Keep note's content — anything that, if changed,
+// means the note should be re-synced (title, body, checklist, attachments, pin).
+function keepContentString(k) {
+  const list = (Array.isArray(k.listContent) ? k.listContent : [])
+    .map((i) => (i.isChecked ? "1" : "0") + ":" + (i.text || ""))
+    .join("\n")
+  const atts = (Array.isArray(k.attachments) ? k.attachments : []).map((a) => a.filePath || "").join(",")
+  return JSON.stringify({t: k.title || "", b: k.textContent || "", l: list, a: atts, p: !!k.isPinned})
+}
+
+// An opaque content fingerprint (secret-salted), stored server-side so a
+// re-import can tell a changed note from an unchanged one.
+async function keepContentFingerprint(secret, k) {
+  const suffix = new TextEncoder().encode("|keep-version|" + keepContentString(k))
+  const material = new Uint8Array(secret.length + suffix.length)
+  material.set(secret, 0)
+  material.set(suffix, secret.length)
+  const digest = await crypto.subtle.digest("SHA-256", material)
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")
+}
+
 // A small fixed progress banner for the import run.
 function keepImportStatus() {
   const wrap = document.createElement("div")
@@ -2436,27 +2457,35 @@ export const SelfNotesBoard = {
       }
       if (notes.length === 0) return status.fail("No importable notes found in that zip.")
 
-      // Idempotency: compute an opaque key per note and ask the server which are
-      // already imported, so re-running skips them instead of duplicating.
-      status.set("Checking for notes you've already imported…")
+      // Idempotency + sync: compute an identity key and a content fingerprint
+      // per note, ask the server which are already imported (and their stored
+      // fingerprint), then import new notes, update changed ones, skip unchanged.
+      status.set("Checking what's new or changed…")
       const keyed = []
-      for (const note of notes) keyed.push({note, dedupKey: await keepDedupKey(secret, note)})
-      const present = new Set()
+      for (const note of notes) {
+        keyed.push({
+          note,
+          dedupKey: await keepDedupKey(secret, note),
+          version: await keepContentFingerprint(secret, note),
+        })
+      }
+      const versions = {}
       for (let i = 0; i < keyed.length; i += 400) {
         const slice = keyed.slice(i, i + 400).map((x) => x.dedupKey)
         const reply = await pushWithReply(this, "check_self_note_dedup", {keys: slice})
-        for (const k of reply?.present || []) present.add(k)
+        Object.assign(versions, reply?.versions || {})
       }
-      const fresh = keyed.filter((x) => !present.has(x.dedupKey))
-      const already = keyed.length - fresh.length
-      const total = fresh.length
+      const toSend = keyed.filter((x) => !(x.dedupKey in versions) || versions[x.dedupKey] !== x.version)
+      const unchanged = keyed.length - toSend.length
+      const total = toSend.length
       if (total === 0) {
-        status.done(`Nothing new — all ${keyed.length} notes were already imported.`)
+        status.done(`Already in sync — all ${keyed.length} notes were up to date.`)
         setTimeout(() => window.location.reload(), 1600)
         return
       }
 
       let imported = 0
+      let updated = 0
       let unreadable = 0
       let chunk = []
       const flush = async () => {
@@ -2464,11 +2493,12 @@ export const SelfNotesBoard = {
         const batch = chunk
         chunk = []
         const reply = await pushWithReply(this, "import_self_notes", {notes: batch})
-        imported += reply?.imported ?? batch.length
+        imported += reply?.imported ?? 0
+        updated += reply?.updated ?? 0
       }
 
       for (let i = 0; i < total; i++) {
-        const {note, dedupKey} = fresh[i]
+        const {note, dedupKey, version} = toSend[i]
         status.set(`Encrypting note ${i + 1} of ${total}…`, (i + 1) / total)
         const attachments = []
         for (const att of note.attachments || []) {
@@ -2486,6 +2516,7 @@ export const SelfNotesBoard = {
           chunk.push({
             ...sealFor(key, doc, secret),
             dedup_key: dedupKey,
+            dedup_version: version,
             attachment_ids: attachments.map((a) => a.id),
           })
         } catch {
@@ -2497,7 +2528,8 @@ export const SelfNotesBoard = {
 
       status.done(
         `Imported ${imported} new note${imported === 1 ? "" : "s"} from Google Keep` +
-          (already ? `, skipped ${already} already imported` : "") +
+          (updated ? `, updated ${updated} changed` : "") +
+          (unchanged ? `, skipped ${unchanged} unchanged` : "") +
           (unreadable ? ` (${unreadable} could not be read)` : "") +
           ".",
       )
