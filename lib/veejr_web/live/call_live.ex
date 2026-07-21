@@ -77,6 +77,12 @@ defmodule VeejrWeb.CallLive do
             class="absolute inset-x-4 top-4 z-30 mx-auto hidden w-fit max-w-xl rounded-2xl bg-error/95 px-4 py-2 text-center text-sm text-error-content shadow-lg"
           >
           </p>
+          <p
+            id="call-network-adjustment"
+            data-role="call-notice"
+            class="absolute bottom-4 left-4 z-10 hidden max-w-sm rounded-2xl border border-white/15 bg-black/75 px-4 py-2 text-sm text-white shadow-lg backdrop-blur"
+          >
+          </p>
 
           <div
             id="call-device-setup"

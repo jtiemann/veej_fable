@@ -46,6 +46,7 @@ defmodule VeejrWeb.CallLiveTest do
     {:ok, view, _html} = live(conn, "/call/#{call.public_id}")
 
     assert has_element?(view, "#call-quality[data-role='call-quality']")
+    assert has_element?(view, "#call-network-adjustment[data-role='call-notice']")
   end
 
   test "renders the private device setup before joining", %{

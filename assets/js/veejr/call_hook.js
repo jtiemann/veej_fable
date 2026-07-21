@@ -8,6 +8,35 @@
 
 import {getSecretKey, sealFor, openFrom} from "./crypto.js"
 
+const MICROPHONE_CONSTRAINTS = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+}
+
+const CAMERA_CONSTRAINTS = {
+  width: {ideal: 1280, max: 1280},
+  height: {ideal: 720, max: 720},
+  frameRate: {ideal: 30, max: 30},
+}
+
+export const VIDEO_PROFILES = [
+  {label: "HD", maxBitrate: 1_500_000, maxFramerate: 30, scaleResolutionDownBy: 1},
+  {label: "Balanced", maxBitrate: 800_000, maxFramerate: 30, scaleResolutionDownBy: 1.5},
+  {label: "Data saver", maxBitrate: 350_000, maxFramerate: 30, scaleResolutionDownBy: 2},
+]
+
+export function nextVideoProfileIndex(current, quality, goodSamples, degradedSamples) {
+  const downgradeAfter = quality === "poor" ? 2 : 3
+
+  if (quality !== "good" && degradedSamples >= downgradeAfter) {
+    return Math.min(current + 1, VIDEO_PROFILES.length - 1)
+  }
+
+  if (quality === "good" && goodSamples >= 10) return Math.max(current - 1, 0)
+  return current
+}
+
 export function classifyCallQuality({loss = 0, rtt = 0, jitter = 0, bitrate} = {}) {
   if (loss >= 0.08 || rtt >= 0.6 || jitter >= 0.08 || (bitrate && bitrate < 150_000)) {
     return "poor"
@@ -34,12 +63,16 @@ export const CallSession = {
     this.maxRestartAttempts = 2
     this.restartInProgress = false
     this.previousInbound = null
+    this.videoProfileIndex = 0
+    this.goodQualitySamples = 0
+    this.degradedQualitySamples = 0
     this.remoteVideo = this.el.querySelector("[data-role=remote-video]")
     this.localVideo = this.el.querySelector("[data-role=local-video]")
     this.setupVideo = this.el.querySelector("[data-role=setup-video]")
     this.setupEl = this.el.querySelector("[data-role=device-setup]")
     this.statusEl = this.el.querySelector("[data-role=call-status]")
     this.qualityEl = this.el.querySelector("[data-role=call-quality]")
+    this.noticeEl = this.el.querySelector("[data-role=call-notice]")
     this.mediaReady = new Promise((resolve) => {
       this.resolveMediaReady = resolve
     })
@@ -73,6 +106,7 @@ export const CallSession = {
   destroyed() {
     this.clearRecoveryTimers()
     this.stopQualityMonitoring()
+    clearTimeout(this.noticeTimer)
     if (navigator.mediaDevices && navigator.mediaDevices.removeEventListener) {
       navigator.mediaDevices.removeEventListener("devicechange", this.deviceChangeHandler)
     }
@@ -83,14 +117,21 @@ export const CallSession = {
 
   async acquireMedia() {
     try {
-      this.localStream = await navigator.mediaDevices.getUserMedia({audio: true, video: true})
+      this.localStream = await navigator.mediaDevices.getUserMedia({
+        audio: MICROPHONE_CONSTRAINTS,
+        video: CAMERA_CONSTRAINTS,
+      })
     } catch {
       try {
-        this.localStream = await navigator.mediaDevices.getUserMedia({audio: true})
+        this.localStream = await navigator.mediaDevices.getUserMedia({
+          audio: MICROPHONE_CONSTRAINTS,
+        })
         this.showError("No camera available — continuing with audio only.")
       } catch {
         try {
-          this.localStream = await navigator.mediaDevices.getUserMedia({video: true})
+          this.localStream = await navigator.mediaDevices.getUserMedia({
+            video: CAMERA_CONSTRAINTS,
+          })
           this.showError("Microphone unavailable — continuing with video only.")
         } catch (err) {
           this.captureFailed(err)
@@ -98,6 +139,8 @@ export const CallSession = {
         }
       }
     }
+
+    this.setTrackContentHints(this.localStream)
 
     if (this.localVideo && this.localStream.getVideoTracks().length > 0) {
       this.localVideo.srcObject = this.localStream
@@ -268,14 +311,21 @@ export const CallSession = {
 
     const constraints =
       kind === "audio"
-        ? {audio: {deviceId: {exact: deviceId}}, video: false}
-        : {audio: false, video: {deviceId: {exact: deviceId}}}
+        ? {
+            audio: {...MICROPHONE_CONSTRAINTS, deviceId: {exact: deviceId}},
+            video: false,
+          }
+        : {
+            audio: false,
+            video: {...CAMERA_CONSTRAINTS, deviceId: {exact: deviceId}},
+          }
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia(constraints)
       const newTrack = stream.getTracks().find((track) => track.kind === kind)
       const oldTrack = this.localStream.getTracks().find((track) => track.kind === kind)
       if (!newTrack) throw new Error(`The selected ${kind} device did not provide a track.`)
+      newTrack.contentHint = kind === "audio" ? "speech" : "motion"
       if (oldTrack) newTrack.enabled = oldTrack.enabled
 
       const sender =
@@ -293,6 +343,7 @@ export const CallSession = {
       this.localStream.addTrack(newTrack)
 
       if (kind === "video") {
+        await this.applyVideoProfile({announce: false})
         if (this.localVideo) this.localVideo.srcObject = this.localStream
         if (this.setupVideo) this.setupVideo.srcObject = this.localStream
       }
@@ -303,6 +354,11 @@ export const CallSession = {
       this.showError(`Could not change ${kind === "audio" ? "microphone" : "camera"}: ${err.message}`)
       await this.refreshDeviceChoices()
     }
+  },
+
+  setTrackContentHints(stream) {
+    for (const track of stream.getAudioTracks()) track.contentHint = "speech"
+    for (const track of stream.getVideoTracks()) track.contentHint = "motion"
   },
 
   // Shares the whole screen or one window (the browser's picker offers the
@@ -329,9 +385,11 @@ export const CallSession = {
 
     try {
       const track = stream.getVideoTracks()[0]
+      track.contentHint = "detail"
       this.screenTrack = track
       track.addEventListener("ended", () => this.stopScreenShare())
       await sender.replaceTrack(track)
+      await this.applyScreenShareProfile(sender)
       if (this.localVideo) this.localVideo.srcObject = stream
       this.setShareUi(true)
     } catch (err) {
@@ -352,7 +410,10 @@ export const CallSession = {
       this.pc && this.pc.getSenders().find((s) => s.track && s.track.kind === "video")
 
     try {
-      if (sender && cameraTrack) await sender.replaceTrack(cameraTrack)
+      if (sender && cameraTrack) {
+        await sender.replaceTrack(cameraTrack)
+        await this.applyVideoProfile({announce: false})
+      }
     } catch (err) {
       this.showError(`Could not restore the camera: ${err.message}`)
     }
@@ -411,6 +472,7 @@ export const CallSession = {
     for (const track of this.localStream ? this.localStream.getTracks() : []) {
       this.pc.addTrack(track, this.localStream)
     }
+    this.applyVideoProfile({announce: false})
 
     this.pc.ontrack = (event) => {
       if (this.remoteVideo && event.streams[0]) {
@@ -562,6 +624,8 @@ export const CallSession = {
     clearInterval(this.qualityTimer)
     this.qualityTimer = null
     this.previousInbound = null
+    this.goodQualitySamples = 0
+    this.degradedQualitySamples = 0
   },
 
   // WebRTC statistics stay in this browser. Only a coarse quality label is
@@ -607,10 +671,86 @@ export const CallSession = {
       const bitrate = pair && pair.availableOutgoingBitrate
       const quality = classifyCallQuality({loss, rtt, jitter, bitrate})
 
+      await this.observeCallQuality(quality)
       this.renderCallQuality(quality, relayed, {loss, rtt})
     } catch {
       // Stats availability differs across browsers; the call itself should
       // never be interrupted because a quality sample is unavailable.
+    }
+  },
+
+  async observeCallQuality(quality) {
+    if (this.screenTrack || !this.localStream || this.localStream.getVideoTracks().length === 0) {
+      return
+    }
+
+    if (quality === "good") {
+      this.goodQualitySamples += 1
+      this.degradedQualitySamples = 0
+    } else {
+      this.degradedQualitySamples += 1
+      this.goodQualitySamples = 0
+    }
+
+    const nextIndex = nextVideoProfileIndex(
+      this.videoProfileIndex,
+      quality,
+      this.goodQualitySamples,
+      this.degradedQualitySamples
+    )
+    if (nextIndex === this.videoProfileIndex) return
+
+    const previousIndex = this.videoProfileIndex
+    this.videoProfileIndex = nextIndex
+    const applied = await this.applyVideoProfile({announce: true})
+    if (!applied) this.videoProfileIndex = previousIndex
+    this.goodQualitySamples = 0
+    this.degradedQualitySamples = 0
+  },
+
+  async applyVideoProfile({announce = false} = {}) {
+    const sender =
+      this.pc && this.pc.getSenders().find((item) => item.track && item.track.kind === "video")
+    if (!sender || !sender.getParameters || !sender.setParameters) return false
+
+    const profile = VIDEO_PROFILES[this.videoProfileIndex]
+
+    try {
+      const parameters = sender.getParameters()
+      if (!parameters.encodings || parameters.encodings.length === 0) parameters.encodings = [{}]
+      parameters.encodings[0].maxBitrate = profile.maxBitrate
+      parameters.encodings[0].maxFramerate = profile.maxFramerate
+      parameters.encodings[0].scaleResolutionDownBy = profile.scaleResolutionDownBy
+      await sender.setParameters(parameters)
+
+      if (announce) {
+        const reduced = this.videoProfileIndex > 0
+        this.showCallNotice(
+          reduced
+            ? `Video adjusted to ${profile.label.toLowerCase()} to keep audio clear.`
+            : "Connection improved — HD video restored."
+        )
+      }
+      return true
+    } catch {
+      // Some browser versions expose getParameters without allowing encoding
+      // changes. The call continues at the browser's own selected quality.
+      return false
+    }
+  },
+
+  async applyScreenShareProfile(sender) {
+    if (!sender || !sender.getParameters || !sender.setParameters) return
+
+    try {
+      const parameters = sender.getParameters()
+      if (!parameters.encodings || parameters.encodings.length === 0) parameters.encodings = [{}]
+      parameters.encodings[0].maxBitrate = 1_500_000
+      parameters.encodings[0].maxFramerate = 15
+      parameters.encodings[0].scaleResolutionDownBy = 1
+      await sender.setParameters(parameters)
+    } catch {
+      // Keep sharing with browser defaults when sender tuning is unavailable.
     }
   },
 
@@ -625,8 +765,19 @@ export const CallSession = {
       `rounded-full border px-2 py-0.5 text-xs font-medium ${styles[quality]}`
     this.qualityEl.textContent =
       `${quality === "good" ? "Good" : quality === "unstable" ? "Unstable" : "Poor"}` +
-      ` · ${relayed ? "relayed" : "direct"}`
-    this.qualityEl.title = `Round trip ${Math.round(rtt * 1000)} ms · packet loss ${Math.round(loss * 100)}%`
+      ` · ${relayed ? "relayed" : "direct"}` +
+      (this.videoProfileIndex > 0 ? ` · ${VIDEO_PROFILES[this.videoProfileIndex].label}` : "")
+    this.qualityEl.title =
+      `Round trip ${Math.round(rtt * 1000)} ms · packet loss ${Math.round(loss * 100)}%` +
+      ` · video ${VIDEO_PROFILES[this.videoProfileIndex].label}`
+  },
+
+  showCallNotice(text) {
+    if (!this.noticeEl) return
+    clearTimeout(this.noticeTimer)
+    this.noticeEl.textContent = text
+    this.noticeEl.classList.remove("hidden")
+    this.noticeTimer = setTimeout(() => this.noticeEl.classList.add("hidden"), 5_000)
   },
 
   sendSignal(payload) {
