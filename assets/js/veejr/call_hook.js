@@ -20,6 +20,46 @@ const CAMERA_CONSTRAINTS = {
   frameRate: {ideal: 30, max: 30},
 }
 
+const CHAT_FILE_LIMIT = 25 * 1024 * 1024
+const CHAT_CHUNK_SIZE = 16 * 1024
+const CHAT_FILE_ID_BYTES = 36
+const CHAT_URL_PATTERN = /https?:\/\/[^\s<>"']+/giu
+
+function trimChatUrl(raw) {
+  let url = raw.replace(/[.,!?;:]+$/u, "")
+  for (const [open, close] of [
+    ["(", ")"],
+    ["[", "]"],
+    ["{", "}"],
+  ]) {
+    const count = (value, character) => value.split(character).length - 1
+    while (url.endsWith(close) && count(url, close) > count(url, open)) url = url.slice(0, -1)
+  }
+  return url
+}
+
+export function chatTextSegments(text) {
+  const content = String(text)
+  const segments = []
+  let cursor = 0
+
+  for (const match of content.matchAll(CHAT_URL_PATTERN)) {
+    if (match.index > cursor) {
+      segments.push({kind: "text", value: content.slice(cursor, match.index)})
+    }
+
+    const url = trimChatUrl(match[0])
+    segments.push({kind: "url", value: url})
+    if (url.length < match[0].length) {
+      segments.push({kind: "text", value: match[0].slice(url.length)})
+    }
+    cursor = match.index + match[0].length
+  }
+
+  if (cursor < content.length) segments.push({kind: "text", value: content.slice(cursor)})
+  return segments
+}
+
 export const VIDEO_PROFILES = [
   {label: "HD", maxBitrate: 1_500_000, maxFramerate: 30, scaleResolutionDownBy: 1},
   {label: "Balanced", maxBitrate: 800_000, maxFramerate: 30, scaleResolutionDownBy: 1.5},
@@ -70,6 +110,13 @@ export const CallSession = {
     this.remoteFitMode = "contain"
     this.popoutWindow = null
     this.popoutVideo = null
+    this.chatChannel = null
+    this.chatOpen = false
+    this.chatUnread = 0
+    this.chatSending = false
+    this.chatFiles = []
+    this.chatObjectUrls = []
+    this.incomingChatFiles = new Map()
     this.remoteVideo = this.el.querySelector("[data-role=remote-video]")
     this.localVideo = this.el.querySelector("[data-role=local-video]")
     this.remoteShareStatus = this.el.querySelector("[data-role=remote-share-status]")
@@ -78,6 +125,10 @@ export const CallSession = {
     this.statusEl = this.el.querySelector("[data-role=call-status]")
     this.qualityEl = this.el.querySelector("[data-role=call-quality]")
     this.noticeEl = this.el.querySelector("[data-role=call-notice]")
+    this.chatPanel = this.el.querySelector("[data-role=chat-panel]")
+    this.chatMessages = this.el.querySelector("[data-role=chat-messages]")
+    this.chatInput = this.el.querySelector("[data-role=chat-input]")
+    this.chatStatus = this.el.querySelector("[data-role=chat-status]")
     this.mediaReady = new Promise((resolve) => {
       this.resolveMediaReady = resolve
     })
@@ -120,6 +171,8 @@ export const CallSession = {
       document.removeEventListener("webkitfullscreenchange", this.fullscreenChangeHandler)
     }
     this.closeSharePopout()
+    this.chatObjectUrls.forEach((url) => URL.revokeObjectURL(url))
+    if (this.chatChannel) this.chatChannel.close()
     if (document.pictureInPictureElement === this.remoteVideo && document.exitPictureInPicture) {
       document.exitPictureInPicture().catch(() => {})
     }
@@ -483,6 +536,11 @@ export const CallSession = {
 
   createPeer() {
     this.pc = new RTCPeerConnection({iceServers: this.iceServers})
+    this.pc.ondatachannel = (event) => this.setupChatChannel(event.channel)
+
+    if (this.role === "caller") {
+      this.setupChatChannel(this.pc.createDataChannel("veejr-call-chat", {ordered: true}))
+    }
 
     for (const track of this.localStream ? this.localStream.getTracks() : []) {
       this.pc.addTrack(track, this.localStream)
@@ -798,6 +856,411 @@ export const CallSession = {
     this.noticeTimer = setTimeout(() => this.noticeEl.classList.add("hidden"), 5_000)
   },
 
+  setupChatChannel(channel) {
+    if (this.chatChannel && this.chatChannel !== channel) this.chatChannel.close()
+    this.chatChannel = channel
+    channel.binaryType = "arraybuffer"
+    channel.bufferedAmountLowThreshold = 256 * 1024
+
+    channel.onopen = () => {
+      if (this.chatStatus) this.chatStatus.textContent = "Direct · encrypted"
+      this.updateChatComposer()
+    }
+    channel.onclose = () => {
+      if (this.chatStatus) this.chatStatus.textContent = "Chat disconnected"
+      this.updateChatComposer()
+    }
+    channel.onerror = () => this.showChatError("The direct chat connection was interrupted.")
+    channel.onmessage = (event) => {
+      this.handleChatData(event.data).catch(() =>
+        this.showChatError("A call chat item could not be received.")
+      )
+    }
+
+    if (channel.readyState === "open") channel.onopen()
+  },
+
+  async handleChatData(data) {
+    if (typeof data === "string") {
+      let payload
+      try {
+        payload = JSON.parse(data)
+      } catch {
+        return
+      }
+      return this.handleChatPayload(payload)
+    }
+
+    const buffer = data instanceof Blob ? await data.arrayBuffer() : data
+    if (!(buffer instanceof ArrayBuffer) || buffer.byteLength <= CHAT_FILE_ID_BYTES) return
+
+    const bytes = new Uint8Array(buffer)
+    const id = new TextDecoder().decode(bytes.slice(0, CHAT_FILE_ID_BYTES))
+    const transfer = this.incomingChatFiles.get(id)
+    if (!transfer) return
+
+    const chunk = bytes.slice(CHAT_FILE_ID_BYTES)
+    if (transfer.received + chunk.byteLength > transfer.size) {
+      this.incomingChatFiles.delete(id)
+      return this.showChatError("An incoming file exceeded its announced size.")
+    }
+
+    transfer.chunks.push(chunk)
+    transfer.received += chunk.byteLength
+    if (this.chatStatus) {
+      const percent = transfer.size === 0 ? 100 : Math.round((transfer.received / transfer.size) * 100)
+      this.chatStatus.textContent = `Receiving ${transfer.name} · ${percent}%`
+    }
+  },
+
+  handleChatPayload(payload) {
+    if (!payload || typeof payload !== "object") return
+
+    if (payload.kind === "chat_text" && typeof payload.text === "string") {
+      const text = payload.text.slice(0, 4000)
+      if (!text.trim()) return
+      this.renderChatText(text, false)
+      this.markChatActivity()
+    } else if (payload.kind === "chat_file_start") {
+      const size = Number(payload.size)
+      if (
+        typeof payload.id !== "string" ||
+        payload.id.length !== CHAT_FILE_ID_BYTES ||
+        !Number.isSafeInteger(size) ||
+        size < 0 ||
+        size > CHAT_FILE_LIMIT
+      ) {
+        return this.showChatError("The other person offered an unsupported file.")
+      }
+
+      this.incomingChatFiles.set(payload.id, {
+        name: this.safeChatFileName(payload.name),
+        type: typeof payload.type === "string" ? payload.type.slice(0, 120) : "",
+        size,
+        received: 0,
+        chunks: [],
+      })
+    } else if (payload.kind === "chat_file_end" && typeof payload.id === "string") {
+      const transfer = this.incomingChatFiles.get(payload.id)
+      if (!transfer) return
+      this.incomingChatFiles.delete(payload.id)
+
+      if (transfer.received !== transfer.size) {
+        return this.showChatError(`Could not receive all of ${transfer.name}.`)
+      }
+
+      const blob = new Blob(transfer.chunks, {type: transfer.type || "application/octet-stream"})
+      const url = URL.createObjectURL(blob)
+      this.chatObjectUrls.push(url)
+      this.renderChatFile(transfer.name, transfer.size, url, false)
+      this.markChatActivity()
+      if (this.chatStatus) this.chatStatus.textContent = "Direct · encrypted"
+    }
+  },
+
+  setupChatControls() {
+    const toggle = this.el.querySelector("[data-role=toggle-chat]")
+    const close = this.el.querySelector("[data-role=close-chat]")
+    const send = this.el.querySelector("[data-role=send-chat]")
+    const fileInput = this.el.querySelector("[data-role=chat-file-input]")
+    const dropzone = this.el.querySelector("[data-role=chat-dropzone]")
+
+    if (toggle) toggle.addEventListener("click", () => this.setChatOpen(!this.chatOpen))
+    if (close) close.addEventListener("click", () => this.setChatOpen(false))
+    if (send) send.addEventListener("click", () => this.sendChat())
+
+    if (this.chatInput) {
+      this.chatInput.addEventListener("input", () => this.updateChatComposer())
+      this.chatInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault()
+          this.sendChat()
+        }
+      })
+      this.chatInput.addEventListener("paste", (event) => {
+        const files = Array.from(event.clipboardData?.files || [])
+        if (files.length > 0) {
+          event.preventDefault()
+          this.addChatFiles(files)
+        }
+      })
+    }
+
+    if (fileInput) {
+      fileInput.addEventListener("change", (event) => {
+        this.addChatFiles(event.target.files)
+        event.target.value = ""
+      })
+    }
+
+    if (dropzone) {
+      dropzone.addEventListener("dragover", (event) => {
+        event.preventDefault()
+        dropzone.classList.add("bg-primary/10", "ring-2", "ring-inset", "ring-primary")
+      })
+      dropzone.addEventListener("dragleave", (event) => {
+        if (!dropzone.contains(event.relatedTarget)) {
+          dropzone.classList.remove("bg-primary/10", "ring-2", "ring-inset", "ring-primary")
+        }
+      })
+      dropzone.addEventListener("drop", (event) => {
+        event.preventDefault()
+        dropzone.classList.remove("bg-primary/10", "ring-2", "ring-inset", "ring-primary")
+        this.addChatFiles(event.dataTransfer?.files || [])
+      })
+    }
+
+    this.updateChatComposer()
+  },
+
+  setChatOpen(open) {
+    this.chatOpen = open
+    if (this.chatPanel) {
+      this.chatPanel.classList.toggle("hidden", !open)
+      this.chatPanel.classList.toggle("flex", open)
+    }
+
+    const toggle = this.el.querySelector("[data-role=toggle-chat]")
+    if (toggle) toggle.setAttribute("aria-expanded", String(open))
+    if (open) {
+      this.chatUnread = 0
+      this.updateChatUnread()
+      this.chatInput?.focus()
+    }
+  },
+
+  markChatActivity() {
+    if (!this.chatOpen) {
+      this.chatUnread += 1
+      this.updateChatUnread()
+    }
+  },
+
+  updateChatUnread() {
+    const badge = this.el.querySelector("[data-role=chat-unread]")
+    if (!badge) return
+    badge.textContent = this.chatUnread > 99 ? "99+" : String(this.chatUnread)
+    badge.classList.toggle("hidden", this.chatUnread === 0)
+  },
+
+  addChatFiles(fileList) {
+    for (const file of Array.from(fileList || [])) {
+      if (file.size > CHAT_FILE_LIMIT) {
+        this.showChatError(`${file.name} is larger than the 25 MB call-chat limit.`)
+      } else {
+        this.chatFiles.push(file)
+      }
+    }
+    this.renderPendingChatFiles()
+    this.updateChatComposer()
+  },
+
+  renderPendingChatFiles() {
+    const list = this.el.querySelector("[data-role=chat-files]")
+    if (!list) return
+    list.replaceChildren()
+    list.classList.toggle("hidden", this.chatFiles.length === 0)
+    list.classList.toggle("flex", this.chatFiles.length > 0)
+
+    this.chatFiles.forEach((file, index) => {
+      const chip = document.createElement("span")
+      chip.className =
+        "inline-flex max-w-full items-center gap-1 rounded-full bg-base-200 px-2 py-1 text-xs"
+
+      const name = document.createElement("span")
+      name.className = "truncate"
+      name.textContent = this.safeChatFileName(file.name)
+
+      const remove = document.createElement("button")
+      remove.type = "button"
+      remove.className = "font-bold opacity-60 hover:opacity-100"
+      remove.setAttribute("aria-label", `Remove ${name.textContent}`)
+      remove.textContent = "×"
+      remove.addEventListener("click", () => {
+        this.chatFiles.splice(index, 1)
+        this.renderPendingChatFiles()
+        this.updateChatComposer()
+      })
+      chip.append(name, remove)
+      list.appendChild(chip)
+    })
+  },
+
+  updateChatComposer() {
+    const send = this.el.querySelector("[data-role=send-chat]")
+    if (!send) return
+    const hasContent = Boolean(this.chatInput?.value.trim()) || this.chatFiles.length > 0
+    const connected = this.chatChannel?.readyState === "open"
+    send.disabled = !hasContent || !connected || this.chatSending
+  },
+
+  async sendChat() {
+    if (this.chatSending || this.chatChannel?.readyState !== "open") {
+      return this.showChatError("Call chat will be ready when the peer connection is established.")
+    }
+
+    const text = (this.chatInput?.value || "").trim().slice(0, 4000)
+    if (!text && this.chatFiles.length === 0) return
+    this.chatSending = true
+    this.clearChatError()
+    this.updateChatComposer()
+
+    try {
+      if (text) {
+        this.sendChatJson({kind: "chat_text", text})
+        this.renderChatText(text, true)
+        this.chatInput.value = ""
+      }
+
+      for (const file of [...this.chatFiles]) {
+        if (this.chatStatus) this.chatStatus.textContent = `Sending ${this.safeChatFileName(file.name)}…`
+        await this.sendChatFile(file)
+        const url = URL.createObjectURL(file)
+        this.chatObjectUrls.push(url)
+        this.renderChatFile(this.safeChatFileName(file.name), file.size, url, true)
+        this.chatFiles = this.chatFiles.filter((candidate) => candidate !== file)
+        this.renderPendingChatFiles()
+      }
+      if (this.chatStatus) this.chatStatus.textContent = "Direct · encrypted"
+    } catch (err) {
+      this.showChatError(err.message || "Could not send that call chat item.")
+    } finally {
+      this.chatSending = false
+      this.updateChatComposer()
+    }
+  },
+
+  sendChatJson(payload) {
+    if (this.chatChannel?.readyState !== "open") throw new Error("Call chat disconnected.")
+    this.chatChannel.send(JSON.stringify(payload))
+  },
+
+  async sendChatFile(file) {
+    if (file.size > CHAT_FILE_LIMIT) throw new Error(`${file.name} is larger than 25 MB.`)
+    const id = crypto.randomUUID()
+    const idBytes = new TextEncoder().encode(id)
+    const bytes = new Uint8Array(await file.arrayBuffer())
+
+    this.sendChatJson({
+      kind: "chat_file_start",
+      id,
+      name: this.safeChatFileName(file.name),
+      type: file.type,
+      size: file.size,
+    })
+
+    for (let offset = 0; offset < bytes.length; offset += CHAT_CHUNK_SIZE) {
+      await this.waitForChatBuffer()
+      const chunk = bytes.slice(offset, offset + CHAT_CHUNK_SIZE)
+      const frame = new Uint8Array(CHAT_FILE_ID_BYTES + chunk.byteLength)
+      frame.set(idBytes, 0)
+      frame.set(chunk, CHAT_FILE_ID_BYTES)
+      this.chatChannel.send(frame.buffer)
+    }
+    this.sendChatJson({kind: "chat_file_end", id})
+  },
+
+  waitForChatBuffer() {
+    if (this.chatChannel?.readyState !== "open") {
+      return Promise.reject(new Error("Call chat disconnected during the file transfer."))
+    }
+    if (this.chatChannel.bufferedAmount <= 512 * 1024) return Promise.resolve()
+
+    return new Promise((resolve, reject) => {
+      const channel = this.chatChannel
+      const ready = () => {
+        cleanup()
+        resolve()
+      }
+      const closed = () => {
+        cleanup()
+        reject(new Error("Call chat disconnected during the file transfer."))
+      }
+      const cleanup = () => {
+        channel.removeEventListener("bufferedamountlow", ready)
+        channel.removeEventListener("close", closed)
+      }
+      channel.addEventListener("bufferedamountlow", ready, {once: true})
+      channel.addEventListener("close", closed, {once: true})
+    })
+  },
+
+  renderChatText(text, own) {
+    const bubble = this.chatBubble(own)
+    const body = document.createElement("p")
+    body.className = "whitespace-pre-wrap break-words text-sm"
+
+    for (const segment of chatTextSegments(text)) {
+      if (segment.kind === "url") {
+        const link = document.createElement("a")
+        link.href = segment.value
+        link.target = "_blank"
+        link.rel = "noopener noreferrer"
+        link.className = "font-medium underline decoration-current/40 underline-offset-2"
+        link.textContent = segment.value
+        body.appendChild(link)
+      } else {
+        body.appendChild(document.createTextNode(segment.value))
+      }
+    }
+    bubble.appendChild(body)
+    this.appendChatBubble(bubble)
+  },
+
+  renderChatFile(name, size, url, own) {
+    const bubble = this.chatBubble(own)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = name
+    link.className = "flex items-center gap-2 text-sm font-medium underline underline-offset-2"
+    link.textContent = `📎 ${name} · ${this.formatChatBytes(size)}`
+    bubble.appendChild(link)
+    this.appendChatBubble(bubble)
+  },
+
+  chatBubble(own) {
+    const bubble = document.createElement("div")
+    bubble.className = own
+      ? "ml-8 self-end rounded-2xl rounded-br-md bg-primary px-3 py-2 text-primary-content shadow-sm"
+      : "mr-8 self-start rounded-2xl rounded-bl-md bg-base-200 px-3 py-2 shadow-sm"
+    return bubble
+  },
+
+  appendChatBubble(bubble) {
+    if (!this.chatMessages) return
+    const empty = this.chatMessages.querySelector("[data-role=chat-empty]")
+    if (empty) empty.remove()
+    this.chatMessages.appendChild(bubble)
+    this.chatMessages.scrollTop = this.chatMessages.scrollHeight
+  },
+
+  safeChatFileName(name) {
+    return String(name || "attachment")
+      .split(/[\\/]/u)
+      .pop()
+      .slice(0, 160)
+  },
+
+  formatChatBytes(size) {
+    if (size < 1024) return `${size} B`
+    if (size < 1024 * 1024) return `${Math.ceil(size / 1024)} KB`
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`
+  },
+
+  showChatError(text) {
+    const error = this.el.querySelector("[data-role=chat-error]")
+    if (!error) return
+    error.textContent = text
+    error.classList.remove("hidden")
+  },
+
+  clearChatError() {
+    const error = this.el.querySelector("[data-role=chat-error]")
+    if (!error) return
+    error.textContent = ""
+    error.classList.add("hidden")
+  },
+
   setRemoteShareState(sharing) {
     this.remoteSharing = sharing
 
@@ -939,6 +1402,7 @@ export const CallSession = {
   },
 
   setupControls() {
+    this.setupChatControls()
     const mic = this.el.querySelector("[data-role=toggle-mic]")
     const cam = this.el.querySelector("[data-role=toggle-cam]")
 

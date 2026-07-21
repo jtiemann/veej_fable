@@ -222,10 +222,19 @@ defmodule VeejrWeb.MessagesLiveTest do
     conn: conn,
     user: user
   } do
+    friend = user_fixture()
+    {:ok, request} = Social.send_friend_request(user, friend.username)
+    {:ok, _friendship} = Social.accept_friend_request(friend, request.id)
+
     copies =
       for index <- 1..55 do
         {:ok, batch_id, []} =
           Messaging.send_batch(user, "message", [
+            %{
+              "recipient_id" => friend.id,
+              "ciphertext" => "friend-ciphertext-#{index}",
+              "nonce" => "friend-nonce-#{index}"
+            },
             %{
               "recipient_id" => user.id,
               "ciphertext" => "ciphertext-#{index}",
@@ -241,7 +250,7 @@ defmodule VeejrWeb.MessagesLiveTest do
 
     oldest = hd(copies)
     newest = List.last(copies)
-    key = Messaging.conversation_key(["notes to yourself"])
+    key = Messaging.conversation_key([Social.Address.handle(friend)])
 
     {:ok, view, _html} = live(conn, "/messages?conversation=#{key}")
 
@@ -257,6 +266,10 @@ defmodule VeejrWeb.MessagesLiveTest do
   end
 
   test "starts with the newest 50 for the selected conversation", %{conn: conn, user: user} do
+    selected_peer = user_fixture()
+    {:ok, selected_request} = Social.send_friend_request(user, selected_peer.username)
+    {:ok, _friendship} = Social.accept_friend_request(selected_peer, selected_request.id)
+
     other = user_fixture()
     {:ok, friendship} = Social.send_friend_request(other, user.username)
     {:ok, _friendship} = Social.accept_friend_request(user, friendship.id)
@@ -265,6 +278,11 @@ defmodule VeejrWeb.MessagesLiveTest do
       for index <- 1..55 do
         {:ok, batch_id, []} =
           Messaging.send_batch(user, "message", [
+            %{
+              "recipient_id" => selected_peer.id,
+              "ciphertext" => "peer-ciphertext-#{index}",
+              "nonce" => "peer-nonce-#{index}"
+            },
             %{
               "recipient_id" => user.id,
               "ciphertext" => "self-ciphertext-#{index}",
@@ -298,7 +316,7 @@ defmodule VeejrWeb.MessagesLiveTest do
     newest_visible = Enum.at(self_copies, 5)
     oldest_hidden = Enum.at(self_copies, 4)
     newest = List.last(self_copies)
-    key = Messaging.conversation_key(["notes to yourself"])
+    key = Messaging.conversation_key([Social.Address.handle(selected_peer)])
 
     {:ok, view, _html} = live(conn, "/messages?conversation=#{key}")
 
@@ -310,8 +328,13 @@ defmodule VeejrWeb.MessagesLiveTest do
   end
 
   test "labels a restored conversation with its start date", %{conn: conn, user: user} do
+    friend = user_fixture()
+    {:ok, request} = Social.send_friend_request(user, friend.username)
+    {:ok, _friendship} = Social.accept_friend_request(friend, request.id)
+
     {:ok, batch_id, []} =
       Messaging.send_batch(user, "message", [
+        %{"recipient_id" => friend.id, "ciphertext" => "friend", "nonce" => "friend-nonce"},
         %{"recipient_id" => user.id, "ciphertext" => "first", "nonce" => "nonce"}
       ])
 
@@ -321,7 +344,8 @@ defmodule VeejrWeb.MessagesLiveTest do
         recipient_id: user.id
       )
 
-    current_key = Messaging.conversation_key(["notes to yourself"])
+    friend_handle = Social.Address.handle(friend)
+    current_key = Messaging.conversation_key([friend_handle])
 
     assert {:ok, archive} = Messaging.archive_conversation(user, current_key)
     assert :ok = Messaging.unarchive_conversation(user, archive.conversation_key)
@@ -329,7 +353,7 @@ defmodule VeejrWeb.MessagesLiveTest do
     {:ok, _view, html} = live(conn, "/messages?conversation=#{archive.conversation_key}")
 
     assert html =~
-             "notes to yourself · #{Calendar.strftime(envelope.inserted_at, "%b %d, %Y")}"
+             "#{friend_handle} · #{Calendar.strftime(envelope.inserted_at, "%b %d, %Y")}"
   end
 
   defp jpeg do

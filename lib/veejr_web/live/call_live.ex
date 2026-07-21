@@ -93,6 +93,88 @@ defmodule VeejrWeb.CallLive do
           >
           </p>
 
+          <aside
+            id="call-chat-panel"
+            data-role="chat-panel"
+            class="absolute inset-y-4 right-4 z-10 hidden w-[min(22rem,calc(100%-2rem))] flex-col overflow-hidden rounded-3xl border border-white/15 bg-base-100/95 text-base-content shadow-2xl backdrop-blur-xl"
+          >
+            <div class="flex items-center justify-between border-b border-base-300 px-4 py-3">
+              <div>
+                <h2 class="font-semibold">Call chat</h2>
+                <p data-role="chat-status" class="text-xs opacity-55">Connecting securely…</p>
+              </div>
+              <button
+                id="call-chat-close"
+                type="button"
+                data-role="close-chat"
+                aria-label="Close call chat"
+                class="btn btn-circle btn-ghost btn-sm"
+              >
+                <.icon name="hero-x-mark" class="size-5" />
+              </button>
+            </div>
+
+            <div
+              id="call-chat-messages"
+              data-role="chat-messages"
+              aria-live="polite"
+              class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3"
+            >
+              <p data-role="chat-empty" class="m-auto max-w-56 text-center text-sm opacity-50">
+                Messages and files travel directly between you and disappear when the call ends.
+              </p>
+            </div>
+
+            <div
+              id="call-chat-dropzone"
+              data-role="chat-dropzone"
+              class="border-t border-base-300 p-3 transition"
+            >
+              <div data-role="chat-files" class="mb-2 hidden flex-wrap gap-1.5"></div>
+              <div class="flex items-end gap-2">
+                <label
+                  for="call-chat-files"
+                  title="Attach files"
+                  class="btn btn-circle btn-ghost btn-sm shrink-0"
+                >
+                  <.icon name="hero-paper-clip" class="size-5" />
+                  <span class="sr-only">Attach files</span>
+                </label>
+                <input
+                  id="call-chat-files"
+                  data-role="chat-file-input"
+                  type="file"
+                  multiple
+                  class="sr-only"
+                />
+                <div class="min-w-0 flex-1 [&_.fieldset]:mb-0">
+                  <.input
+                    id="call-chat-input"
+                    name="call_chat_message"
+                    type="textarea"
+                    value=""
+                    data-role="chat-input"
+                    rows="1"
+                    maxlength="4000"
+                    placeholder="Message or drop files…"
+                    class="max-h-28 min-h-10 w-full resize-none rounded-2xl border border-base-300 bg-base-100 px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  />
+                </div>
+                <button
+                  id="call-chat-send"
+                  type="button"
+                  data-role="send-chat"
+                  aria-label="Send call message"
+                  disabled
+                  class="btn btn-circle btn-primary btn-sm shrink-0"
+                >
+                  <.icon name="hero-paper-airplane" class="size-4" />
+                </button>
+              </div>
+              <p data-role="chat-error" class="mt-2 hidden text-xs text-error" role="alert"></p>
+            </div>
+          </aside>
+
           <div
             id="call-device-setup"
             data-role="device-setup"
@@ -210,6 +292,23 @@ defmodule VeejrWeb.CallLive do
           >
             <.icon name="hero-arrows-pointing-in" class="size-4" />
             <span data-role="fit-label">Fill</span>
+          </button>
+          <button
+            id="call-chat-toggle"
+            type="button"
+            data-role="toggle-chat"
+            aria-controls="call-chat-panel"
+            aria-expanded="false"
+            title="Open encrypted call chat"
+            class="btn btn-outline btn-sm"
+          >
+            <.icon name="hero-chat-bubble-left-right" class="size-4" /> Chat
+            <span
+              data-role="chat-unread"
+              class="hidden min-w-5 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-content"
+            >
+              0
+            </span>
           </button>
           <button
             id="call-pip"

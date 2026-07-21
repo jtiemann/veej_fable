@@ -63,6 +63,24 @@ defmodule VeejrWeb.CallLiveTest do
     assert has_element?(view, "#call-fullscreen[data-role='toggle-fullscreen']")
   end
 
+  test "renders the peer-to-peer call chat and file drop target", %{
+    conn: conn,
+    user: user,
+    friend: friend
+  } do
+    {:ok, call} = Calls.start_call(user, friend.id)
+
+    {:ok, view, _html} = live(conn, "/call/#{call.public_id}")
+
+    assert has_element?(view, "#call-chat-toggle[data-role='toggle-chat']")
+    assert has_element?(view, "#call-chat-panel[data-role='chat-panel']")
+    assert has_element?(view, "#call-chat-messages[aria-live='polite']")
+    assert has_element?(view, "#call-chat-dropzone[data-role='chat-dropzone']")
+    assert has_element?(view, "#call-chat-input[maxlength='4000']")
+    assert has_element?(view, "#call-chat-files[type='file'][multiple]")
+    assert has_element?(view, "#call-chat-send[disabled]")
+  end
+
   test "renders the private device setup before joining", %{
     conn: conn,
     user: user,
