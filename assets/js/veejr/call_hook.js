@@ -104,6 +104,10 @@ function deactivateCallExitGuard(callId) {
   if (activeCallExitGuard?.callId === callId) activeCallExitGuard = null
 }
 
+function allowCallExit(callId) {
+  if (activeCallExitGuard?.callId === callId) activeCallExitGuard.allowExit = true
+}
+
 function trimChatUrl(raw) {
   let url = raw.replace(/[.,!?;:]+$/u, "")
   for (const [open, close] of [
@@ -233,6 +237,15 @@ export const CallSession = {
       else this.pendingSealedSignals.push({ciphertext, nonce})
     })
 
+    this.handleEvent("call:peer_disconnected", () => this.showReinvite())
+    this.handleEvent("call:reinvite_failed", () => {
+      const button = this.el.querySelector("#call-reinvite-submit")
+      if (button) {
+        button.disabled = false
+        button.textContent = "Re-invite"
+      }
+    })
+
     if (this.mySecret) this.beginSecureSession()
     else this.showCallUnlock()
   },
@@ -322,6 +335,35 @@ export const CallSession = {
     const payload = openFrom(ciphertext, nonce, this.peerKey, this.mySecret)
     if (!payload) return // tampered or stale — never act on unauthenticated signaling
     this.onSignal(payload)
+  },
+
+  showReinvite() {
+    allowCallExit(this.el.dataset.callId)
+    this.clearRecoveryTimers()
+    this.stopQualityMonitoring()
+    clearInterval(this.callTimer)
+    this.callTimer = null
+    this.releaseWakeLock()
+    this.youtube?.stopShare()
+    if (this.screenTrack) this.screenTrack.stop()
+    this.localStream?.getTracks().forEach(track => track.stop())
+    if (this.chatChannel) this.chatChannel.close()
+    if (this.pc) this.pc.close()
+    this.pc = null
+    this.localStream = null
+    if (this.localVideo) this.localVideo.srcObject = null
+    if (this.remoteVideo) this.remoteVideo.srcObject = null
+    this.setLifecycle("disconnected", "Connection lost")
+
+    const panel = this.el.querySelector("[data-role=call-reinvite]")
+    panel?.classList.remove("hidden")
+    panel?.classList.add("flex")
+    const button = this.el.querySelector("#call-reinvite-submit")
+    button?.addEventListener("click", () => {
+      if (button.disabled) return
+      button.disabled = true
+      button.textContent = "Sending invitation…"
+    })
   },
 
   destroyed() {

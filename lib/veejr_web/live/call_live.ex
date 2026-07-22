@@ -169,6 +169,34 @@ defmodule VeejrWeb.CallLive do
             </div>
           </div>
 
+          <div
+            :if={@role == "caller"}
+            id="call-reinvite"
+            data-role="call-reinvite"
+            class="absolute inset-0 z-50 hidden items-center justify-center overflow-y-auto bg-base-300/95 p-4 backdrop-blur-sm"
+          >
+            <div class="my-auto w-full max-w-md rounded-3xl border border-base-300 bg-base-100 p-6 text-center text-base-content shadow-2xl sm:p-8">
+              <div class="mx-auto flex size-12 items-center justify-center rounded-2xl bg-warning/10 text-warning">
+                <.icon name="hero-signal-slash" class="size-6" />
+              </div>
+              <h2 class="mt-4 text-2xl font-semibold tracking-tight">Connection lost</h2>
+              <p class="mt-2 text-sm leading-relaxed opacity-65">
+                {@peer.display_name || Veejr.Social.Address.handle(@peer)} did not reconnect automatically. You can send a fresh secure invitation.
+              </p>
+              <div class="mt-5 grid gap-2 sm:grid-cols-2">
+                <button
+                  id="call-reinvite-submit"
+                  type="button"
+                  phx-click="reinvite"
+                  class="btn btn-primary"
+                >
+                  <.icon name="hero-phone-arrow-up-right" class="size-4" /> Re-invite
+                </button>
+                <.link navigate={@return_to} class="btn btn-ghost">Return to messages</.link>
+              </div>
+            </div>
+          </div>
+
           <section
             data-role="call-youtube-stage"
             class="absolute inset-0 z-10 hidden bg-black"
@@ -652,6 +680,30 @@ defmodule VeejrWeb.CallLive do
      |> push_navigate(to: socket.assigns.return_to, replace: true)}
   end
 
+  def handle_event("reinvite", _params, socket) do
+    user = socket.assigns.current_scope.user
+    call = socket.assigns.call
+
+    if call.caller_id == user.id do
+      case Calls.start_call(user, call.callee_id) do
+        {:ok, new_call} ->
+          {:noreply,
+           push_navigate(socket,
+             to: ~p"/call/#{new_call.public_id}?#{%{return_to: socket.assigns.return_to}}",
+             replace: true
+           )}
+
+        {:error, reason} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, reinvite_error(reason))
+           |> push_event("call:reinvite_failed", %{})}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
   @impl true
   def handle_info({:call_peer_joined, _id}, socket) do
     {:noreply, push_event(socket, "call:peer_joined", %{})}
@@ -679,6 +731,20 @@ defmodule VeejrWeb.CallLive do
      |> push_navigate(to: socket.assigns.return_to, replace: true)}
   end
 
+  def handle_info({:call_disconnected, _id, departed_user_id}, socket) do
+    call = socket.assigns.call
+    user = socket.assigns.current_scope.user
+
+    if user.id == call.caller_id and departed_user_id == call.callee_id do
+      {:noreply, push_event(socket, "call:peer_disconnected", %{})}
+    else
+      {:noreply,
+       socket
+       |> put_flash(:info, "The call ended after the connection was lost.")
+       |> push_navigate(to: socket.assigns.return_to, replace: true)}
+    end
+  end
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   defp return_to(params, call, user) do
@@ -699,6 +765,12 @@ defmodule VeejrWeb.CallLive do
 
     ~p"/messages?conversation=#{key}"
   end
+
+  defp reinvite_error(:callee_unreachable),
+    do: "The other instance could not be reached. Try again shortly."
+
+  defp reinvite_error(:not_a_friend), do: "This person is no longer in your contacts."
+  defp reinvite_error(_reason), do: "The new invitation could not be sent. Please try again."
 
   @impl true
   def terminate(_reason, socket) do

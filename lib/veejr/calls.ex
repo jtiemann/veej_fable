@@ -108,6 +108,17 @@ defmodule Veejr.Calls do
     end
   end
 
+  @doc "Returns the newest unanswered call for a local callee, if one exists."
+  def pending_ring(%User{id: user_id}) do
+    from(c in Call,
+      where: c.callee_id == ^user_id and c.state == "ringing",
+      order_by: [desc: c.inserted_at],
+      limit: 1,
+      preload: [:caller, :callee]
+    )
+    |> Repo.one()
+  end
+
   @doc """
   The callee has opened the call page: the ring is answered. Tells the
   caller's side (locally or over federation) so it starts WebRTC
@@ -160,6 +171,24 @@ defmodule Veejr.Calls do
       end
 
       :ok
+    end
+  end
+
+  @doc "Ends an accepted call because one participant remained offline beyond the grace period."
+  def disconnect_call(%User{id: user_id} = user, public_id) do
+    with {:ok, %Call{state: "accepted"} = call} <- get_call(user, public_id) do
+      call = set_state(call, "ended")
+      broadcast(call, {:call_disconnected, call.public_id, user_id})
+
+      relay_to_remote_peer(call, user, fn authority ->
+        Veejr.Federation.deliver_call_update(authority, call, "disconnected")
+      end)
+
+      :ok
+    else
+      {:ok, %Call{state: "ringing"}} -> end_call(user, public_id)
+      {:ok, %Call{}} -> :ok
+      error -> error
     end
   end
 
@@ -219,9 +248,9 @@ defmodule Veejr.Calls do
     end
   end
 
-  @doc "Applies a joined/declined/ended update relayed by the remote participant's instance."
+  @doc "Applies a joined/declined/ended/disconnected update relayed by the remote instance."
   def receive_remote_update(public_id, verified_authority, event)
-      when event in ["joined", "declined", "ended"] do
+      when event in ["joined", "declined", "ended", "disconnected"] do
     with {:ok, call} <- remote_party_call(public_id, verified_authority) do
       case event do
         "joined" when call.state == "ringing" ->
@@ -236,6 +265,11 @@ defmodule Veejr.Calls do
           final = if call.state == "ringing", do: "missed", else: "ended"
           call = set_state(call, final)
           broadcast(call, {:call_ended, call.public_id, final})
+
+        "disconnected" when call.state == "accepted" ->
+          remote = if call.caller.host, do: call.caller, else: call.callee
+          call = set_state(call, "ended")
+          broadcast(call, {:call_disconnected, call.public_id, remote.id})
 
         _ ->
           :ok
@@ -285,7 +319,7 @@ defmodule Veejr.Calls do
   # here; leaving only ends the call if the participant stays absent through
   # a short grace period.
 
-  @grace_ms 10_000
+  @grace_ms 25_000
 
   @doc "Registers the calling process as a participant's live call page."
   def register_presence(public_id, user_id) do
@@ -313,7 +347,7 @@ defmodule Veejr.Calls do
           Process.sleep(grace_ms)
 
           unless present?(public_id, user.id) do
-            end_call(user, public_id)
+            disconnect_call(user, public_id)
           end
         end)
 

@@ -156,7 +156,7 @@ defmodule Veejr.Federation do
     })
   end
 
-  @doc "Relays a joined/declined/ended call state change to the peer instance."
+  @doc "Relays a joined/declined/ended/disconnected call state change to the peer instance."
   def deliver_call_update(authority, call, event) when is_binary(authority) do
     post(authority, "/api/federation/call_update", %{
       call_id: call.public_id,

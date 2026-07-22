@@ -25,6 +25,7 @@ defmodule Veejr.CallsTest do
       assert call.state == "ringing"
       assert_receive {:veejr_call_ring, %Call{public_id: public_id}}
       assert public_id == call.public_id
+      assert %Call{public_id: ^public_id} = Calls.pending_ring(bob)
     end
 
     test "only accepted friends can ring" do
@@ -93,6 +94,22 @@ defmodule Veejr.CallsTest do
       {:ok, third} = Calls.start_call(alice, bob.id)
       assert :ok = Calls.end_call(alice, third.public_id)
       assert {:ok, %Call{state: "missed"}} = Calls.get_call(bob, third.public_id)
+    end
+
+    test "an accepted participant disconnect is distinguishable from a hang-up" do
+      alice = user_fixture()
+      bob = user_fixture()
+      befriend(alice, bob)
+
+      {:ok, call} = Calls.start_call(alice, bob.id)
+      {:ok, _} = Calls.join_call(bob, call.public_id)
+      Calls.subscribe(call)
+
+      assert :ok = Calls.disconnect_call(bob, call.public_id)
+      assert_receive {:call_disconnected, public_id, departed_id}
+      assert public_id == call.public_id
+      assert departed_id == bob.id
+      assert {:ok, %Call{state: "ended"}} = Calls.get_call(alice, call.public_id)
     end
   end
 
@@ -187,6 +204,29 @@ defmodule Veejr.CallsTest do
 
       assert {:ok, :applied} = Calls.receive_remote_update("remote-call-2", @remote_host, "ended")
       assert {:ok, %Call{state: "ended"}} = Calls.get_call(alice, "remote-call-2")
+    end
+
+    test "a remote participant disconnect identifies who left", %{alice: alice} do
+      {:ok, :created} =
+        Veejr.Federation.handle_call_invite(
+          %{
+            "from" => %{"username" => "carol", "authority" => @remote_host},
+            "to" => "alice",
+            "call_id" => "remote-disconnect"
+          },
+          @remote_host
+        )
+
+      {:ok, call} = Calls.get_call(alice, "remote-disconnect")
+      Calls.subscribe(call)
+      {:ok, _accepted} = Calls.join_call(alice, call.public_id)
+
+      assert {:ok, :applied} =
+               Calls.receive_remote_update(call.public_id, @remote_host, "disconnected")
+
+      assert_receive {:call_disconnected, "remote-disconnect", departed_id}
+      assert departed_id == call.caller_id
+      assert {:ok, %Call{state: "ended"}} = Calls.get_call(alice, call.public_id)
     end
 
     test "calling a remote friend delivers a signed invite", %{alice: alice, carol: carol} do

@@ -138,6 +138,22 @@ defmodule VeejrWeb.CallLiveTest do
     assert_redirect(view, "/messages?conversation=#{key}")
   end
 
+  test "the initiator can offer a fresh invitation after the callee disconnects", %{
+    conn: conn,
+    user: user,
+    friend: friend
+  } do
+    {:ok, call} = Calls.start_call(user, friend.id)
+    {:ok, _accepted} = Calls.join_call(friend, call.public_id)
+    {:ok, view, _html} = live(conn, "/call/#{call.public_id}")
+
+    assert has_element?(view, "#call-reinvite[data-role='call-reinvite']")
+    assert has_element?(view, "#call-reinvite-submit[phx-click='reinvite']")
+
+    send(view.pid, {:call_disconnected, call.public_id, friend.id})
+    assert_push_event view, "call:peer_disconnected", %{}
+  end
+
   test "does not accept an external return destination", %{
     conn: conn,
     user: user,

@@ -12,7 +12,7 @@ defmodule VeejrWeb.LiveNotify do
   import Phoenix.Component, only: [assign: 3]
   import Phoenix.LiveView
 
-  alias Veejr.{Messaging, WatchParties}
+  alias Veejr.{Calls, Messaging, WatchParties}
 
   def on_mount(:default, _params, _session, socket) do
     user = socket.assigns.current_scope.user
@@ -29,10 +29,9 @@ defmodule VeejrWeb.LiveNotify do
 
     socket =
       if connected?(socket) do
-        case WatchParties.active_party() do
-          nil -> socket
-          party -> push_watch_invite(socket, party)
-        end
+        socket
+        |> maybe_push_watch_invite()
+        |> maybe_push_call_ring(user)
       else
         socket
       end
@@ -41,13 +40,7 @@ defmodule VeejrWeb.LiveNotify do
   end
 
   defp handle_info({:veejr_call_ring, call}, socket) do
-    socket =
-      push_event(socket, "veejr:ring", %{
-        call_id: call.public_id,
-        from: Veejr.Social.Address.handle(call.caller)
-      })
-
-    {:halt, socket}
+    {:halt, push_call_ring(socket, call)}
   end
 
   defp handle_info({:watch_party_started, party}, socket) do
@@ -88,5 +81,26 @@ defmodule VeejrWeb.LiveNotify do
 
   defp push_watch_invite(socket, party) do
     push_event(socket, "watch:invite", %{public_id: party.public_id, host: party.host})
+  end
+
+  defp maybe_push_watch_invite(socket) do
+    case WatchParties.active_party() do
+      nil -> socket
+      party -> push_watch_invite(socket, party)
+    end
+  end
+
+  defp maybe_push_call_ring(socket, user) do
+    case Calls.pending_ring(user) do
+      nil -> socket
+      call -> push_call_ring(socket, call)
+    end
+  end
+
+  defp push_call_ring(socket, call) do
+    push_event(socket, "veejr:ring", %{
+      call_id: call.public_id,
+      from: Veejr.Social.Address.handle(call.caller)
+    })
   end
 end
