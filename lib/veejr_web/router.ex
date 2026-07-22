@@ -177,6 +177,8 @@ defmodule VeejrWeb.Router do
       live "/messages", MessagesLive
       live "/map", MapLive
       live "/history", HistoryLive
+      live "/watch", WatchLive, :new
+      live "/watch/:public_id", WatchLive, :show
       live "/call/:public_id", CallLive
     end
 

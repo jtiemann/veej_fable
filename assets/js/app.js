@@ -26,16 +26,18 @@ import {hooks as colocatedHooks} from "phoenix-colocated/veejr"
 import topbar from "../vendor/topbar"
 import veejrHooks from "./veejr/hooks.js"
 import {CallSession, installRingBanner} from "./veejr/call_hook.js"
+import {YouTubeWatch, installWatchBanner} from "./veejr/watch_hook.js"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, ...veejrHooks, CallSession},
+  hooks: {...colocatedHooks, ...veejrHooks, CallSession, YouTubeWatch},
 })
 
 // Incoming-call banners can appear on any authenticated page.
 installRingBanner()
+installWatchBanner()
 
 // Show progress bar on live navigation and form submits
 topbar.config({barColors: {0: "#29d"}, shadowColor: "rgba(0, 0, 0, .3)"})

@@ -14,6 +14,8 @@ defmodule Veejr.Application do
        repos: Application.fetch_env!(:veejr, :ecto_repos), skip: skip_migrations?()},
       {DNSCluster, query: Application.get_env(:veejr, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Veejr.PubSub},
+      # One ephemeral, host-controlled YouTube watch party per instance.
+      {Veejr.WatchParties, []},
       # Retries federation deliveries to unreachable instances.
       {Veejr.Federation.Outbox, []},
       # Persists and retries browser and Android push delivery.

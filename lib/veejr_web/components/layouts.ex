@@ -101,6 +101,7 @@ defmodule VeejrWeb.Layouts do
           <li><.link navigate={~p"/messages"}>Messages</.link></li>
           <li><.link navigate={~p"/map"}>Map</.link></li>
           <li><.link navigate={~p"/history"}>History</.link></li>
+          <li><.link navigate={~p"/watch"}>Watch</.link></li>
         </ul>
       </details>
       <nav
@@ -116,6 +117,7 @@ defmodule VeejrWeb.Layouts do
         <.link navigate={~p"/messages"} class="btn btn-ghost btn-sm">Messages</.link>
         <.link navigate={~p"/map"} class="btn btn-ghost btn-sm">Map</.link>
         <.link navigate={~p"/history"} class="btn btn-ghost btn-sm">History</.link>
+        <.link navigate={~p"/watch"} class="btn btn-ghost btn-sm">Watch</.link>
       </nav>
       <div class="order-3 ml-auto shrink-0">
         <ul class="flex px-1 space-x-2 items-center">

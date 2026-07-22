@@ -12,17 +12,30 @@ defmodule VeejrWeb.LiveNotify do
   import Phoenix.Component, only: [assign: 3]
   import Phoenix.LiveView
 
-  alias Veejr.Messaging
+  alias Veejr.{Messaging, WatchParties}
 
   def on_mount(:default, _params, _session, socket) do
     user = socket.assigns.current_scope.user
 
-    if connected?(socket), do: Messaging.subscribe(user)
+    if connected?(socket) do
+      Messaging.subscribe(user)
+      WatchParties.subscribe()
+    end
 
     socket =
       socket
       |> assign(:pending_count, Messaging.count_pending_notifications(user))
       |> attach_hook(:veejr_notify, :handle_info, &handle_info/2)
+
+    socket =
+      if connected?(socket) do
+        case WatchParties.active_party() do
+          nil -> socket
+          party -> push_watch_invite(socket, party)
+        end
+      else
+        socket
+      end
 
     {:cont, socket}
   end
@@ -35,6 +48,20 @@ defmodule VeejrWeb.LiveNotify do
       })
 
     {:halt, socket}
+  end
+
+  defp handle_info({:watch_party_started, party}, socket) do
+    {:halt, push_watch_invite(socket, party)}
+  end
+
+  defp handle_info({:watch_party_ended, public_id}, socket) do
+    socket = push_event(socket, "watch:ended", %{public_id: public_id})
+
+    if socket.view == VeejrWeb.WatchLive do
+      {:cont, socket}
+    else
+      {:halt, socket}
+    end
   end
 
   defp handle_info({:veejr_notification, notification}, socket) do
@@ -58,4 +85,8 @@ defmodule VeejrWeb.LiveNotify do
   end
 
   defp handle_info(_message, socket), do: {:cont, socket}
+
+  defp push_watch_invite(socket, party) do
+    push_event(socket, "watch:invite", %{public_id: party.public_id, host: party.host})
+  end
 end
