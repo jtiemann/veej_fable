@@ -20,8 +20,12 @@ friendship, and consent rules.
 - Encrypted attachments, expiring/view-limited messages, sender-side edits and
   deletion, recorded voice/video messages, conversations, location sharing,
   and geo-notes.
-- Personal contact and group notes. These notes are server-side plaintext and
-  are not part of the end-to-end encrypted message system.
+- An encrypted **Notes to yourself** board with text/checklist cards, labels,
+  colors, pin/archive/trash flows, local search, attachments, and idempotent
+  Google Keep Takeout import.
+- Personal notes attached to contacts and groups. Unlike Notes to yourself,
+  these convenience notes are server-side plaintext and are not part of the
+  end-to-end encrypted message system.
 - Public profile images with colorful initials placeholders and browser-side
   cropping for consistent contact and conversation avatars.
 - Account export/import, administrator-controlled moves into newly provisioned
@@ -30,10 +34,14 @@ friendship, and consent rules.
 - Pull-based self-upgrades: each instance checks the upstream releases on its
   administrator's request and can upgrade and restart itself, with an
   automatic database backup and build-failure rollback.
-- 1:1 audio/video calls (browser, including across federated instances):
-  media flows peer-to-peer over WebRTC and signaling is sealed between the
-  participants' pinned keys, so instances relay only ciphertext they cannot
-  read or alter.
+- 1:1 browser audio/video calls, including across federated instances, with
+  device preview, adaptive video, screen sharing, full-screen/Picture-in-
+  Picture/pop-out views, ephemeral direct chat and files, synchronized YouTube
+  sharing, interruption recovery, and caller re-invites. WebRTC media and data
+  flow peer-to-peer; signaling is sealed between pinned participant keys.
+- Instance-local, host-controlled YouTube watch parties. Signed-in users can
+  join synchronized playback and independently enable or disable peer-to-peer
+  voice.
 - A native Jetpack Compose Android client with portable-key unlock, consent,
   conversation messaging, filtered history, contact/group policy controls, and
   private notes. See [veejr-android](https://github.com/veejr/veejr-android).
@@ -41,6 +49,9 @@ friendship, and consent rules.
 
 For protocol details, trust boundaries, and data flows, see
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+For a map of all user, operator, compatibility, and planning documents, see
+[docs/README.md](docs/README.md).
 
 For a framework- and language-independent specification suitable for recreating
 Veejr in another environment, see
@@ -50,6 +61,7 @@ For installation and server administration, see:
 
 - [Installation and server setup](docs/INSTALLATION.md)
 - [Production operations, upgrades, and recovery](docs/OPERATIONS.md)
+- [Calls and YouTube watch parties](docs/CALLS_AND_WATCH_PARTIES.md)
 
 ## Technology
 
@@ -59,6 +71,8 @@ For installation and server administration, see:
 - Kotlin, Jetpack Compose, and compatible NaCl primitives in the Android client
 - Leaflet with OpenStreetMap tiles
 - Phoenix PubSub, the Notifications API, and Web Push
+- WebRTC for calls, ephemeral data channels, screen sharing, and watch-party voice
+- YouTube's privacy-enhanced embed for synchronized shared viewing
 
 ## Local development
 
@@ -128,6 +142,25 @@ outgoing copy, so attached files disappear with the message in the app as
 well. A file that has already been downloaded or captured by a recipient
 cannot be recalled by the server.
 
+### Calls and YouTube watch parties
+
+Start a 1:1 call from an accepted contact or conversation. Both participants
+can choose devices before joining, mute audio/video, share a screen, exchange
+ephemeral direct chat/files, or share a synchronized YouTube video. If a brief
+network or page interruption cannot recover automatically, the original
+caller can send a fresh invitation. Veejr warns before in-app navigation that
+would close an active call.
+
+The global **Watch** page hosts one instance-local YouTube watch party at a
+time. The initiator controls playback; every other signed-in user on that
+instance may join and may independently turn their microphone on or off.
+
+Call chat/files and watch-party state are deliberately ephemeral: they are not
+message history, export data, or durable server records. Browser autoplay,
+camera, microphone, pop-up, and screen-capture policies still apply. See
+[Calls and YouTube watch parties](docs/CALLS_AND_WATCH_PARTIES.md) for the
+complete behavior, privacy model, recovery flow, and troubleshooting.
+
 Useful commands:
 
 ```sh
@@ -194,10 +227,12 @@ behavior without changing its federation identity.
 
 ## Production configuration
 
-A `mix release` deployment runs database migrations automatically at startup.
-The current source-mounted Docker service runs `mix phx.server` and must run
-`mix ecto.migrate` explicitly during installation and upgrades. See
-[docs/INSTALLATION.md](docs/INSTALLATION.md) for the complete, tested setup.
+Production builds run database migrations automatically at startup, including
+the current source-mounted Docker service (`:auto_migrate` is enabled in
+`config/prod.exs`). The manual rollout procedure also runs
+`mix ecto.migrate` before restart so an incompatible migration fails while the
+old task is still serving. See [docs/INSTALLATION.md](docs/INSTALLATION.md) for
+the complete, tested setup.
 
 Set `PHX_SERVER=true` when starting a release and provide these required
 variables:
@@ -301,13 +336,14 @@ contains instance federation-signing and VAPID credentials.
 
 ### Current Docker deployment
 
-The currently operated instance uses one Docker Swarm service and two
+The main currently operated instance uses one Docker Swarm service and three
 standalone supporting containers on the Windows host at `192.168.0.251`:
 
 | Service/container | Role | Published ports |
 | --- | --- | --- |
 | `veej_fable` | Single-replica Phoenix Swarm service (`MIX_ENV=prod`) | TCP 4000, host mode |
 | `veej_caddy` | TLS termination and reverse proxy | TCP/UDP 443 |
+| `veej_coturn` | STUN/TURN relay for restrictive call networks | TCP/UDP 3478 and UDP 41000–41040 |
 | `veej_postfix` | Available local SMTP relay; not currently used by Phoenix | Internal TCP 587 |
 
 Caddy serves `https://veejr.dyndns-server.com` and proxies requests to

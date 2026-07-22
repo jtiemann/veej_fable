@@ -25,9 +25,11 @@ Veejr.Supervisor
 ├── Ecto.Migrator (release and prod startup — boot-time migrations)
 ├── DNSCluster
 ├── Phoenix.PubSub (Veejr.PubSub)
+├── Veejr.WatchParties (ephemeral, instance-local state)
 ├── Veejr.Federation.Outbox
 ├── Veejr.Push.Outbox
 ├── Veejr.Janitor
+├── Veejr.CallRegistry (duplicate registry for call-page presence)
 ├── Veejr.TaskSupervisor
 └── VeejrWeb.Endpoint (Bandit)
 ```
@@ -39,6 +41,8 @@ The main domain contexts are:
 | `Veejr.Accounts` | Registration, authentication, profiles, invites, and identity-key lifecycle. |
 | `Veejr.Social` | Friendships, remote contacts, groups, and personal contact/group notes. |
 | `Veejr.Messaging` | Envelopes, consent notifications, conversation windows, edits, expiry/display limits, and blobs. |
+| `Veejr.Calls` | 1:1 call consent/lifecycle, sealed signaling relay, presence grace, and federated call updates. |
+| `Veejr.WatchParties` | One ephemeral, instance-local, host-controlled YouTube party and voice-signaling membership. |
 | `Veejr.Federation` | Remote discovery, friendship and delivery protocol, signed requests, peers, and retry outbox. |
 | `Veejr.Push` | Push subscriptions and RFC 8291/8292 Web Push delivery. |
 | `Veejr.Export` / `Veejr.Import` | Account portability. |
@@ -52,9 +56,10 @@ encryption, decryption, attachment crypto, and map plaintext.
 - The public browser route serves the landing page.
 - Registration and login LiveViews use the optional-current-user session.
 - Settings and key setup require authentication.
-- Contacts, friends, groups, messages, map, and history require authentication
-  plus configured identity keys; `VeejrWeb.LiveNotify` subscribes them to user
-  notifications.
+- Contacts, friends, groups, messages, map, history, calls, and watch parties
+  require authentication plus configured identity keys;
+  `VeejrWeb.LiveNotify` subscribes them to user notifications, incoming rings,
+  and active watch-party hints.
 - Authenticated controller routes handle private blob upload/download, export,
   and push subscriptions.
 - `/api/instance`, `/api/directory/:username`, envelope capability fetches, and
@@ -161,6 +166,9 @@ home instance.
 | `POST /api/federation/friend_response` | Accept or decline a request. |
 | `POST /api/federation/notify` | Announce an available envelope without sending its ciphertext. |
 | `POST /api/federation/key_update` | Announce a rotated user key for manual confirmation. |
+| `POST /api/federation/call_invite` | Mirror a current, consent-gated call invitation. |
+| `POST /api/federation/call_update` | Relay joined/declined/ended/disconnected lifecycle state. |
+| `POST /api/federation/call_signal` | Relay one sealed SDP/ICE payload synchronously. |
 | `GET /api/envelopes/:public_id` | Fetch envelope ciphertext by capability. |
 | `GET /api/blobs/:id` | Fetch encrypted blob bytes by capability. |
 
@@ -202,9 +210,9 @@ retried.
 
 ## Calls
 
-1:1 audio/video calls use WebRTC: media flows peer-to-peer over DTLS-SRTP
-and never touches an instance. The server's only role is consent and
-signaling relay:
+1:1 audio/video calls use WebRTC: DTLS-SRTP media and the DTLS/SCTP call data
+channel flow peer-to-peer and never touch an instance. The server's role is
+consent, lifecycle, presence, and signaling relay:
 
 - Ringing reuses the consent model — the callee's open tabs show an
   incoming-call banner (`{:veejr_call_ring, call}` on the user topic) and
@@ -217,11 +225,54 @@ signaling relay:
   id; invites, state updates, and sealed signals relay over the signed
   instance-to-instance channel synchronously (`/api/federation/call_*`) —
   a call is now or never, so the retry outbox is not involved.
+- The device-preview gate and in-call passphrase prompt keep camera/microphone
+  selection and key unwrap in the browser. The passphrase and raw secret key
+  are never sent through LiveView.
+- The data channel carries ephemeral text, clickable HTTP/HTTPS links, files
+  up to 25 MB, screen-share state, media-state hints, and synchronized YouTube
+  directions. These items are memory-only and disappear when the peer
+  connection closes; they are not envelopes or history.
+- Video capture begins at up to 720p/30fps. Browser WebRTC statistics drive
+  HD/Balanced/Data saver sender profiles, with audio prioritized during
+  degradation. Screen capture uses a separate profile.
+- Calls attempt two ICE restarts after a connection failure. Call-page
+  presence has a 25-second server grace so LiveView reconnects do not end a
+  call. If recovery fails, the original caller may create a fresh call ID and
+  ring the callee again; a still-ringing invite is replayed when an offline
+  local callee returns to an authenticated page.
 - ICE servers default to public STUN; operators can add a TURN relay
   (encrypted SRTP only) via environment configuration.
 - The peers learn each other's IP addresses when connecting directly, as in
   any peer-to-peer call; a TURN relay hides addresses at the cost of
   relaying through the configured server.
+
+Leaving an active call is guarded in the browser, but browser close/refresh
+warnings use native, non-customizable text. Explicit hangup/decline is final;
+only an involuntary callee disconnect exposes caller re-invite. See
+[CALLS_AND_WATCH_PARTIES.md](CALLS_AND_WATCH_PARTIES.md) for user-visible
+behavior and operational limits.
+
+## YouTube watch parties
+
+`Veejr.WatchParties` holds at most one party in process memory. It stores the
+random party ID, initiating local user, YouTube video ID, playback direction,
+and position. The host alone may control/end playback; all authenticated users
+on the same instance receive a join hint. Control refreshes a 90-second timer,
+so an abandoned host causes the party to expire. State is neither durable nor
+federated and disappears on application restart.
+
+Optional voice uses a peer-to-peer WebRTC mesh. Every page joins receive-only;
+a participant explicitly grants microphone access to start transmitting and
+may stop their track independently. SDP/ICE signaling is sealed pairwise with
+participant identity keys before LiveView relays it. The server observes
+membership and encrypted signaling sizes/timing but not voice. Mesh upload
+cost grows with participant count, so the feature targets small communities.
+
+The YouTube iframe runs in each browser against `youtube-nocookie.com`.
+Instances do not proxy video, but YouTube sees each viewer's request metadata.
+Playback directions are not content-encrypted in a general watch party; the
+video ID and state are server-readable. In a 1:1 call, the same directions use
+the authenticated WebRTC data channel instead.
 
 ## Web Push
 

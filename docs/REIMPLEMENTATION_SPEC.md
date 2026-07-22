@@ -1,8 +1,8 @@
 # Veejr reimplementation specification
 
 Status: normative baseline for a compatible reimplementation  
-Baseline: veejr-server commit `8420d88` and client protocol v1  
-Date: 2026-07-17
+Baseline: veejr-server v0.3.16 (commit `7731232`) and client protocol v1
+Date: 2026-07-22
 
 ## 1. Purpose
 
@@ -26,7 +26,8 @@ representations and cryptographic fixtures remain additionally governed by
 Veejr is a small, self-hosted, federated social messaging service. Users keep
 contacts and private notes, organize contacts into local groups, exchange
 end-to-end encrypted messages and media, share encrypted locations and map
-notes, and may move between independently operated Veejr instances.
+notes, make consent-gated peer-to-peer calls, watch synchronized YouTube with
+other users, and may move between independently operated Veejr instances.
 
 The home server authenticates users, enforces social and delivery policy,
 stores opaque ciphertext and encrypted files, and coordinates federation. It
@@ -58,6 +59,11 @@ coordinates, or the user's encryption passphrase.
   user's server. They are not end-to-end encrypted.
 - The current account-export format cannot discover or include received
   attachment blobs because their identifiers are inside ciphertext.
+- Peer-to-peer calls reveal network-address metadata to the peer unless TURN is
+  used. TURN and YouTube operators still observe connection/request metadata.
+- Call chat/files and watch-party state are ephemeral. They are not message
+  history, survive neither disconnect nor restart, and cannot be recovered or
+  exported by the server.
 
 ## 3. Actors and identities
 
@@ -102,6 +108,7 @@ one process or many, but their trust and transaction boundaries must remain.
 | Durable relational store | Accounts, metadata, ciphertext, credentials, policies, audit state, jobs. |
 | Blob store | Opaque encrypted attachment bytes addressed by random capabilities. |
 | Realtime event bus | Foreground notification and message refresh hints. |
+| Peer-session coordinator | Consent/lifecycle and sealed signaling relay for calls and ephemeral watch-party voice. |
 | Federation worker | Signed peer requests and durable retry processing. |
 | Push adapters | Browser Web Push and optional Android FCM metadata-only notifications. |
 | Mail adapter | Transactional confirmation, login, invitation, and administrative mail through a configured SMTP provider. |
@@ -206,7 +213,9 @@ Plaintext is compact UTF-8 JSON:
 Allowed kinds are `message`, `location`, `note`, and `self_note`. A `self_note`
 is a single sender-to-self encrypted envelope and MUST NOT create delivery
 notifications, expiry/display limits, or federation work. Its note title,
-body, labels, checklist, attachments, and board state remain encrypted.
+body, labels, checklist, attachments, and board state remain encrypted. Common
+message/location/map-note payloads use `v: 1`; the self-note card document uses
+`v: 2` as specified in [SELF_NOTES_KEEP_SPEC.md](SELF_NOTES_KEEP_SPEC.md).
 Location payloads add
 `lat`, `lng`, and `located_at`; map notes add `lat`, `lng`, and optional
 `title`. Coordinates exist only inside ciphertext.
@@ -389,6 +398,40 @@ pending --accept--> accepted --fetch/display--> accepted
 - Database/file failures MUST be observable and retryable; no successful delete
   may silently leave an ordinary tracked file orphaned.
 
+### 8.6 Calls, ephemeral data, and shared YouTube
+
+- Only accepted friends may start a 1:1 call. The callee explicitly accepts or
+  declines; unanswered rings expire after 60 seconds.
+- A local call row records random public ID, caller, callee, lifecycle state,
+  and timestamps. Federated peers mirror the same public ID.
+- SDP offers/answers and ICE candidates MUST be sealed client-side with
+  `nacl.box` between pinned participant identity keys. Instances synchronously
+  relay ciphertext and MUST NOT persist signaling history or enqueue it in the
+  durable message outbox.
+- WebRTC media uses DTLS-SRTP and the data channel uses DTLS/SCTP. Call chat
+  text, HTTP/HTTPS links, files up to 25 MB, media-state hints, and synchronized
+  YouTube directions are ephemeral and MUST NOT become envelopes, history,
+  exports, logs, or server-readable plaintext.
+- Both participants may unlock their wrapped identity key locally on the call
+  page. The passphrase and raw secret key MUST NOT be submitted to the server.
+- Clients provide device preview/selection, audio/video toggles, screen share,
+  fit/fill, full screen where available, and clear connection/relay state.
+- Clients attempt two ICE restarts for an interrupted peer connection. The
+  server allows a 25-second page-presence grace. After a callee remains absent,
+  the call ends and the original caller MAY create a fresh call ID/re-invite;
+  explicit hangup and decline remain final.
+- A still-ringing invitation SHOULD be replayed when an offline local callee
+  returns to an authenticated page. Reconnect MUST NOT silently accept a call.
+- A 1:1 YouTube share is controlled only by the participant who starts it and
+  is transported over the WebRTC data channel. It is mutually exclusive with
+  screen sharing.
+- Each instance supports at most one general YouTube watch party. It is
+  instance-local, memory-only, visible to authenticated users, controlled only
+  by its initiator, and expires after 90 seconds without a host control update.
+- Watch-party voice is opt-in per participant and uses pairwise sealed
+  signaling plus a WebRTC audio mesh. A participant can listen without
+  granting microphone access and can stop their transmitted track at any time.
+
 ## 9. Maps, notifications, and realtime behavior
 
 - The map renders decrypted locations and geo-notes using an OpenStreetMap-
@@ -428,6 +471,9 @@ They MUST NOT appear in push payloads or routine logs.
 | `POST /api/federation/notify` | Announce available ciphertext without sending it. |
 | `POST /api/federation/key_update` | Announce a changed user encryption key. |
 | `POST /api/federation/account_move` | Announce a verified new home authority. |
+| `POST /api/federation/call_invite` | Mirror a current call invitation and ring the local callee. |
+| `POST /api/federation/call_update` | Relay joined, declined, ended, or disconnected state. |
+| `POST /api/federation/call_signal` | Relay one sealed SDP/ICE payload synchronously. |
 
 Each write is signed with the sending instance's Ed25519 key. The signed bytes
 bind the exact request path, timestamp, and SHA-256 digest of the raw body.
@@ -608,6 +654,7 @@ represent these entities and constraints.
 | Conversation archive | User, unique conversation (instance) key, participant key/list, start time, archived state, timestamps. Membership lives on the envelopes' thread keys. |
 | Blob | Random public ID, owner, exact byte size, storage key/path, reference-tracking flag, timestamps. Public ID unique. |
 | Blob reference | Blob and batch ID; pair unique. |
+| Call | Random public ID, caller, callee, ringing/accepted/terminal state, and timestamps. Public ID unique; signaling is not stored. |
 
 ### 13.3 Federation and push
 
@@ -688,6 +735,14 @@ The exact visual design may change, but a compatible first-party UI provides:
 - In-app image, PDF, audio, and video viewing with dialogs that fit phone and
   desktop viewports and do not overlap controls.
 - Map recipient dropdowns for friends and groups.
+- A call device-check gate; responsive audio/video controls; screen sharing;
+  full-screen/Picture-in-Picture/pop-out views where supported; ephemeral call
+  chat/files; synchronized YouTube; connection quality and recovery status;
+  and confirmation before navigation that would end an active call.
+- A caller-only re-invite action after unrecovered callee disconnect, and an
+  incoming ring replay when a still-pending local callee reconnects.
+- An instance-local Watch page where the host controls synchronized YouTube
+  and every participant independently opts into or out of microphone audio.
 - Account pages for settings, key management, avatar, export, and archives.
 - Admin pages for health, settings, invitations, users, moves, peers, retries,
   failures, and audit history.
@@ -712,10 +767,10 @@ phone widths without horizontal scrolling.
 | Instance mode | Community or personal default behavior. |
 
 Optional settings include port/bind address, database pool, upload and storage
-limits, retention, SMTP port/auth/TLS, cluster discovery, provisioner token,
-and FCM service-account path. Secrets MUST come from a secret manager,
-protected file, or equivalent runtime injection, never source control or a
-client build.
+limits, retention, SMTP port/auth/TLS, STUN/TURN URLs and credentials, cluster
+discovery, provisioner token, and FCM service-account path. Secrets MUST come
+from a secret manager, protected file, or equivalent runtime injection, never
+source control or a client build.
 
 ### 16.2 Production topology
 
@@ -763,7 +818,7 @@ to source control.
 - Compare tokens, hashes, and signatures in constant time where applicable.
 - Never log passwords, passphrases, private keys, wrapping/attachment keys,
   access/refresh/invitation tokens, full ciphertext, capability URLs, SMTP/FCM
-  credentials, or decrypted content.
+  credentials, decrypted content, or raw call SDP/ICE candidates.
 - Protect database, blobs, packages, backups, provisioner token, SMTP secret,
   Firebase key, and proxy state with least-privilege filesystem/service access.
 - Operational and audit errors are sanitized before persistence.
@@ -870,6 +925,29 @@ A reimplementation is conforming only when automated tests cover the following.
 - Full regression, static analysis, dependency audit, and production asset
   build pass before release.
 
+### 20.6 Calls and shared viewing
+
+- Local and federated friends complete ring, accept, sealed offer/answer/ICE,
+  media connection, explicit decline, and explicit hangup flows.
+- A non-participant cannot read or relay call state/signals; a forged or
+  cross-instance call update fails closed.
+- Wrong passphrase/key and tampered signaling do not establish a call or expose
+  plaintext signaling to the server.
+- Audio-only join, device switching, mute/camera state, adaptive video, screen
+  share, full-screen/Picture-in-Picture/pop-out fallbacks, direct call chat,
+  clickable safe links, and 25 MB file limits are browser-tested.
+- Temporary page/network interruption recovers within the ICE/presence grace.
+  Exhausted callee recovery offers the original caller a fresh re-invite;
+  hangup/decline does not. A pending ring reappears after local callee reconnect.
+- 1:1 YouTube playback follows only the initiating participant and remains
+  mutually exclusive with screen sharing.
+- A general watch party permits only its host to control/end playback, expires
+  after host loss, resets on application restart, and never crosses instances.
+- Watch-party voice permits listen-only join and independent microphone
+  opt-in/out. Pairwise signaling remains sealed and media is peer-to-peer.
+- Tests assert call chat/files and watch-party state never enter envelopes,
+  exports, durable outbox rows, push payloads, or server logs.
+
 ## 21. Definition of done
 
 The recreation is complete when:
@@ -892,5 +970,6 @@ The recreation is complete when:
 - [Client protocol v1](CLIENT_PROTOCOL_V1.md)
 - [Installation and server setup](INSTALLATION.md)
 - [Production operations](OPERATIONS.md)
+- [Calls and YouTube watch parties](CALLS_AND_WATCH_PARTIES.md)
 - `protocol-fixtures/v1.json`
 - `priv/repo/migrations/` for the historical SQLite migration sequence

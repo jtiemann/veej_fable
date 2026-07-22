@@ -3,7 +3,7 @@
 Status: **Draft**  
 Intended audience: veejr server, web-client, and native-client implementers  
 API base path: `/api/v1`  
-Encrypted payload version: `1`
+Common encrypted payload version: `1`; `self_note` document version: `2`
 
 ## 1. Purpose
 
@@ -49,6 +49,12 @@ The governing security boundary is:
 - Changing the version 1 cryptographic algorithms during the Android port.
 - Making `/api/v1` federation endpoints. Native clients never hold instance
   federation-signing credentials and never impersonate remote instances.
+- Standardizing the browser WebRTC call, ephemeral call-data-channel, or
+  instance-local watch-party signaling surfaces. These features exist in the
+  web application, but their LiveView/federation events are not part of HTTP
+  client protocol v1. A native client MUST NOT infer a stable contract from
+  current internal event names; native call support requires an explicit,
+  versioned extension.
 
 ## 3. Conformance language
 
@@ -77,7 +83,12 @@ them would change authorization or cryptographic behavior.
 ### 4.2 Encrypted payload version
 
 Every encrypted JSON payload contains integer field `v`. This document defines
-`v: 1`. Payload versioning is independent of HTTP API versioning.
+`v: 1` for ordinary message, location, and map-note payloads. The `self_note`
+kind uses its separate card-document contract at `v: 2`; see
+[SELF_NOTES_KEEP_SPEC.md](SELF_NOTES_KEEP_SPEC.md). Payload/document versioning
+is independent of HTTP API versioning. The current `payload_versions: [1]`
+capability describes the common payload contract, not self-note document
+versions; clients must also gate on `message_kinds` and the decrypted kind.
 
 Clients MUST NOT attempt to render an unsupported payload version as plaintext.
 They SHOULD retain the ciphertext and present an "update required" state.
@@ -92,7 +103,7 @@ clients can fail before login when incompatible.
   "api_versions": [1],
   "payload_versions": [1],
   "max_blob_bytes": 26214400,
-  "message_kinds": ["message", "location", "note"],
+  "message_kinds": ["message", "location", "note", "self_note"],
   "instance_mode": "community"
 }
 ```
@@ -800,7 +811,17 @@ A `location` payload additionally contains numeric `lat`, numeric `lng`, and
 Latitude is between -90 and 90. Longitude is between -180 and 180. Clients MUST
 reject non-finite values.
 
-### 14.4 Attachment descriptor
+### 14.4 Self-note document
+
+A `self_note` envelope contains document `v: 2`, `kind: "self_note"`, a random
+`note_id`, title/body, checklist, labels, color, pin/archive/trash state,
+created/updated timestamps, attachment descriptors, and card settings. All
+fields remain inside ciphertext. Clients that do not implement this document
+MUST retain or safely omit the encrypted item and MUST NOT reinterpret it as a
+version-1 message. The complete validation and privacy rules are in
+[SELF_NOTES_KEEP_SPEC.md](SELF_NOTES_KEEP_SPEC.md#7-encrypted-payload-contract).
+
+### 14.5 Attachment descriptor
 
 ```json
 {
@@ -1068,6 +1089,11 @@ The following remain part of the intended v1 contract but may follow the MVP:
 - push registration and background sync;
 - rewrap, rotation, reset, and remote-key confirmation;
 - settings, export download, and account deletion.
+
+Browser 1:1 calls and instance-local watch parties are implemented product
+features but are outside this HTTP API version. Native parity for calls,
+ephemeral call chat/files, synchronized YouTube, and watch-party voice remains
+deferred until a separate signaling/lifecycle contract is specified.
 
 Deferral does not permit an incompatible provisional format. Implemented v1
 endpoints must follow this document.

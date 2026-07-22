@@ -1,4 +1,8 @@
-I think Veejr has become a genuinely interesting application. It is no longer just a messaging experiment; it has a recognizable philosophy: private communication, deliberate consent, self-hosting, federation, and user portability.
+# Product assessment and roadmap
+
+Status: updated for Veejr v0.3.16 on 2026-07-22.
+
+Veejr has become a genuinely interesting application. It is no longer just a messaging experiment; it has a recognizable philosophy: private communication, deliberate consent, self-hosting, federation, and user portability.
 
 **Strong Points**
 - **Clear identity.** Veejr is not trying to be another generic chat service. Consent-before-delivery, private contact notes, personal instances, and account moves give it a distinctive shape.
@@ -7,6 +11,8 @@ I think Veejr has become a genuinely interesting application. It is no longer ju
 - **Federation and portability are unusually ambitious.** Friends can exist across instances, and a person can move while retaining identity, history, avatar, and friendships.
 - **The administrative layer is becoming mature.** Permanent instance administrator, registration policies, invitations, suspension, quotas, audit history, peer controls, and account moves form a serious operational foundation.
 - **Good media capabilities.** Images, PDFs, voice recordings, and video messages are encrypted and viewed inside the application.
+- **Encrypted personal workspace.** Notes to yourself now provides encrypted cards, checklists, organization, local search, attachments, and idempotent Google Keep import without creating a plaintext notes index.
+- **Substantial live communication.** Browser calls now include device setup, adaptive video, screen sharing, multiple viewing modes, ephemeral direct chat/files, synchronized YouTube, mobile lifecycle handling, and reconnect/re-invite. Instance-local watch parties add host-directed playback and opt-in peer voice.
 - **Browser and Android interoperability.** Using a documented protocol and shared cryptographic format is much stronger than treating Android as an unrelated companion app.
 - **Documentation is now a real asset.** The reimplementation specification makes the product understandable independently of Phoenix.
 
@@ -18,6 +24,8 @@ I think Veejr has become a genuinely interesting application. It is no longer ju
 - **SQLite limits deployment scale.** It is an excellent choice now, but the current architecture expects one application writer and one replica.
 - **Account movement is operationally complex.** It works, which is impressive, but DNS, TLS, provisioning, import verification, friendship repair, and deletion create many possible partial-failure states.
 - **The product surface has grown quickly.** Messaging, maps, groups, media, administration, federation, native clients, and provisioning all compete for testing and polish.
+- **Realtime features add a second reliability model.** Calls and watch-party voice depend on browser permissions, WebRTC, STUN/TURN, autoplay policy, and short-lived signaling rather than the durable message/outbox path. Cross-browser and adverse-network testing must remain a release discipline.
+- **Third-party shared viewing has its own privacy boundary.** YouTube receives a request from every viewer and may apply regional, account, age, embedding, or content-blocking policy independently of Veejr.
 - **Android verification needs strengthening.** The recent Android changes could not be built on this machine because JDK 17 and the Android SDK are missing. Continuous Android builds and cross-client integration tests should become mandatory.
 - **“No download” media controls are only a UI policy.** A determined recipient can still retain network bytes or record the screen.
 - **Conversation concepts remain somewhat implicit.** Conversations are largely derived from envelope participants and archive boundaries rather than represented as durable shared objects. That may become limiting for richer group-chat behavior.
@@ -52,8 +60,11 @@ The wisest next phase is consolidation rather than adding many headline features
    - Support Linux cleanly and eventually PostgreSQL or another multi-writer database where larger deployments need it.
    - Make spawning a personal instance feel like an intentional product feature, not an administrative stunt.
 
-6. **Calls, eventually**
-   - Video calling is possible through WebRTC, but it introduces camera/microphone permissions, signaling, STUN/TURN infrastructure, network traversal, abuse controls, and a larger privacy model.
-   - I would first add short-lived one-to-one voice calls, then video, while keeping recorded media messages as the dependable fallback.
+6. **Conferencing consolidation**
+   - Exercise 1:1 calls across Chrome, Firefox, Safari, Android, iOS, VPN, cellular, direct, and TURN-relayed paths; automate what can be made deterministic.
+   - Add operator-visible, privacy-safe call diagnostics without persisting SDP, ICE candidates, chat, files, or media.
+   - Replace static TURN credentials with time-limited credentials before operating a broadly public instance.
+   - Keep general watch-party voice intentionally small or introduce an SFU only after a separate scaling and trust-boundary design. The current peer mesh grows upload work per participant.
+   - Specify a versioned native-client call lifecycle before adding Android call parity; current LiveView and federation event names are internal.
 
 My overall judgment: **Veejr has a strong idea and more substance than its age suggests.** Its greatest opportunity is not becoming the largest messenger. It is becoming a humane, understandable way for small communities and individuals to own their communication and move without losing their relationships. The next leap will come from making what already exists exceptionally trustworthy and calm to use.

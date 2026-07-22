@@ -20,6 +20,8 @@ flowchart LR
   App --> Blobs[Encrypted attachment directory]
   App -->|TLS SMTP| SMTP[SMTP provider]
   App -. optional .-> FCM[Firebase Cloud Messaging]
+  Client -. WebRTC setup .-> TURN[Optional STUN/TURN relay]
+  TURN -. encrypted media/data relay .-> Client
 ```
 
 Caddy is the only service that should be reachable from the public Internet.
@@ -41,6 +43,9 @@ For the tested production arrangement:
 - A public DNS name whose A/AAAA record points to the public address.
 - Router and host-firewall access for TCP 80 and TCP 443. UDP 443 is optional
   and enables HTTP/3 through Caddy.
+- For reliable calls across restrictive networks, a reachable TURN service
+  with UDP/TCP 3478, optional TLS 5349, and a bounded UDP relay range. A
+  public STUN-only configuration works for many but not all NAT combinations.
 - An SMTP account or relay permitted to send from `MAIL_FROM_ADDRESS`.
 - A backup destination outside the application host.
 
@@ -196,8 +201,10 @@ swarm; no further initialization is needed.
 
 ## Build assets and initialize SQLite
 
-The source-mounted server does not run migrations automatically. Prepare a new
-checkout with a one-shot container before creating the service:
+Production startup runs pending migrations automatically. A new installation
+still needs its database created, and preparing it in a one-shot container
+also proves that dependencies, compilation, assets, and migrations succeed
+before the long-running service is created:
 
 ```powershell
 $Image = "elixir:1.20-otp-28"
@@ -213,6 +220,7 @@ docker run --rm `
 
 This writes dependencies/build output into the checkout and persistent state
 into `$Data`. It must finish successfully before the service is created.
+Later production boots run `Ecto.Migrator` before the endpoint starts.
 
 ## Optional Firebase secret
 
@@ -385,6 +393,7 @@ the real site. Only after the target verifies does the Admin page offer
 
 - [Operations, upgrades, backup, and recovery](OPERATIONS.md)
 - [Architecture and trust boundaries](ARCHITECTURE.md)
+- [Calls and YouTube watch parties](CALLS_AND_WATCH_PARTIES.md)
 - [Android/client protocol](CLIENT_PROTOCOL_V1.md)
 - [Docker Swarm services](https://docs.docker.com/engine/swarm/services/)
 - [Docker secrets](https://docs.docker.com/engine/swarm/secrets/)

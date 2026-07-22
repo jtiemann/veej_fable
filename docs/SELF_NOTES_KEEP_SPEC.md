@@ -1,8 +1,28 @@
 # Notes to yourself — Keep-style board specification
 
-**Status:** proposed implementation specification  
+**Status:** implemented web baseline plus forward-looking requirements (v0.3.16)
 **Audience:** Phoenix/LiveView, web client, Android, API, QA, and security reviewers  
 **Primary surface:** the existing **Notes to yourself** self-conversation in `/messages`
+
+## Current implementation status
+
+Veejr currently implements encrypted payload-v2 `self_note` cards, creation
+and edit, text/checklists, labels, colors, pin/archive/trash/restore/delete,
+bulk actions, local text/label/date filtering, encrypted attachments, voice and
+video capture, and incremental **Load more**. Successful edits refresh the
+visible card without requiring a page reload.
+
+Google Keep Takeout import is also implemented in the browser. It imports note
+JSON plus available attachments, uses keyed opaque deduplication identifiers,
+and updates an earlier imported card when Keep content changes instead of
+creating a duplicate.
+
+This document still records the intended complete behavior. Requirements not
+yet matching the web implementation remain roadmap items, notably the richer
+three-way conflict comparison, unbounded cursor-backed **Search all notes**,
+legacy self-message conversion, and native-client parity. Current loading is
+50 at a time up to a 500-card browser session; search covers loaded cards.
+Scheduled reminders remain explicitly unimplemented.
 
 ## 1. Outcome
 
@@ -57,7 +77,9 @@ This keeps the note portable with encrypted history, compatible with key rotatio
 - In the Messages conversation rail, the self thread remains titled **Notes to yourself** and gets a note/card icon instead of a message-count emphasis.
 - Selecting that thread shows the notes board instead of the message-bubble thread.
 - The existing empty self-recipient state opens the notes board and focuses the quick-capture editor.
-- No new route is required for v1. The board remains on the existing self-thread URL, `GET /messages?conversation=<self-thread-key>`, so browser back/forward work as today.
+- No new route is required for v1. The implemented board uses
+  `GET /messages?self_notes=true`, so browser back/forward and direct links work
+  without exposing note content or search terms in the URL.
 
 The existing `/messages` route is inside the authenticated `live_session :app`, whose mounts require authentication, current scope, unlocked keys, and live notifications. The board must stay there because it requires `@current_scope.user` and browser-held encryption keys. Do not place it in a public or merely `:current_user` session.
 
@@ -255,11 +277,19 @@ Validation after decryption:
 4. Archive, restore, trash, restore, permanently delete; verify encrypted attachments remain or are released appropriately.
 5. Export/import and rotate keys; verify remaining notes decrypt and remain editable.
 
-## 13. Delivery plan
+## 13. Delivery status
 
-1. **Foundation:** envelope kind/invariants, API contract, owner-scoped listing, migration, context tests.
-2. **Board:** self-thread branching, encrypted card stream, decrypt/render hook, quick capture and text-note edit.
-3. **Organization:** checklists, labels, colors, pin/archive/trash, filters, search, bulk actions.
-4. **Hardening:** attachments, conflict handling, accessibility, Android compatibility, export/rotation regression coverage.
+1. **Foundation — shipped:** envelope kind/invariants, API contract,
+   owner-scoped listing, migration, dedup metadata, and context tests.
+2. **Board — shipped:** self-notes route state, encrypted cards, decrypt/render
+   hooks, quick capture, edit, immediate refresh, and incremental loading.
+3. **Organization — shipped:** checklists, labels, colors,
+   pin/archive/trash/restore, filters, date search, and bulk actions.
+4. **Hardening — in progress:** encrypted attachments and media capture,
+   idempotent Google Keep import/update, stale-write detection, and regression
+   coverage are present. Rich conflict comparison, unlimited cursor search,
+   legacy conversion, deeper accessibility validation, and Android parity
+   remain.
 
-Feature flag the board as `self_notes_board` until phases 1–2 have passed web and API contract tests. Existing self-message history must remain visible throughout rollout; do not silently reinterpret or discard it.
+The board is no longer feature-flagged. Existing self-message history must
+remain visible; future changes must not silently reinterpret or discard it.

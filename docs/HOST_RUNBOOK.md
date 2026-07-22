@@ -64,7 +64,7 @@ newer checkout migrates its own database — there is no manual
 | Firebase service-account JSON | `C:\ProgramData\Veejr\secrets\fcm-service-account.json`, mounted into `veej_fable` as Swarm secret `fcm_service_account_json` |
 | TURN static credential | `C:\ProgramData\Veejr\secrets\turn-credential.txt` (username `veejr`); also present in both app services' env (`VEEJR_TURN_PASSWORD`) and coturn's args |
 | App env (SECRET_KEY_BASE, SMTP credentials, provisioner token, …) | Swarm service specs (`docker service inspect`); provisioned instances additionally keep an env file under their instance directory |
-| GitHub access for tooling | Git Credential Manager (`git credential fill`); no `gh` CLI on this host |
+| GitHub access for tooling | Git pushes use Git Credential Manager (`git credential fill`). `gh` is installed but requires its own valid authenticated session for release/PR API operations. |
 
 ## Recreating the pieces
 

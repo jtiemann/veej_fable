@@ -95,9 +95,10 @@ docker exec $AppContainer mix compile --force
 docker service update --force veej_fable
 ```
 
-The source-mounted `mix phx.server` service does **not** auto-migrate. A proper
-`mix release` starts `Ecto.Migrator` automatically in this project, but that is
-not the deployment described here.
+Production startup runs `Ecto.Migrator` before the endpoint, for both a built
+release and this source-mounted `mix phx.server` service. Running
+`mix ecto.migrate` explicitly above remains useful: migration failures surface
+before the healthy old task is replaced.
 
 With host-mode port publishing on a single node, Swarm may briefly report
 `no suitable node (host-mode port already in use)` while replacing the old
@@ -359,13 +360,37 @@ in Firebase and remove the old Docker secret.
 - Check spam handling and the sender domain's SPF, DKIM, and DMARC records.
 - If Postfix is used, inspect its queue/logs and verify it is not an open relay.
 
-### Voice or video fails
+### Live call or watch-party voice fails
 
-- Use the public HTTPS hostname; camera and microphone access require a secure
-  browser context.
+- Use the public HTTPS hostname; camera, microphone, screen capture, and
+  WebRTC require a secure browser context.
+- Recheck browser and operating-system permissions for the selected camera and
+  microphone. Reopen the call's **Devices** panel after changing them.
+- Confirm both clients can reach the advertised STUN/TURN URLs. If a call works
+  on one network but not another, verify coturn credentials, TCP/UDP 3478,
+  trusted TLS on 5349 when configured, and the UDP relay range.
+- Inspect both home instances for a federated call. Invites, lifecycle updates,
+  and signaling are synchronous and do not wait in the federation outbox.
+- A brief disconnect gets two ICE restart attempts and a 25-second page-
+  presence grace. After that, the original caller must use **Re-invite**.
+- Watch-party voice uses one peer connection per other participant and is
+  intended for small groups. Check CPU/uplink pressure as participant count
+  grows.
+- See [CALLS_AND_WATCH_PARTIES.md](CALLS_AND_WATCH_PARTIES.md) for the complete
+  recovery and browser-permission checklist.
+
+### Recorded voice or video message fails
+
 - Recheck browser site permissions for camera and microphone.
 - Confirm the instance upload limit and total storage quota have room.
 - Test a browser-supported MP4 or WebM format.
+
+### YouTube sharing fails
+
+- Confirm `youtube-nocookie.com` is not blocked by browser content controls.
+- Some viewers must tap once before audible autoplay is permitted.
+- Verify that the video permits embedding and is available in the viewer's
+  region. Stop screen sharing before starting a 1:1 YouTube share.
 
 ### SQLite is locked or read-only
 
