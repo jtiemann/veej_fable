@@ -35,6 +35,7 @@ defmodule VeejrWeb.CallLiveTest do
 
     {:ok, view, _html} = live(conn, call_path)
 
+    assert has_element?(view, "#hang-up[data-call-exit]")
     view |> element("#hang-up") |> render_click()
 
     assert_redirect(view, return_to)
@@ -119,6 +120,7 @@ defmodule VeejrWeb.CallLiveTest do
            )
 
     assert has_element?(view, "#call-unlock-submit[data-role='unlock-call']")
+    assert has_element?(view, "#call-unlock-cancel[data-call-exit]")
   end
 
   test "an incoming call without an origin returns to the peer conversation", %{

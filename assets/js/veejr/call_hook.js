@@ -25,6 +25,84 @@ const CHAT_FILE_LIMIT = 25 * 1024 * 1024
 const CHAT_CHUNK_SIZE = 16 * 1024
 const CHAT_FILE_ID_BYTES = 36
 const CHAT_URL_PATTERN = /https?:\/\/[^\s<>"']+/giu
+const CALL_EXIT_MESSAGE = "Are you sure? This activity will close the conference."
+
+let activeCallExitGuard = null
+let callExitGuardInstalled = false
+
+export function installCallExitGuard() {
+  if (callExitGuardInstalled) return
+  callExitGuardInstalled = true
+
+  window.addEventListener("beforeunload", event => {
+    if (!activeCallExitGuard || activeCallExitGuard.allowExit) return
+    event.preventDefault()
+    event.returnValue = ""
+  })
+
+  window.addEventListener("popstate", event => {
+    const guard = activeCallExitGuard
+    if (!guard || guard.allowExit) return
+    if (guard.restoringHistory) {
+      guard.restoringHistory = false
+      return
+    }
+
+    if (window.confirm(CALL_EXIT_MESSAGE)) {
+      guard.allowExit = true
+    } else {
+      event.stopImmediatePropagation()
+      guard.restoringHistory = true
+      window.history.forward()
+    }
+  })
+
+  document.addEventListener("click", event => {
+    const guard = activeCallExitGuard
+    if (!guard || guard.allowExit || event.defaultPrevented || event.button !== 0) return
+
+    const target = event.target instanceof Element ? event.target : null
+    const explicitExit = target?.closest("[data-call-exit]")
+    const link = target?.closest("a[href]")
+    if (!explicitExit && !callClosingLink(link)) return
+
+    if (window.confirm(CALL_EXIT_MESSAGE)) {
+      guard.allowExit = true
+    } else {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+    }
+  }, true)
+}
+
+function callClosingLink(link) {
+  if (!link || link.target === "_blank" || link.hasAttribute("download")) return false
+
+  let destination
+  try {
+    destination = new URL(link.href, window.location.href)
+  } catch {
+    return false
+  }
+
+  return (
+    destination.origin !== window.location.origin ||
+    destination.pathname !== window.location.pathname ||
+    destination.search !== window.location.search
+  )
+}
+
+function activateCallExitGuard(callId) {
+  activeCallExitGuard = {
+    callId,
+    allowExit: false,
+    restoringHistory: false,
+  }
+}
+
+function deactivateCallExitGuard(callId) {
+  if (activeCallExitGuard?.callId === callId) activeCallExitGuard = null
+}
 
 function trimChatUrl(raw) {
   let url = raw.replace(/[.,!?;:]+$/u, "")
@@ -93,6 +171,7 @@ export function classifyCallQuality({loss = 0, rtt = 0, jitter = 0, bitrate} = {
 export const CallSession = {
   mounted() {
     const {callId, role, userId, peerKey} = this.el.dataset
+    activateCallExitGuard(callId)
     this.role = role
     this.peerKey = peerKey
     this.mySecret = getSecretKey(userId)
@@ -246,6 +325,7 @@ export const CallSession = {
   },
 
   destroyed() {
+    deactivateCallExitGuard(this.el.dataset.callId)
     this.clearRecoveryTimers()
     this.stopQualityMonitoring()
     clearTimeout(this.noticeTimer)

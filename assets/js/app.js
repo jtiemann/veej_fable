@@ -25,11 +25,12 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/veejr"
 import topbar from "../vendor/topbar"
 import veejrHooks from "./veejr/hooks.js"
-import {CallSession, installRingBanner} from "./veejr/call_hook.js"
+import {CallSession, installCallExitGuard, installRingBanner} from "./veejr/call_hook.js"
 import {YouTubeWatch, installWatchBanner} from "./veejr/watch_hook.js"
 import {WatchVoice} from "./veejr/watch_voice_hook.js"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
+installCallExitGuard()
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},

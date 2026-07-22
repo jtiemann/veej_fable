@@ -88,6 +88,7 @@ defmodule VeejrWeb.CallLive do
           <button
             id="hang-up"
             phx-click="hangup"
+            data-call-exit
             class="btn btn-error btn-sm"
           >
             <.icon name="hero-phone-x-mark" class="size-4" /> End call
@@ -155,7 +156,15 @@ defmodule VeejrWeb.CallLive do
                 >
                   Unlock and continue
                 </button>
-                <button type="button" phx-click="hangup" class="btn btn-ghost">Cancel call</button>
+                <button
+                  id="call-unlock-cancel"
+                  type="button"
+                  phx-click="hangup"
+                  data-call-exit
+                  class="btn btn-ghost"
+                >
+                  Cancel call
+                </button>
               </div>
             </div>
           </div>
