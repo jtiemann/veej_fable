@@ -66,6 +66,18 @@ defmodule VeejrWeb.CallLiveTest do
     assert has_element?(view, "#call-fullscreen[data-role='toggle-fullscreen']")
   end
 
+  test "renders peer-to-peer YouTube sharing controls", %{conn: conn, user: user, friend: friend} do
+    {:ok, call} = Calls.start_call(user, friend.id)
+
+    {:ok, view, _html} = live(conn, "/call/#{call.public_id}")
+
+    assert has_element?(view, "#call-youtube[data-role='share-youtube'][disabled]")
+    assert has_element?(view, "[data-role='call-youtube-stage']")
+    assert has_element?(view, "#call-youtube-input[data-role='call-youtube-input']")
+    assert has_element?(view, "[data-role='youtube-unlock']")
+    assert has_element?(view, "[data-role='end-youtube']")
+  end
+
   test "renders the peer-to-peer call chat and file drop target", %{
     conn: conn,
     user: user,

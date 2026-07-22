@@ -7,6 +7,7 @@
 // so it cannot substitute DTLS fingerprints to man-in-the-middle a call.
 
 import {getSecretKey, sealFor, openFrom} from "./crypto.js"
+import {CallYouTube} from "./call_youtube.js"
 
 const MICROPHONE_CONSTRAINTS = {
   echoCancellation: true,
@@ -134,6 +135,7 @@ export const CallSession = {
     this.chatMessages = this.el.querySelector("[data-role=chat-messages]")
     this.chatInput = this.el.querySelector("[data-role=chat-input]")
     this.chatStatus = this.el.querySelector("[data-role=chat-status]")
+    this.youtube = new CallYouTube(this)
     this.mediaReady = new Promise((resolve) => {
       this.resolveMediaReady = resolve
     })
@@ -181,6 +183,7 @@ export const CallSession = {
     this.releaseWakeLock()
     this.closeSharePopout()
     this.chatObjectUrls.forEach((url) => URL.revokeObjectURL(url))
+    this.youtube?.destroy()
     if (this.chatChannel) this.chatChannel.close()
     if (document.pictureInPictureElement === this.remoteVideo && document.exitPictureInPicture) {
       document.exitPictureInPicture().catch(() => {})
@@ -499,6 +502,9 @@ export const CallSession = {
   // sharing stops, including via the browser's own "Stop sharing" bar.
   async toggleScreenShare() {
     if (this.screenTrack) return this.stopScreenShare()
+    if (this.youtube?.active) {
+      return this.showCallNotice("Stop YouTube sharing before sharing your screen.")
+    }
 
     const cameraTrack = this.localStream && this.localStream.getVideoTracks()[0]
     const sender =
@@ -1022,10 +1028,12 @@ export const CallSession = {
     channel.onopen = () => {
       if (this.chatStatus) this.chatStatus.textContent = "Direct · encrypted"
       this.updateChatComposer()
+      this.youtube?.channelStateChanged()
     }
     channel.onclose = () => {
       if (this.chatStatus) this.chatStatus.textContent = "Chat disconnected"
       this.updateChatComposer()
+      this.youtube?.channelStateChanged()
     }
     channel.onerror = () => this.showChatError("The direct chat connection was interrupted.")
     channel.onmessage = (event) => {
@@ -1072,6 +1080,7 @@ export const CallSession = {
 
   handleChatPayload(payload) {
     if (!payload || typeof payload !== "object") return
+    if (this.youtube?.handlePayload(payload)) return
 
     if (payload.kind === "chat_text" && typeof payload.text === "string") {
       const text = payload.text.slice(0, 4000)
@@ -1419,6 +1428,7 @@ export const CallSession = {
   },
 
   setRemoteShareState(sharing) {
+    if (sharing && this.youtube?.active) this.youtube.stopShare()
     this.remoteSharing = sharing
 
     if (this.remoteShareStatus) {

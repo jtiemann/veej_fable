@@ -26,6 +26,7 @@ defmodule VeejrWeb.CallLive do
         data-call-id={@call.public_id}
         data-role={@role}
         data-user-id={@current_scope.user.id}
+        data-peer-id={@peer.id}
         data-my-key={@current_scope.user.public_key}
         data-peer-key={@peer.public_key}
         data-ice-servers={@ice_servers}
@@ -110,6 +111,88 @@ defmodule VeejrWeb.CallLive do
             class="absolute inset-x-4 top-4 z-30 mx-auto hidden w-fit max-w-xl rounded-2xl bg-error/95 px-4 py-2 text-center text-sm text-error-content shadow-lg"
           >
           </p>
+
+          <section
+            data-role="call-youtube-stage"
+            class="absolute inset-0 z-10 hidden bg-black"
+            aria-label="Shared YouTube video"
+          >
+            <div data-role="call-youtube-player" class="absolute inset-0"></div>
+            <div class="pointer-events-none absolute inset-x-3 top-3 z-30 flex items-center justify-between gap-2 sm:inset-x-4 sm:top-4">
+              <span
+                data-role="youtube-controller-label"
+                class="rounded-full bg-black/75 px-3 py-1.5 text-xs font-semibold text-white shadow-lg backdrop-blur"
+              >
+                YouTube shared
+              </span>
+              <div class="pointer-events-auto flex gap-2">
+                <button
+                  type="button"
+                  data-role="youtube-fullscreen"
+                  class="btn btn-sm border-white/20 bg-black/75 text-white hover:bg-black"
+                >
+                  <.icon name="hero-arrows-pointing-out" class="size-4" /> Full screen
+                </button>
+                <button
+                  type="button"
+                  data-role="end-youtube"
+                  class="btn btn-error btn-sm hidden"
+                >
+                  <.icon name="hero-stop" class="size-4" /> End share
+                </button>
+              </div>
+            </div>
+            <button
+              type="button"
+              data-role="youtube-unlock"
+              class="absolute inset-0 z-10 hidden cursor-pointer items-center justify-center bg-black/25 text-white"
+            >
+              <span
+                data-role="youtube-unlock-label"
+                class="rounded-full bg-black/80 px-5 py-3 text-sm font-semibold shadow-xl backdrop-blur"
+              >
+                Tap to watch together
+              </span>
+            </button>
+          </section>
+
+          <div
+            data-role="call-youtube-dialog"
+            class="absolute inset-0 z-40 hidden place-items-center bg-black/65 p-4 backdrop-blur-sm"
+          >
+            <div class="w-full max-w-lg rounded-3xl border border-base-300 bg-base-100 p-5 text-base-content shadow-2xl sm:p-6">
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <h2 class="text-xl font-semibold">Share YouTube</h2>
+                  <p class="mt-1 text-sm opacity-65">You will control playback for both of you.</p>
+                </div>
+                <button
+                  type="button"
+                  data-role="cancel-youtube"
+                  aria-label="Close YouTube sharing"
+                  class="btn btn-circle btn-ghost btn-sm"
+                >
+                  <.icon name="hero-x-mark" class="size-5" />
+                </button>
+              </div>
+              <div class="mt-5 [&_.fieldset]:mb-0">
+                <.input
+                  id="call-youtube-input"
+                  name="call_youtube_url"
+                  type="text"
+                  value=""
+                  data-role="call-youtube-input"
+                  label="YouTube link or video ID"
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  autocomplete="off"
+                />
+              </div>
+              <p data-role="call-youtube-error" class="mt-2 hidden text-sm text-error"></p>
+              <button type="button" data-role="start-youtube" class="btn btn-primary mt-4 w-full">
+                <.icon name="hero-play" class="size-4" /> Share video
+              </button>
+            </div>
+          </div>
           <p
             id="call-network-adjustment"
             data-role="call-notice"
@@ -334,6 +417,17 @@ defmodule VeejrWeb.CallLive do
             class="btn btn-outline btn-sm hidden"
           >
             🖥 Share screen
+          </button>
+          <button
+            id="call-youtube"
+            type="button"
+            data-role="share-youtube"
+            aria-pressed="false"
+            disabled
+            class="btn btn-outline btn-sm"
+          >
+            <.icon name="hero-play-circle" class="size-4" />
+            <span data-role="youtube-share-label">YouTube</span>
           </button>
           <button
             id="call-fit"
