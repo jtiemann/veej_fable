@@ -27,12 +27,13 @@ import topbar from "../vendor/topbar"
 import veejrHooks from "./veejr/hooks.js"
 import {CallSession, installRingBanner} from "./veejr/call_hook.js"
 import {YouTubeWatch, installWatchBanner} from "./veejr/watch_hook.js"
+import {WatchVoice} from "./veejr/watch_voice_hook.js"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, ...veejrHooks, CallSession, YouTubeWatch},
+  hooks: {...colocatedHooks, ...veejrHooks, CallSession, YouTubeWatch, WatchVoice},
 })
 
 // Incoming-call banners can appear on any authenticated page.

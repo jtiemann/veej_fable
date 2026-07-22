@@ -51,6 +51,8 @@ defmodule VeejrWeb.WatchLiveTest do
     assert has_element?(host_view, "#youtube-watch-player[data-host='true']")
     assert has_element?(host_view, "#youtube-watch-iframe[src*='youtube-nocookie.com']")
     assert has_element?(host_view, "#watch-end")
+    assert has_element?(host_view, "#watch-voice[phx-hook='WatchVoice']")
+    assert has_element?(host_view, "#watch-microphone[aria-pressed='false']")
 
     host_view |> element("#watch-end") |> render_click()
     assert_redirect(host_view, "/watch")

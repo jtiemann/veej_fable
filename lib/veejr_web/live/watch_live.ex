@@ -9,13 +9,26 @@ defmodule VeejrWeb.WatchLive do
   def mount(params, _session, socket) do
     party = party_for_action(socket.assigns.live_action, params)
 
-    if connected?(socket) and party, do: WatchParties.subscribe(party.public_id)
+    {voice_participant, voice_peers} =
+      if connected?(socket) and party do
+        WatchParties.subscribe(party.public_id)
+
+        case WatchParties.join_voice(party.public_id, socket.assigns.current_scope.user) do
+          {:ok, participant, peers} -> {participant, peers}
+          {:error, _reason} -> {nil, []}
+        end
+      else
+        {nil, []}
+      end
 
     socket =
       socket
       |> assign(:party, party)
       |> assign(:host?, party && party.host_id == socket.assigns.current_scope.user.id)
       |> assign(:watch_form, to_form(%{"url" => ""}, as: :watch))
+      |> assign(:voice_participant, voice_participant)
+      |> assign(:voice_peers, Jason.encode!(voice_peers))
+      |> assign(:ice_servers, Jason.encode!(Veejr.Calls.IceConfig.servers()))
 
     case {socket.assigns.live_action, party} do
       {:show, nil} ->
@@ -64,6 +77,24 @@ defmodule VeejrWeb.WatchLive do
     {:noreply, push_navigate(socket, to: ~p"/watch")}
   end
 
+  def handle_event(
+        "watch_voice_signal",
+        %{"target" => target, "ciphertext" => ciphertext, "nonce" => nonce},
+        socket
+      ) do
+    if socket.assigns.voice_participant do
+      WatchParties.signal_voice(
+        socket.assigns.party.public_id,
+        socket.assigns.voice_participant.id,
+        target,
+        ciphertext,
+        nonce
+      )
+    end
+
+    {:noreply, socket}
+  end
+
   @impl true
   def handle_info({:watch_party_control, party}, socket) do
     socket = assign(socket, :party, party)
@@ -84,6 +115,34 @@ defmodule VeejrWeb.WatchLive do
      socket
      |> put_flash(:info, "The host ended the watch party.")
      |> push_navigate(to: ~p"/watch")}
+  end
+
+  def handle_info({:watch_voice_joined, participant}, socket) do
+    if socket.assigns.voice_participant && participant.id != socket.assigns.voice_participant.id do
+      {:noreply, push_event(socket, "watch:voice_joined", %{participant: participant})}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:watch_voice_left, participant_id}, socket) do
+    {:noreply, push_event(socket, "watch:voice_left", %{participant_id: participant_id})}
+  end
+
+  def handle_info(
+        {:watch_voice_signal, target_id, sender, ciphertext, nonce},
+        socket
+      ) do
+    if socket.assigns.voice_participant && target_id == socket.assigns.voice_participant.id do
+      {:noreply,
+       push_event(socket, "watch:voice_signal", %{
+         sender: sender,
+         ciphertext: ciphertext,
+         nonce: nonce
+       })}
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true
@@ -159,6 +218,42 @@ defmodule VeejrWeb.WatchLive do
             >
               <.icon name="hero-arrows-pointing-out" class="size-4" /> Full screen
             </button>
+          </div>
+
+          <div
+            id="watch-voice"
+            phx-hook="WatchVoice"
+            phx-update="ignore"
+            data-party-id={@party.public_id}
+            data-participant-id={@voice_participant && @voice_participant.id}
+            data-user-id={@current_scope.user.id}
+            data-peers={@voice_peers}
+            data-ice-servers={@ice_servers}
+            class="flex flex-wrap items-center gap-4 rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm"
+          >
+            <div class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <.icon name="hero-speaker-wave" class="size-5" />
+            </div>
+            <div class="min-w-44 flex-1">
+              <p class="font-semibold">Party voice</p>
+              <p data-role="voice-status" class="text-sm opacity-65">
+                Microphone off · connecting listeners…
+              </p>
+            </div>
+            <button
+              id="watch-microphone"
+              type="button"
+              data-role="toggle-microphone"
+              aria-pressed="false"
+              class="btn btn-primary btn-sm"
+            >
+              <span data-role="mic-on-icon"><.icon name="hero-microphone" class="size-4" /></span>
+              <span data-role="mic-off-icon" class="hidden">
+                <.icon name="hero-microphone-slash" class="size-4" />
+              </span>
+              <span data-role="mic-label">Turn microphone on</span>
+            </button>
+            <div data-role="remote-audio" aria-live="polite"></div>
           </div>
         </section>
       <% else %>

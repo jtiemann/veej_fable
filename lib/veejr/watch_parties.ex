@@ -45,6 +45,24 @@ defmodule Veejr.WatchParties do
     GenServer.call(server, {:control, public_id, user_id, command, position})
   end
 
+  def join_voice(public_id, user, pid \\ self(), server \\ __MODULE__) do
+    GenServer.call(server, {:join_voice, public_id, user, pid})
+  end
+
+  def signal_voice(
+        public_id,
+        participant_id,
+        target_id,
+        ciphertext,
+        nonce,
+        server \\ __MODULE__
+      ) do
+    GenServer.call(
+      server,
+      {:signal_voice, public_id, participant_id, target_id, ciphertext, nonce}
+    )
+  end
+
   def extract_video_id(input) when is_binary(input) do
     input = String.trim(input)
 
@@ -57,7 +75,7 @@ defmodule Veejr.WatchParties do
   def extract_video_id(_input), do: {:error, :invalid_youtube_url}
 
   @impl true
-  def init(_state), do: {:ok, %{party: nil, expiry_ref: nil}}
+  def init(_state), do: {:ok, %{party: nil, expiry_ref: nil, participants: %{}}}
 
   @impl true
   def handle_call(:active_party, _from, state), do: {:reply, state.party, state}
@@ -109,6 +127,67 @@ defmodule Veejr.WatchParties do
     end
   end
 
+  def handle_call(
+        {:join_voice, public_id, user, pid},
+        _from,
+        %{party: %{public_id: public_id}} = state
+      )
+      when is_pid(pid) and is_binary(user.public_key) do
+    participant = %{
+      id: Ecto.UUID.generate(),
+      user_id: user.id,
+      name: user.display_name || Address.handle(user),
+      public_key: user.public_key,
+      pid: pid,
+      monitor_ref: Process.monitor(pid)
+    }
+
+    peers = state.participants |> Map.values() |> Enum.map(&public_participant/1)
+    participants = Map.put(state.participants, participant.id, participant)
+
+    PubSub.broadcast(
+      Veejr.PubSub,
+      party_topic(public_id),
+      {:watch_voice_joined, public_participant(participant)}
+    )
+
+    {:reply, {:ok, public_participant(participant), peers}, %{state | participants: participants}}
+  end
+
+  def handle_call({:join_voice, _public_id, _user, _pid}, _from, state) do
+    {:reply, {:error, :not_found}, state}
+  end
+
+  def handle_call(
+        {:signal_voice, public_id, participant_id, target_id, ciphertext, nonce},
+        {caller_pid, _tag},
+        state
+      )
+      when is_binary(ciphertext) and is_binary(nonce) and byte_size(ciphertext) <= 100_000 and
+             byte_size(nonce) <= 200 do
+    with %{public_id: ^public_id} <- state.party,
+         %{pid: ^caller_pid} = sender <- Map.get(state.participants, participant_id),
+         %{} <- Map.get(state.participants, target_id) do
+      PubSub.broadcast(
+        Veejr.PubSub,
+        party_topic(public_id),
+        {:watch_voice_signal, target_id, public_participant(sender), ciphertext, nonce}
+      )
+
+      {:reply, :ok, state}
+    else
+      _ -> {:reply, {:error, :invalid_signal}, state}
+    end
+  end
+
+  def handle_call(
+        {:signal_voice, _public_id, _participant_id, _target_id, _ciphertext, _nonce},
+        _from,
+        state
+      ) do
+    {:reply, {:error, :invalid_signal}, state}
+  end
+
   @impl true
   def handle_info({:expire, public_id}, %{party: %{public_id: public_id} = party} = state) do
     broadcast_ended(party)
@@ -116,6 +195,28 @@ defmodule Veejr.WatchParties do
   end
 
   def handle_info({:expire, _public_id}, state), do: {:noreply, state}
+
+  def handle_info({:DOWN, monitor_ref, :process, _pid, _reason}, state) do
+    case Enum.find(state.participants, fn {_id, participant} ->
+           participant.monitor_ref == monitor_ref
+         end) do
+      {participant_id, _participant} ->
+        participants = Map.delete(state.participants, participant_id)
+
+        if state.party do
+          PubSub.broadcast(
+            Veejr.PubSub,
+            party_topic(state.party.public_id),
+            {:watch_voice_left, participant_id}
+          )
+        end
+
+        {:noreply, %{state | participants: participants}}
+
+      nil ->
+        {:noreply, state}
+    end
+  end
 
   defp extract_video_id_from_uri(%URI{scheme: scheme, host: host} = uri)
        when scheme in ["http", "https"] do
@@ -179,7 +280,12 @@ defmodule Veejr.WatchParties do
 
   defp clear_party(state) do
     if state.expiry_ref, do: Process.cancel_timer(state.expiry_ref)
-    %{state | party: nil, expiry_ref: nil}
+
+    Enum.each(state.participants, fn {_id, participant} ->
+      Process.demonitor(participant.monitor_ref, [:flush])
+    end)
+
+    %{state | party: nil, expiry_ref: nil, participants: %{}}
   end
 
   defp broadcast_ended(party) do
@@ -189,4 +295,8 @@ defmodule Veejr.WatchParties do
   end
 
   defp party_topic(public_id), do: "watch_party:#{public_id}"
+
+  defp public_participant(participant) do
+    Map.take(participant, [:id, :user_id, :name, :public_key])
+  end
 end
