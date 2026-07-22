@@ -24,11 +24,15 @@ defmodule VeejrWeb.CallLive do
         phx-hook="CallSession"
         phx-update="ignore"
         data-call-id={@call.public_id}
+        data-call-state={@call.state}
         data-role={@role}
         data-user-id={@current_scope.user.id}
         data-peer-id={@peer.id}
         data-my-key={@current_scope.user.public_key}
         data-peer-key={@peer.public_key}
+        data-enc-secret-key={@current_scope.user.enc_secret_key}
+        data-key-salt={@current_scope.user.key_salt}
+        data-key-nonce={@current_scope.user.key_nonce}
         data-ice-servers={@ice_servers}
         class="overflow-hidden rounded-[32px] border border-base-300 bg-base-200 shadow-sm"
       >
@@ -111,6 +115,50 @@ defmodule VeejrWeb.CallLive do
             class="absolute inset-x-4 top-4 z-30 mx-auto hidden w-fit max-w-xl rounded-2xl bg-error/95 px-4 py-2 text-center text-sm text-error-content shadow-lg"
           >
           </p>
+
+          <div
+            id="call-key-unlock"
+            data-role="call-key-unlock"
+            class="absolute inset-0 z-50 hidden items-center justify-center overflow-y-auto bg-base-300/95 p-4 backdrop-blur-sm"
+          >
+            <div class="my-auto w-full max-w-md rounded-3xl border border-base-300 bg-base-100 p-6 text-base-content shadow-2xl sm:p-8">
+              <div class="mx-auto flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <.icon name="hero-lock-closed" class="size-6" />
+              </div>
+              <h2 class="mt-4 text-center text-2xl font-semibold tracking-tight">Unlock this call</h2>
+              <p class="mt-2 text-center text-sm leading-relaxed opacity-65">
+                Enter your encryption passphrase to connect securely. It stays on this device.
+              </p>
+              <div class="mt-5 [&_.fieldset]:mb-0">
+                <.input
+                  id="call-passphrase"
+                  name="call_passphrase"
+                  type="password"
+                  value=""
+                  data-role="call-passphrase"
+                  label="Encryption passphrase"
+                  autocomplete="current-password"
+                />
+              </div>
+              <p
+                data-role="call-unlock-error"
+                role="alert"
+                class="mt-2 hidden text-sm text-error"
+              >
+              </p>
+              <div class="mt-5 grid gap-2 sm:grid-cols-2">
+                <button
+                  id="call-unlock-submit"
+                  type="button"
+                  data-role="unlock-call"
+                  class="btn btn-primary"
+                >
+                  Unlock and continue
+                </button>
+                <button type="button" phx-click="hangup" class="btn btn-ghost">Cancel call</button>
+              </div>
+            </div>
+          </div>
 
           <section
             data-role="call-youtube-stage"

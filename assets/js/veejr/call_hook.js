@@ -6,7 +6,7 @@
 // leaves the browser. The server relays ciphertext it cannot read or alter,
 // so it cannot substitute DTLS fingerprints to man-in-the-middle a call.
 
-import {getSecretKey, sealFor, openFrom} from "./crypto.js"
+import {getSecretKey, sealFor, openFrom, unlockIdentity, cacheSecretKey} from "./crypto.js"
 import {CallYouTube} from "./call_youtube.js"
 
 const MICROPHONE_CONSTRAINTS = {
@@ -122,6 +122,9 @@ export const CallSession = {
     this.callTimer = null
     this.wakeLock = null
     this.remoteMediaState = {audio: true, video: true}
+    this.peerJoined = this.el.dataset.callState === "accepted"
+    this.pendingSealedSignals = []
+    this.secureSessionStarted = false
     this.remoteVideo = this.el.querySelector("[data-role=remote-video]")
     this.localVideo = this.el.querySelector("[data-role=local-video]")
     this.remoteShareStatus = this.el.querySelector("[data-role=remote-share-status]")
@@ -140,21 +143,25 @@ export const CallSession = {
       this.resolveMediaReady = resolve
     })
 
-    if (!this.mySecret) {
-      return this.fail("🔒 Your keys are locked — unlock them and try the call again.")
-    }
-
     this.handleEvent("call:peer_joined", () => {
+      this.peerJoined = true
       this.setLifecycle("connecting", "Connecting…")
-      if (this.role === "caller") this.startAsCaller()
+      if (this.secureSessionStarted && this.role === "caller") this.startAsCaller()
     })
 
     this.handleEvent("call:signal", ({ciphertext, nonce}) => {
-      const payload = openFrom(ciphertext, nonce, this.peerKey, this.mySecret)
-      if (!payload) return // tampered or stale — never act on unauthenticated signaling
-      this.onSignal(payload)
+      if (this.mySecret) this.openCallSignal(ciphertext, nonce)
+      else this.pendingSealedSignals.push({ciphertext, nonce})
     })
 
+    if (this.mySecret) this.beginSecureSession()
+    else this.showCallUnlock()
+  },
+
+  beginSecureSession() {
+    if (this.secureSessionStarted || !this.mySecret) return
+    this.secureSessionStarted = true
+    this.el.querySelector("[data-role=call-key-unlock]")?.classList.add("hidden")
     this.setupControls()
     this.deviceChangeHandler = () => this.refreshDeviceChoices({recoverMissing: true})
     if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
@@ -164,6 +171,78 @@ export const CallSession = {
     // the user confirms their preview would create a receive-only session or
     // send from a device they did not mean to use.
     this.acquireMedia()
+
+    if (this.role === "caller" && this.peerJoined) this.startAsCaller()
+    for (const signal of this.pendingSealedSignals.splice(0)) {
+      this.openCallSignal(signal.ciphertext, signal.nonce)
+    }
+  },
+
+  showCallUnlock() {
+    const panel = this.el.querySelector("[data-role=call-key-unlock]")
+    const input = this.el.querySelector("[data-role=call-passphrase]")
+    const button = this.el.querySelector("[data-role=unlock-call]")
+    const error = this.el.querySelector("[data-role=call-unlock-error]")
+    if (!panel || !input || !button) return this.fail("🔒 Unlock your keys to continue the call.")
+
+    panel.classList.remove("hidden")
+    panel.classList.add("flex")
+    this.setLifecycle("locked", "Passphrase required")
+    window.setTimeout(() => input.focus(), 0)
+
+    const unlock = async () => {
+      if (!input.value || button.disabled) return
+      button.disabled = true
+      button.textContent = "Unlocking…"
+      error?.classList.add("hidden")
+
+      try {
+        const secretKey = await unlockIdentity(
+          input.value,
+          this.el.dataset.encSecretKey,
+          this.el.dataset.keySalt,
+          this.el.dataset.keyNonce,
+        )
+
+        if (!secretKey) {
+          if (error) {
+            error.textContent = "Wrong passphrase."
+            error.classList.remove("hidden")
+          }
+          return
+        }
+
+        cacheSecretKey(this.el.dataset.userId, secretKey)
+        this.mySecret = secretKey
+        input.value = ""
+        panel.classList.add("hidden")
+        panel.classList.remove("flex")
+        this.setLifecycle("connecting", this.role === "caller" ? "Ringing…" : "Connecting…")
+        this.beginSecureSession()
+      } catch {
+        if (error) {
+          error.textContent = "Could not unlock your keys on this device."
+          error.classList.remove("hidden")
+        }
+      } finally {
+        button.disabled = false
+        button.textContent = "Unlock and continue"
+      }
+    }
+
+    button.addEventListener("click", unlock)
+    input.addEventListener("keydown", event => {
+      if (event.key === "Enter") {
+        event.preventDefault()
+        unlock()
+      }
+    })
+  },
+
+  openCallSignal(ciphertext, nonce) {
+    const payload = openFrom(ciphertext, nonce, this.peerKey, this.mySecret)
+    if (!payload) return // tampered or stale — never act on unauthenticated signaling
+    this.onSignal(payload)
   },
 
   destroyed() {

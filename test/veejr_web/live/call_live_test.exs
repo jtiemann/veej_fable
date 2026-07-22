@@ -111,6 +111,14 @@ defmodule VeejrWeb.CallLiveTest do
     assert has_element?(view, "#call-speaker[data-role='speaker-select']")
     assert has_element?(view, "#call-join[disabled]")
     assert has_element?(view, "#call-devices[data-role='open-devices']")
+    assert has_element?(view, "#call-key-unlock[data-role='call-key-unlock']")
+
+    assert has_element?(
+             view,
+             "#call-passphrase[type='password'][autocomplete='current-password']"
+           )
+
+    assert has_element?(view, "#call-unlock-submit[data-role='unlock-call']")
   end
 
   test "an incoming call without an origin returns to the peer conversation", %{
