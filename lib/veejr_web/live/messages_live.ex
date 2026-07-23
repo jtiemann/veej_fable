@@ -17,8 +17,13 @@ defmodule VeejrWeb.MessagesLive do
       pending_count={@pending_count}
       container_class="mx-auto max-w-7xl"
     >
-      <div class="rounded-[32px] border border-base-300 bg-base-200 shadow-sm">
-        <div class="relative z-20 rounded-t-[31px] border-b border-base-300 bg-base-100 px-4 py-4">
+      <div
+        id="messages-workspace"
+        phx-hook="ChatTheme"
+        data-chat-theme="classic"
+        class="messages-workspace rounded-[32px] border border-base-300 bg-base-200 shadow-sm"
+      >
+        <div class="messages-page-header relative z-20 rounded-t-[31px] border-b border-base-300 bg-base-100 px-4 py-4">
           <div class="flex flex-wrap items-start justify-between gap-4">
             <div>
               <.link
@@ -35,6 +40,31 @@ defmodule VeejrWeb.MessagesLive do
               <p class="text-sm opacity-70">End-to-end encrypted conversations</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+              <div
+                id="chat-theme-picker"
+                class="chat-theme-picker flex items-center gap-1 rounded-full border border-base-300 bg-base-200 p-1"
+                role="group"
+                aria-label="Chat appearance"
+              >
+                <button
+                  id="chat-theme-classic"
+                  type="button"
+                  data-chat-theme-option="classic"
+                  aria-pressed="true"
+                  class="chat-theme-option rounded-full px-3 py-1.5 text-xs font-medium transition"
+                >
+                  Classic
+                </button>
+                <button
+                  id="chat-theme-salon"
+                  type="button"
+                  data-chat-theme-option="salon"
+                  aria-pressed="false"
+                  class="chat-theme-option rounded-full px-3 py-1.5 text-xs font-medium transition"
+                >
+                  Salon
+                </button>
+              </div>
               <.link
                 id="messages-invite-person"
                 navigate={~p"/invites/new"}
@@ -99,8 +129,8 @@ defmodule VeejrWeb.MessagesLive do
           </ul>
         </section>
 
-        <section class="min-h-[42rem] overflow-hidden rounded-b-[31px] lg:h-[calc(100svh-12rem)] lg:min-h-0">
-          <aside class="hidden border-b border-base-300 bg-base-100 p-3 lg:overflow-y-auto lg:border-b-0 lg:border-r">
+        <section class="messages-layout min-h-[42rem] overflow-hidden rounded-b-[31px] lg:h-[calc(100svh-12rem)] lg:min-h-0">
+          <aside class="messages-rail hidden border-b border-base-300 bg-base-100 p-3 lg:overflow-y-auto lg:border-b-0 lg:border-r">
             <div class="mb-3 flex items-center justify-between px-2">
               <h2 class="text-sm font-semibold uppercase tracking-wide opacity-70">
                 Conversations
@@ -230,7 +260,7 @@ defmodule VeejrWeb.MessagesLive do
             </div>
           </aside>
 
-          <main class="flex h-full min-h-0 min-w-0 flex-col bg-base-200/80">
+          <main class="messages-main flex h-full min-h-0 min-w-0 flex-col bg-base-200/80">
             <div :if={@self_notes} class="flex min-h-0 flex-1 flex-col">
               <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 bg-base-100 px-5 py-4">
                 <div>
@@ -446,9 +476,9 @@ defmodule VeejrWeb.MessagesLive do
             </div>
             <div
               :if={@selected_conversation && !@self_notes}
-              class="flex min-h-0 flex-1 flex-col"
+              class="messages-chat flex min-h-0 flex-1 flex-col"
             >
-              <div class="flex items-center justify-between gap-3 border-b border-base-300 bg-base-100 px-5 py-4">
+              <div class="messages-chat-header flex items-center justify-between gap-3 border-b border-base-300 bg-base-100 px-5 py-4">
                 <div class="flex min-w-0 items-center gap-3">
                   <.user_avatar
                     :if={@selected_conversation.avatar_user}
@@ -497,7 +527,7 @@ defmodule VeejrWeb.MessagesLive do
                 id={"thread-#{@selected_conversation.key}"}
                 phx-hook="ScrollBottom"
                 data-has-more={@has_more_messages}
-                class="min-h-[26rem] flex-1 space-y-3 overflow-y-auto px-4 py-4 sm:px-6 lg:min-h-0"
+                class="messages-thread min-h-[26rem] flex-1 space-y-3 overflow-y-auto px-4 py-4 sm:px-6 lg:min-h-0"
               >
                 <div class="py-2 text-center">
                   <button
@@ -524,7 +554,7 @@ defmodule VeejrWeb.MessagesLive do
                 <div data-role="thread-end" aria-hidden="true" class="h-px shrink-0" />
               </div>
 
-              <section class="sticky bottom-0 z-20 border-t border-base-300 bg-base-100/90 p-3 shadow-[0_-8px_24px_rgba(0,0,0,0.06)] backdrop-blur">
+              <section class="messages-composer-dock sticky bottom-0 z-20 border-t border-base-300 bg-base-100/90 p-3 shadow-[0_-8px_24px_rgba(0,0,0,0.06)] backdrop-blur">
                 <.composer
                   id="message-composer"
                   user={@current_scope.user}

@@ -521,6 +521,51 @@ export const InstallApp = {
   },
 }
 
+// A chat-only appearance preference. This deliberately changes only the
+// Messages workspace, leaving the app-wide light/dark/Art Deco theme intact.
+export const ChatTheme = {
+  mounted() {
+    this.storageKey = "veejr:chat-theme"
+    this.allowedThemes = new Set(["classic", "salon"])
+    this.onThemeClick = (event) => {
+      const option = event.target.closest("[data-chat-theme-option]")
+      if (!option || !this.el.contains(option)) return
+      this.applyTheme(option.dataset.chatThemeOption, true)
+    }
+    this.onThemeStorage = (event) => {
+      if (event.key === this.storageKey) this.applyTheme(event.newValue, false)
+    }
+
+    this.el.addEventListener("click", this.onThemeClick)
+    window.addEventListener("storage", this.onThemeStorage)
+    this.applyTheme(localStorage.getItem(this.storageKey) || "classic", false)
+  },
+
+  updated() {
+    this.applyTheme(this.currentTheme || "classic", false)
+  },
+
+  destroyed() {
+    this.el.removeEventListener("click", this.onThemeClick)
+    window.removeEventListener("storage", this.onThemeStorage)
+  },
+
+  applyTheme(theme, persist) {
+    const selected = this.allowedThemes.has(theme) ? theme : "classic"
+    this.currentTheme = selected
+    this.el.dataset.chatTheme = selected
+
+    this.el.querySelectorAll("[data-chat-theme-option]").forEach((option) => {
+      option.setAttribute(
+        "aria-pressed",
+        String(option.dataset.chatThemeOption === selected),
+      )
+    })
+
+    if (persist) localStorage.setItem(this.storageKey, selected)
+  },
+}
+
 // Keeps a chat thread scrolled to the newest message at the bottom, the way
 // a messaging app does. Runs on mount and whenever the thread re-renders.
 export const ScrollBottom = {
@@ -2971,6 +3016,7 @@ export default {
   PushSetup,
   AccountStatus,
   InstallApp,
+  ChatTheme,
   Composer,
   Decrypt,
   ConversationPreview,

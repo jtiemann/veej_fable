@@ -30,6 +30,19 @@ defmodule VeejrWeb.MessagesLiveTest do
     assert has_element?(view, "#messages-conversation-builder-form")
   end
 
+  test "offers persistent Classic and Salon chat appearances", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/messages")
+
+    assert has_element?(
+             view,
+             "#messages-workspace[phx-hook='ChatTheme'][data-chat-theme='classic']"
+           )
+
+    assert has_element?(view, "#chat-theme-picker[aria-label='Chat appearance']")
+    assert has_element?(view, "#chat-theme-classic[data-chat-theme-option='classic']")
+    assert has_element?(view, "#chat-theme-salon[data-chat-theme-option='salon']")
+  end
+
   test "defaults the unselected composer to a self note", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/messages")
 

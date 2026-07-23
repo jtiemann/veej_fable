@@ -658,7 +658,7 @@ defmodule VeejrWeb.MessagingComponents do
         @mine && "items-end",
         !@mine && "items-start"
       ]}>
-        <div :if={!@mine} class="mb-1 ml-3 text-xs font-medium opacity-70">
+        <div :if={!@mine} class="veejr-bubble-author mb-1 ml-3 text-xs font-medium opacity-70">
           {Veejr.Social.Address.handle(@envelope.sender)}
         </div>
         <div class={[
@@ -688,7 +688,11 @@ defmodule VeejrWeb.MessagingComponents do
             <span class="loading loading-dots loading-xs"></span>
           </div>
         </div>
-        <div class={["mt-1 text-xs opacity-60", @mine && "mr-3", !@mine && "ml-3"]}>
+        <div class={[
+          "veejr-bubble-meta mt-1 text-xs opacity-60",
+          @mine && "mr-3",
+          !@mine && "ml-3"
+        ]}>
           <span>{Calendar.strftime(@envelope.inserted_at, "%H:%M")}</span>
           <span :if={@envelope.edited_at} class="ml-1">edited</span>
           <span :if={@envelope.expires_at} class="ml-1">
