@@ -174,6 +174,9 @@ defmodule VeejrWeb.Router do
       live "/groups", GroupsLive
       live "/contacts", ContactsLive
       live "/invites/new", InvitationLive.New, :new
+      live "/guest-conferences/new", GuestConferenceLive.New, :new
+      live "/guest-conferences/:public_id", GuestConferenceLive.Host, :show
+      live "/guest-conferences/:public_id/call", GuestConferenceLive.HostCall, :show
       live "/messages", MessagesLive
       live "/map", MapLive
       live "/history", HistoryLive
@@ -193,6 +196,11 @@ defmodule VeejrWeb.Router do
 
   scope "/", VeejrWeb do
     pipe_through [:browser]
+
+    live_session :guest_conference do
+      live "/guest/:token", GuestConferenceLive.Guest, :show
+      live "/guest/:token/call", GuestConferenceLive.Call, :show
+    end
 
     live_session :current_user,
       on_mount: [{VeejrWeb.UserAuth, :mount_current_scope}] do

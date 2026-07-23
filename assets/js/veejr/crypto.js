@@ -65,6 +65,13 @@ export async function generateIdentity(passphrase) {
   }
 }
 
+// Guest calls use a tab-local identity that is never uploaded or wrapped for
+// roaming. Only its public half is sent to the host for this conference.
+export function generateEphemeralIdentity() {
+  const pair = nacl.box.keyPair()
+  return {publicKey: toB64(pair.publicKey), secretKey: pair.secretKey}
+}
+
 // Unwraps the roaming secret key with the passphrase. Returns null when the
 // passphrase is wrong (secretbox authentication fails).
 export async function unlockIdentity(passphrase, encSecretKeyB64, keySaltB64, keyNonceB64) {

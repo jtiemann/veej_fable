@@ -18,6 +18,9 @@ defmodule VeejrWeb.InvitationLive.New do
           Ask them to scan this code. The invitation can be used once and expires in {@invitation_lifetime_days} days.
         </:subtitle>
         <:actions>
+          <.link navigate={~p"/guest-conferences/new"} class="btn btn-primary btn-sm">
+            <.icon name="hero-video-camera" class="size-4" /> Guest call
+          </.link>
           <.link navigate={~p"/contacts"} class="btn btn-ghost btn-sm">
             <.icon name="hero-arrow-left" class="size-4" /> Contacts
           </.link>

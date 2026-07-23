@@ -77,12 +77,20 @@ defmodule VeejrWeb.UserLive.Registration do
   end
 
   def mount(params, _session, socket) do
-    changeset = Accounts.change_user_registration(%User{}, %{}, validate_unique: false)
+    invitation = Accounts.get_open_invitation(params["invite"])
+
+    attrs =
+      case {invitation, params["email"]} do
+        {%Accounts.Invitation{}, email} when is_binary(email) -> %{"email" => email}
+        _ -> %{}
+      end
+
+    changeset = Accounts.change_user_registration(%User{}, attrs, validate_unique: false)
 
     {:ok,
      socket
      |> assign(:invite, params["invite"])
-     |> assign(:invitation, Accounts.get_open_invitation(params["invite"]))
+     |> assign(:invitation, invitation)
      |> assign_form(changeset), temporary_assigns: [form: nil]}
   end
 

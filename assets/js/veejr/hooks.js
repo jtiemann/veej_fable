@@ -6,6 +6,7 @@
 
 import {
   generateIdentity,
+  generateEphemeralIdentity,
   unlockIdentity,
   wrapSecretKey,
   cacheSecretKey,
@@ -2865,6 +2866,69 @@ export const AvatarUpload = {
 
 import VeejrMap from "./map_hook.js"
 
+const GuestConferenceLobby = {
+  mounted() {
+    this.button = this.el.querySelector("[data-role=guest-ready]")
+    this.nameInput = this.el.querySelector("#guest-display-name")
+    this.preview = this.el.querySelector("[data-role=guest-preview]")
+    this.previewEmpty = this.el.querySelector("[data-role=guest-preview-empty]")
+    this.status = this.el.querySelector("[data-role=guest-lobby-status]")
+    this.stream = null
+    this.button.addEventListener("click", () => this.prepare())
+  },
+
+  async prepare() {
+    const displayName = this.nameInput.value.trim()
+    if (!displayName) {
+      this.status.textContent = "Enter the name your host will recognize."
+      this.nameInput.focus()
+      return
+    }
+
+    this.button.disabled = true
+    this.button.textContent = "Checking camera and microphoneâ€¦"
+    this.status.textContent = ""
+
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({video: true, audio: true})
+      this.preview.srcObject = this.stream
+      this.previewEmpty.classList.add("hidden")
+
+      const identity = generateEphemeralIdentity()
+      cacheSecretKey(this.el.dataset.guestId, identity.secretKey)
+
+      const reply = await new Promise((resolve) => {
+        this.pushEvent(
+          "guest_ready",
+          {display_name: displayName, public_key: identity.publicKey},
+          resolve
+        )
+      })
+
+      if (!reply?.ok) throw new Error(reply?.error || "Could not enter the waiting room.")
+      this.stopPreview()
+    } catch (error) {
+      this.status.textContent =
+        error?.name === "NotAllowedError"
+          ? "Camera and microphone access is required for this guest call."
+          : error.message || "Could not prepare your devices."
+      this.button.disabled = false
+      this.button.textContent = "Check devices and enter waiting room"
+      this.stopPreview()
+    }
+  },
+
+  destroyed() {
+    this.stopPreview()
+  },
+
+  stopPreview() {
+    if (this.stream) this.stream.getTracks().forEach((track) => track.stop())
+    this.stream = null
+    if (this.preview) this.preview.srcObject = null
+  },
+}
+
 export default {
   KeySetup,
   KeyUnlock,
@@ -2885,5 +2949,6 @@ export default {
   AvatarUpload,
   ReplyTo,
   ScrollBottom,
+  GuestConferenceLobby,
   VeejrMap,
 }

@@ -15,7 +15,7 @@ defmodule VeejrWeb.CallLive do
     ~H"""
     <Layouts.app
       flash={@flash}
-      current_scope={@current_scope}
+      current_scope={@layout_scope}
       pending_count={@pending_count}
       container_class="mx-auto max-w-5xl"
     >
@@ -26,13 +26,14 @@ defmodule VeejrWeb.CallLive do
         data-call-id={@call.public_id}
         data-call-state={@call.state}
         data-role={@role}
-        data-user-id={@current_scope.user.id}
+        data-user-id={@actor.id}
         data-peer-id={@peer.id}
-        data-my-key={@current_scope.user.public_key}
+        data-my-key={@actor.public_key}
         data-peer-key={@peer.public_key}
-        data-enc-secret-key={@current_scope.user.enc_secret_key}
-        data-key-salt={@current_scope.user.key_salt}
-        data-key-nonce={@current_scope.user.key_nonce}
+        data-enc-secret-key={@actor.enc_secret_key}
+        data-key-salt={@actor.key_salt}
+        data-key-nonce={@actor.key_nonce}
+        data-is-guest={to_string(@is_guest)}
         data-ice-servers={@ice_servers}
         class="overflow-hidden rounded-[32px] border border-base-300 bg-base-200 shadow-sm"
       >
@@ -170,7 +171,7 @@ defmodule VeejrWeb.CallLive do
           </div>
 
           <div
-            :if={@role == "caller"}
+            :if={@role == "caller" and @allow_reinvite}
             id="call-reinvite"
             data-role="call-reinvite"
             class="absolute inset-0 z-50 hidden items-center justify-center overflow-y-auto bg-base-300/95 p-4 backdrop-blur-sm"
@@ -656,6 +657,10 @@ defmodule VeejrWeb.CallLive do
        call: call,
        role: role,
        peer: peer,
+       actor: user,
+       layout_scope: socket.assigns.current_scope,
+       is_guest: false,
+       allow_reinvite: true,
        return_to: return_to(params, call, user),
        ice_servers: Jason.encode!(Veejr.Calls.IceConfig.servers())
      )}

@@ -22,6 +22,9 @@ defmodule Veejr.Calls do
 
   alias Veejr.Accounts.User
   alias Veejr.Calls.Call
+  alias Veejr.GuestConferences
+  alias Veejr.GuestConferences.GuestCall
+  alias Veejr.GuestConferences.GuestConference
   alias Veejr.Repo
   alias Veejr.Social
 
@@ -31,6 +34,7 @@ defmodule Veejr.Calls do
   ## PubSub
 
   def subscribe(%Call{public_id: public_id}), do: subscribe(public_id)
+  def subscribe(%GuestCall{public_id: public_id}), do: subscribe(public_id)
   def subscribe(public_id), do: Phoenix.PubSub.subscribe(Veejr.PubSub, topic(public_id))
 
   defp topic(public_id), do: "call:#{public_id}"
@@ -91,6 +95,39 @@ defmodule Veejr.Calls do
     end
   end
 
+  @doc "Creates a ringing call after a host admits one waiting email guest."
+  def start_guest_call(
+        %User{id: host_id, host: nil} = host,
+        %GuestConference{host_id: host_id, state: "waiting"} = conference
+      ) do
+    Ecto.Multi.new()
+    |> Ecto.Multi.insert(:call, %GuestCall{
+      public_id: random_id(),
+      host_id: host.id,
+      guest_conference_id: conference.id,
+      state: "ringing"
+    })
+    |> Ecto.Multi.update(
+      :conference,
+      Ecto.Changeset.change(conference,
+        state: "admitted",
+        admitted_at: DateTime.utc_now(:second)
+      )
+    )
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{call: call, conference: admitted}} ->
+        call = preload_guest_call(call)
+        GuestConferences.broadcast_admitted(admitted, call)
+        {:ok, call}
+
+      {:error, _operation, reason, _changes} ->
+        {:error, reason}
+    end
+  end
+
+  def start_guest_call(%User{}, %GuestConference{}), do: {:error, :unavailable}
+
   defp ring_local(call, %User{} = callee) do
     Phoenix.PubSub.broadcast(
       Veejr.PubSub,
@@ -102,9 +139,24 @@ defmodule Veejr.Calls do
   @doc "Fetches a call by public id, only for its participants."
   def get_call(%User{id: user_id}, public_id) when is_binary(public_id) do
     case Repo.get_by(Call, public_id: public_id) do
-      %Call{caller_id: ^user_id} = call -> {:ok, Repo.preload(call, [:caller, :callee])}
-      %Call{callee_id: ^user_id} = call -> {:ok, Repo.preload(call, [:caller, :callee])}
+      %Call{caller_id: ^user_id} = call -> {:ok, preload_call(call)}
+      %Call{callee_id: ^user_id} = call -> {:ok, preload_call(call)}
       _ -> {:error, :not_found}
+    end
+  end
+
+  @doc "Fetches the active call associated with an authorized guest capability."
+  def get_guest_call(%GuestConference{id: conference_id}) do
+    case Repo.get_by(GuestCall, guest_conference_id: conference_id) do
+      nil -> {:error, :not_found}
+      call -> {:ok, preload_guest_call(call)}
+    end
+  end
+
+  def get_guest_call_for_host(%User{id: host_id}, public_id) when is_binary(public_id) do
+    case Repo.get_by(GuestCall, public_id: public_id, host_id: host_id) do
+      nil -> {:error, :not_found}
+      call -> {:ok, preload_guest_call(call)}
     end
   end
 
@@ -136,6 +188,18 @@ defmodule Veejr.Calls do
       {:ok, call}
     else
       {:ok, %Call{} = call} -> {:error, {:bad_state, call.state}}
+      error -> error
+    end
+  end
+
+  @doc "Joins a ringing call from its admitted temporary guest side."
+  def join_guest_call(%GuestConference{} = conference) do
+    with {:ok, %GuestCall{state: "ringing"} = call} <- get_guest_call(conference) do
+      call = set_guest_state(call, "accepted")
+      broadcast(call, {:call_peer_joined, call.public_id})
+      {:ok, call}
+    else
+      {:ok, %GuestCall{} = call} -> {:error, {:bad_state, call.state}}
       error -> error
     end
   end
@@ -173,6 +237,29 @@ defmodule Veejr.Calls do
       :ok
     end
   end
+
+  @doc "Ends a guest call using its emailed capability."
+  def end_guest_call(%GuestConference{} = conference) do
+    with {:ok, %GuestCall{} = call} <- get_guest_call(conference) do
+      if call.state in ["ringing", "accepted"] do
+        final = if call.state == "ringing", do: "missed", else: "ended"
+        call = set_guest_state(call, final)
+        broadcast(call, {:call_ended, call.public_id, final})
+        finish_guest_conference(call)
+      end
+
+      :ok
+    end
+  end
+
+  def end_guest_host_call(
+        %User{id: host_id},
+        %GuestCall{host_id: host_id, guest_conference: %GuestConference{} = conference}
+      ) do
+    end_guest_call(conference)
+  end
+
+  def end_guest_host_call(%User{}, %GuestCall{}), do: {:error, :not_found}
 
   @doc "Ends an accepted call because one participant remained offline beyond the grace period."
   def disconnect_call(%User{id: user_id} = user, public_id) do
@@ -217,6 +304,37 @@ defmodule Veejr.Calls do
       {:ok, %Call{} = call} -> {:error, {:bad_state, call.state}}
       error -> error
     end
+  end
+
+  @doc "Relays one sealed signaling payload from an authorized temporary guest."
+  def signal_guest(%GuestConference{id: conference_id} = conference, ciphertext, nonce)
+      when is_binary(ciphertext) and is_binary(nonce) do
+    with {:ok, %GuestCall{state: "accepted"} = call} <- get_guest_call(conference) do
+      broadcast(
+        call,
+        {:call_signal, call.public_id, {:guest, conference_id}, ciphertext, nonce}
+      )
+
+      :ok
+    else
+      {:ok, %GuestCall{} = call} -> {:error, {:bad_state, call.state}}
+      error -> error
+    end
+  end
+
+  def signal_guest_host(
+        %User{id: host_id},
+        %GuestCall{host_id: host_id, state: "accepted"} = call,
+        ciphertext,
+        nonce
+      )
+      when is_binary(ciphertext) and is_binary(nonce) do
+    broadcast(call, {:call_signal, call.public_id, host_id, ciphertext, nonce})
+    :ok
+  end
+
+  def signal_guest_host(%User{}, %GuestCall{} = call, _ciphertext, _nonce) do
+    {:error, {:bad_state, call.state}}
   end
 
   ## Federation (inbound, authorities already verified by FederationAuth)
@@ -355,6 +473,51 @@ defmodule Veejr.Calls do
     end
   end
 
+  @doc "Applies the same reconnect grace period to a temporary guest tab."
+  def end_guest_call_after_grace(%GuestConference{} = conference) do
+    case Application.get_env(:veejr, :call_grace_ms, @grace_ms) do
+      :never ->
+        :ok
+
+      grace_ms ->
+        Task.Supervisor.start_child(Veejr.TaskSupervisor, fn ->
+          Process.sleep(grace_ms)
+
+          case get_guest_call(conference) do
+            {:ok, call} ->
+              unless present?(call.public_id, guest_presence_id(conference)) do
+                end_guest_call(conference)
+              end
+
+            _ ->
+              :ok
+          end
+        end)
+
+        :ok
+    end
+  end
+
+  def end_guest_host_call_after_grace(%User{} = host, %GuestCall{} = call) do
+    case Application.get_env(:veejr, :call_grace_ms, @grace_ms) do
+      :never ->
+        :ok
+
+      grace_ms ->
+        Task.Supervisor.start_child(Veejr.TaskSupervisor, fn ->
+          Process.sleep(grace_ms)
+
+          unless present?(call.public_id, host.id) do
+            end_guest_host_call(host, call)
+          end
+        end)
+
+        :ok
+    end
+  end
+
+  def guest_presence_id(%GuestConference{id: id}), do: {:guest, id}
+
   ## Maintenance
 
   @doc "Marks stale ringing calls missed and abandons ancient accepted calls."
@@ -384,12 +547,33 @@ defmodule Veejr.Calls do
     end
   end
 
+  defp finish_guest_conference(%GuestCall{guest_conference: %GuestConference{} = conference}) do
+    GuestConferences.mark_ended(conference)
+    :ok
+  end
+
+  defp preload_call(call) do
+    Repo.preload(call, [:caller, :callee])
+  end
+
+  defp preload_guest_call(call) do
+    Repo.preload(call, [:host, :guest_conference])
+  end
+
   defp set_state(%Call{} = call, state)
        when state in ~w(ringing accepted declined missed ended failed) do
     call
     |> Ecto.Changeset.change(state: state)
     |> Repo.update!()
     |> Map.merge(%{caller: call.caller, callee: call.callee})
+  end
+
+  defp set_guest_state(%GuestCall{} = call, state)
+       when state in ~w(ringing accepted declined missed ended failed) do
+    call
+    |> Ecto.Changeset.change(state: state)
+    |> Repo.update!()
+    |> Map.merge(%{host: call.host, guest_conference: call.guest_conference})
   end
 
   defp random_id, do: :crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false)
