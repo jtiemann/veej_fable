@@ -56,7 +56,7 @@ defmodule Veejr.GuestConferencesTest do
     assert :ok =
              Calls.signal_guest_host(
                host,
-               accepted,
+               call,
                "host-ciphertext",
                "host-nonce"
              )
