@@ -4,7 +4,8 @@ defmodule VeejrWeb.ContactsLiveTest do
   import Phoenix.LiveViewTest
   import Veejr.AccountsFixtures
 
-  alias Veejr.{Accounts, Messaging, Social}
+  alias Veejr.{Accounts, Messaging, Repo, Social}
+  alias Veejr.Messaging.Envelope
 
   setup %{conn: conn} do
     user = user_fixture()
@@ -156,6 +157,38 @@ defmodule VeejrWeb.ContactsLiveTest do
     |> render_submit()
 
     assert_redirect(view, "/messages?conversation=#{key}")
+  end
+
+  test "highlights unread conversations, previews the latest item, and hides Compose", %{
+    conn: conn,
+    user: user,
+    friend: friend
+  } do
+    {:ok, _batch_id, []} =
+      Messaging.send_batch(friend, "message", [
+        %{"recipient_id" => user.id, "ciphertext" => "encrypted-preview", "nonce" => "nonce"}
+      ])
+
+    [notification] = Messaging.list_pending_notifications(user)
+    assert {:ok, _notification} = Messaging.accept_notification(user, notification.id)
+
+    key = Messaging.conversation_key([Social.Address.handle(friend)])
+    assert [%{unread_count: 1}] = Messaging.list_conversation_summaries(user)
+    {:ok, view, _html} = live(conn, "/contacts")
+
+    assert has_element?(view, "li.conversation-unread[data-unread]")
+
+    assert has_element?(
+             view,
+             "#conversation-preview-#{key}[phx-hook='ConversationPreview'][data-ciphertext='encrypted-preview']"
+           )
+
+    refute has_element?(view, "a", "Compose")
+
+    {:ok, _messages_view, _html} = live(conn, "/messages?conversation=#{key}")
+
+    envelope = Repo.get_by!(Envelope, recipient_id: user.id, thread_key: key)
+    assert envelope.read_at
   end
 
   defp jpeg do

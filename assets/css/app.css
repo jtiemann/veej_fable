@@ -163,6 +163,29 @@
 /* Make LiveView wrapper divs transparent for layout */
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
+@keyframes conversation-unread-flash {
+  0%, 32%, 65% {
+    background-color: transparent;
+    box-shadow: inset 0 0 0 1px transparent;
+  }
+  16%, 49%, 82%, 100% {
+    background-color: color-mix(in oklch, var(--color-error) 18%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-error) 55%, transparent);
+  }
+}
+
+.conversation-unread {
+  animation: conversation-unread-flash 1.8s ease-in-out 1 both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conversation-unread {
+    animation: none;
+    background-color: color-mix(in oklch, var(--color-error) 18%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-error) 55%, transparent);
+  }
+}
+
 /* ---------------------------------------------------------------------------
    Art Deco theme layer (applies only under data-theme="artdeco").
    Values come from the design handoff: black/gold palette, Poiret One display

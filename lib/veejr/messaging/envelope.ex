@@ -11,6 +11,7 @@ defmodule Veejr.Messaging.Envelope do
     field :ciphertext, :string
     field :nonce, :string
     field :delivered_at, :utc_datetime
+    field :read_at, :utc_datetime
     field :edited_at, :utc_datetime
     field :expires_at, :utc_datetime
     field :max_displays, :integer

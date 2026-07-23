@@ -123,10 +123,6 @@ defmodule VeejrWeb.ContactsLive do
             </div>
           </summary>
           <div class="collapse-content">
-            <div class="flex justify-end">
-              <.link navigate={~p"/messages"} class="btn btn-outline btn-sm">Compose</.link>
-            </div>
-
             <p :if={@conversations == []} class="mt-4 text-sm opacity-60">
               No conversations yet.
             </p>
@@ -134,7 +130,11 @@ defmodule VeejrWeb.ContactsLive do
             <ul class="mt-4 divide-y divide-base-300">
               <li
                 :for={conversation <- @conversations}
-                class="flex items-center gap-2 rounded-lg px-2 py-2 transition hover:bg-base-200"
+                data-unread={conversation.unread_count > 0}
+                class={[
+                  "flex items-center gap-2 rounded-lg px-2 py-2 transition hover:bg-base-200",
+                  conversation.unread_count > 0 && "conversation-unread"
+                ]}
               >
                 <.user_avatar
                   :if={conversation.avatar_user}
@@ -157,6 +157,24 @@ defmodule VeejrWeb.ContactsLive do
                   <div class="min-w-0">
                     <p class="truncate font-medium">
                       {conversation_title(conversation)}
+                    </p>
+                    <p
+                      id={"conversation-preview-#{conversation.key}"}
+                      phx-hook="ConversationPreview"
+                      phx-update="ignore"
+                      data-user-id={@current_scope.user.id}
+                      data-peer-key={
+                        Veejr.Messaging.peer_key(
+                          conversation.latest,
+                          @current_scope.user
+                        )
+                      }
+                      data-ciphertext={conversation.latest.ciphertext}
+                      data-nonce={conversation.latest.nonce}
+                      data-kind={conversation.latest.kind}
+                      class="mt-0.5 truncate text-sm opacity-80"
+                    >
+                      <span class="loading loading-dots loading-xs"></span>
                     </p>
                     <p class="text-xs opacity-70">
                       {conversation.message_count} messages · latest {Calendar.strftime(
@@ -840,7 +858,8 @@ defmodule VeejrWeb.ContactsLive do
         key: summary.key,
         participants: participants,
         message_count: summary.message_count,
-        latest: %{id: summary.latest_id, inserted_at: summary.latest_at},
+        unread_count: summary.unread_count,
+        latest: summary.latest_envelope,
         started_at: (archive && archive.started_at) || summary.started_at,
         preserved: archive != nil,
         reply_ids: Enum.join(reply_ids, ","),

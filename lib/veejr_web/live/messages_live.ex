@@ -898,6 +898,7 @@ defmodule VeejrWeb.MessagesLive do
   end
 
   defp refresh(socket) do
+    socket = mark_selected_conversation_read(socket)
     user = socket.assigns.current_scope.user
     pending = Messaging.list_pending_notifications(user)
     friends = Social.list_friends(user)
@@ -960,6 +961,17 @@ defmodule VeejrWeb.MessagesLive do
   end
 
   defp reset_message_limit(socket), do: assign(socket, :message_limit, @message_page_size)
+
+  defp mark_selected_conversation_read(socket) do
+    case socket.assigns[:selected_conversation_key] do
+      key when is_binary(key) ->
+        :ok = Messaging.mark_conversation_read(socket.assigns.current_scope.user, key)
+        socket
+
+      _ ->
+        socket
+    end
+  end
 
   defp scroll_to_selected(socket) do
     case socket.assigns[:selected_conversation_key] do
@@ -1278,8 +1290,9 @@ defmodule VeejrWeb.MessagesLive do
         key: summary.key,
         participants: participants,
         message_count: summary.message_count,
+        unread_count: summary.unread_count,
         envelopes: [],
-        latest: %{id: summary.latest_id, inserted_at: summary.latest_at},
+        latest: summary.latest_envelope,
         started_at: (archive && archive.started_at) || summary.started_at,
         preserved: archive != nil,
         reply_ids:

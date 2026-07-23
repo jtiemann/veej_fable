@@ -1725,6 +1725,38 @@ export const Decrypt = {
   },
 }
 
+// Decrypts only the first line of the latest conversation item for list
+// previews. Unlike the full Decrypt hook, this does not count as opening or
+// displaying the message.
+export const ConversationPreview = {
+  mounted() {
+    const {userId, peerKey, ciphertext, nonce, kind} = this.el.dataset
+    const mySecret = getSecretKey(userId)
+
+    if (!mySecret) {
+      this.el.textContent = "Unlock your keys to preview"
+      return
+    }
+
+    const payload = openFrom(ciphertext, nonce, peerKey, mySecret)
+
+    if (!payload) {
+      this.el.textContent = "Preview unavailable"
+      return
+    }
+
+    const fallback = {
+      location: "Location shared",
+      note: "Map note",
+      self_note: "Note",
+      message: "Message",
+    }[kind] || "Encrypted item"
+    const preview = payload.text || payload.title || fallback
+
+    this.el.textContent = String(preview).split(/\r?\n/, 1)[0].trim() || fallback
+  },
+}
+
 export const MessageBubble = {
   mounted() {
     const edit = this.el.querySelector("[data-role=edit-message]")
@@ -2941,6 +2973,7 @@ export default {
   InstallApp,
   Composer,
   Decrypt,
+  ConversationPreview,
   SelfNotes,
   SelfNotesBoard,
   MessageBubble,

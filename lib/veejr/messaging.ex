@@ -821,7 +821,7 @@ defmodule Veejr.Messaging do
 
   @doc """
   Conversation summaries for the current user, newest activity first — one
-  row per thread, computed in the database without loading any ciphertext.
+  row per thread, plus the newest envelope for the client-side preview.
   Every kind participates: messages, location shares, and geo-notes are all
   first-class conversation items. Includes archived instances; callers
   overlay `list_thread_archives/1` to filter or label them.
@@ -829,26 +829,56 @@ defmodule Veejr.Messaging do
   def list_conversation_summaries(%User{id: id}) do
     now = DateTime.utc_now(:second)
 
+    summaries =
+      from(e in Envelope,
+        left_join: n in assoc(e, :notification),
+        where:
+          e.recipient_id == ^id and not is_nil(e.thread_key) and
+            (e.sender_id == ^id or n.state == "accepted") and
+            (is_nil(e.expires_at) or e.expires_at > ^now) and
+            (is_nil(e.max_displays) or e.display_count < e.max_displays),
+        group_by: [e.thread_key, e.participants],
+        order_by: [desc: max(e.id)],
+        select: %{
+          key: e.thread_key,
+          participants: e.participants,
+          message_count: count(e.id),
+          unread_count: filter(count(e.id), e.sender_id != ^id and is_nil(e.read_at)),
+          latest_id: max(e.id),
+          latest_at: type(max(e.inserted_at), :utc_datetime),
+          started_at: type(min(e.inserted_at), :utc_datetime)
+        }
+      )
+      |> Repo.all()
+
+    latest_envelopes =
+      from(e in Envelope,
+        where: e.recipient_id == ^id and e.id in ^Enum.map(summaries, & &1.latest_id),
+        preload: [:sender]
+      )
+      |> Repo.all()
+      |> Map.new(&{&1.id, &1})
+
+    Enum.map(summaries, fn summary ->
+      summary
+      |> Map.update!(:participants, &decode_participants/1)
+      |> Map.put(:latest_envelope, latest_envelopes[summary.latest_id])
+    end)
+  end
+
+  @doc "Marks every accepted incoming item in a conversation as read."
+  def mark_conversation_read(%User{id: id}, thread_key) when is_binary(thread_key) do
+    now = DateTime.utc_now(:second)
+
     from(e in Envelope,
       left_join: n in assoc(e, :notification),
       where:
-        e.recipient_id == ^id and not is_nil(e.thread_key) and
-          (e.sender_id == ^id or n.state == "accepted") and
-          (is_nil(e.expires_at) or e.expires_at > ^now) and
-          (is_nil(e.max_displays) or e.display_count < e.max_displays),
-      group_by: [e.thread_key, e.participants],
-      order_by: [desc: max(e.id)],
-      select: %{
-        key: e.thread_key,
-        participants: e.participants,
-        message_count: count(e.id),
-        latest_id: max(e.id),
-        latest_at: type(max(e.inserted_at), :utc_datetime),
-        started_at: type(min(e.inserted_at), :utc_datetime)
-      }
+        e.recipient_id == ^id and e.sender_id != ^id and e.thread_key == ^thread_key and
+          n.state == "accepted" and is_nil(e.read_at)
     )
-    |> Repo.all()
-    |> Enum.map(&%{&1 | participants: decode_participants(&1.participants)})
+    |> Repo.update_all(set: [read_at: now])
+
+    :ok
   end
 
   @doc """
