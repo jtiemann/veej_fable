@@ -323,18 +323,20 @@ defmodule Veejr.Calls do
   end
 
   def signal_guest_host(
-        %User{id: host_id},
-        %GuestCall{host_id: host_id, state: "accepted"} = call,
+        %User{} = host,
+        %GuestCall{public_id: public_id},
         ciphertext,
         nonce
       )
       when is_binary(ciphertext) and is_binary(nonce) do
-    broadcast(call, {:call_signal, call.public_id, host_id, ciphertext, nonce})
-    :ok
-  end
-
-  def signal_guest_host(%User{}, %GuestCall{} = call, _ciphertext, _nonce) do
-    {:error, {:bad_state, call.state}}
+    with {:ok, %GuestCall{state: "accepted"} = call} <-
+           get_guest_call_for_host(host, public_id) do
+      broadcast(call, {:call_signal, call.public_id, host.id, ciphertext, nonce})
+      :ok
+    else
+      {:ok, %GuestCall{} = call} -> {:error, {:bad_state, call.state}}
+      error -> error
+    end
   end
 
   ## Federation (inbound, authorities already verified by FederationAuth)
