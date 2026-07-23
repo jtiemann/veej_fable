@@ -76,6 +76,33 @@ defmodule Veejr.Accounts.UserNotifier do
     )
   end
 
+  @doc "Emails a capability link for one immediate host-admitted guest call."
+  def deliver_guest_conference_invitation(host, recipient, url) do
+    host_name = host.display_name || "@#{host.username}"
+
+    deliver(
+      recipient,
+      "guest_conference_invitation",
+      "#{host_name} invited you to a private video call",
+      """
+
+      ==============================
+
+      #{host_name} invited you to a private video call on #{Veejr.instance_name()}.
+
+      You do not need an account. Open the link, enter your name, check your
+      camera and microphone, and wait for #{host_name} to admit you:
+
+      #{url}
+
+      This single-use invitation expires in two hours. If you were not
+      expecting it, you can safely ignore this email.
+
+      ==============================
+      """
+    )
+  end
+
   defp deliver_magic_link_instructions(user, url) do
     deliver(user.email, "login_link", "Log in instructions", """
 

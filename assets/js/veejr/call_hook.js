@@ -6,7 +6,14 @@
 // leaves the browser. The server relays ciphertext it cannot read or alter,
 // so it cannot substitute DTLS fingerprints to man-in-the-middle a call.
 
-import {getSecretKey, sealFor, openFrom, unlockIdentity, cacheSecretKey} from "./crypto.js"
+import {
+  getSecretKey,
+  sealFor,
+  openFrom,
+  unlockIdentity,
+  cacheSecretKey,
+  forgetSecretKey,
+} from "./crypto.js"
 import {CallYouTube} from "./call_youtube.js"
 
 const MICROPHONE_CONSTRAINTS = {
@@ -177,6 +184,7 @@ export const CallSession = {
     const {callId, role, userId, peerKey} = this.el.dataset
     activateCallExitGuard(callId)
     this.role = role
+    this.isGuest = this.el.dataset.isGuest === "true"
     this.peerKey = peerKey
     this.mySecret = getSecretKey(userId)
     this.iceServers = JSON.parse(this.el.dataset.iceServers || "[]")
@@ -246,8 +254,18 @@ export const CallSession = {
       }
     })
 
-    if (this.mySecret) this.beginSecureSession()
-    else this.showCallUnlock()
+    if (this.mySecret) {
+      this.beginSecureSession()
+    } else if (this.isGuest) {
+      const error = this.el.querySelector("[data-role=media-error]")
+      if (error) {
+        error.textContent = "This temporary guest identity is no longer available."
+        error.classList.remove("hidden")
+      }
+      this.pushEvent("hangup", {})
+    } else {
+      this.showCallUnlock()
+    }
   },
 
   beginSecureSession() {
@@ -368,6 +386,7 @@ export const CallSession = {
 
   destroyed() {
     deactivateCallExitGuard(this.el.dataset.callId)
+    if (this.isGuest) forgetSecretKey(this.el.dataset.userId)
     this.clearRecoveryTimers()
     this.stopQualityMonitoring()
     clearTimeout(this.noticeTimer)
