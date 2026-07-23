@@ -268,6 +268,17 @@ defmodule VeejrWeb.MessagesLiveTest do
     {:ok, view, _html} = live(conn, "/messages?conversation=#{key}")
 
     assert has_element?(view, "#message-shell-#{newest.public_id}")
+
+    assert has_element?(
+             view,
+             "#message-shell-#{newest.public_id} [data-role='salon-self-avatar']"
+           )
+
+    assert has_element?(
+             view,
+             "#message-shell-#{newest.public_id} [data-role='salon-self-author']"
+           )
+
     refute has_element?(view, "#message-shell-#{oldest.public_id}")
     assert has_element?(view, "#load-more-messages")
 

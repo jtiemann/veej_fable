@@ -653,13 +653,27 @@ defmodule VeejrWeb.MessagingComponents do
         class="mt-5 size-8 text-xs"
         on_click={@profile_click}
       />
+      <.user_avatar
+        :if={@mine}
+        user={@user}
+        data-role="salon-self-avatar"
+        class="salon-self-avatar mt-5 hidden size-8 text-xs"
+        on_click={@profile_click}
+      />
       <div class={[
-        "flex min-w-0 flex-1 flex-col",
+        "veejr-message-content flex min-w-0 flex-1 flex-col",
         @mine && "items-end",
         !@mine && "items-start"
       ]}>
         <div :if={!@mine} class="veejr-bubble-author mb-1 ml-3 text-xs font-medium opacity-70">
           {Veejr.Social.Address.handle(@envelope.sender)}
+        </div>
+        <div
+          :if={@mine}
+          data-role="salon-self-author"
+          class="veejr-bubble-author salon-self-author mb-1 ml-3 hidden text-xs font-medium"
+        >
+          {Veejr.Social.Address.handle(@user)}
         </div>
         <div class={[
           "veejr-bubble max-w-[78%] rounded-[22px] px-4 py-2 text-[0.95rem] leading-relaxed shadow-sm",
