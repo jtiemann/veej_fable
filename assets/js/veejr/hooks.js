@@ -1980,10 +1980,10 @@ function normalizeNoteSearch(value) {
 
 function noteSearchClauses(value) {
   const clauses = []
-  const query = normalizeNoteSearch(value)
+  const query = normalizeNoteSearch(value).replace(/[“”„‟«»]/g, "\"")
 
-  for (const match of query.matchAll(/"([^"]*)"|([^"\s]+)/g)) {
-    const clause = normalizeNoteSearch(match[1] || match[2])
+  for (const match of query.matchAll(/"([^"]*)"|"([^"]*)$|([^"\s]+)/g)) {
+    const clause = normalizeNoteSearch(match[1] ?? match[2] ?? match[3])
     if (clause) clauses.push(clause)
   }
 
