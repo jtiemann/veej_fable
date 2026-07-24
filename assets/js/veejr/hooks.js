@@ -574,7 +574,7 @@ export const ChatTheme = {
 export const ContactsTheme = {
   mounted() {
     this.storageKey = "veejr:contacts-theme"
-    this.allowedThemes = new Set(["classic", "quiet"])
+    this.allowedThemes = new Set(["classic", "quiet", "bubblegum", "aurora", "arcade"])
     this.onThemeClick = (event) => {
       const option = event.target.closest("[data-contacts-theme-option]")
       if (!option || !this.el.contains(option)) return
@@ -610,9 +610,9 @@ export const ContactsTheme = {
       )
     })
 
-    // Quiet shows all sections flat; Classic keeps its default of only the
-    // first section open.
-    if (selected === "quiet") {
+    // Every flat theme shows all sections at once; Classic keeps its default
+    // of only the first section open.
+    if (selected !== "classic") {
       this.el.querySelectorAll(".contacts-section").forEach((s) => (s.open = true))
     }
 
