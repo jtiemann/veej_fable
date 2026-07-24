@@ -252,7 +252,9 @@ export class CallYouTube {
       playsinline: "1",
       rel: "0",
       controls: this.localController ? "1" : "0",
+      disablekb: this.localController ? "0" : "1",
       fs: "0",
+      iv_load_policy: "3",
       origin: window.location.origin,
     })
     const iframe = document.createElement("iframe")
