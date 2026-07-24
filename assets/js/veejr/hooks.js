@@ -1969,6 +1969,29 @@ function noteDocument(payload = {}) {
   }
 }
 
+function normalizeNoteSearch(value) {
+  return String(value ?? "")
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLocaleLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function noteSearchClauses(value) {
+  const clauses = []
+  const query = normalizeNoteSearch(value)
+
+  for (const match of query.matchAll(/"([^"]*)"|([^"\s]+)/g)) {
+    const clause = normalizeNoteSearch(match[1] || match[2])
+    if (clause) clauses.push(clause)
+  }
+
+  return clauses
+}
+
+const selfNoteSearchIndex = new WeakMap()
+
 function noteEditor(board, payload, save, {mount = null} = {}) {
   const returnFocus = document.activeElement
   const inline = !!mount
@@ -2394,7 +2417,7 @@ export const SelfNotesBoard = {
     this.view = "grid"
     this.label = null
     this.searchTerm = ""
-    this.query = ""
+    this.queryClauses = []
     this.dateFrom = ""
     this.dateTo = ""
     this.selected = new Map()
@@ -2408,7 +2431,7 @@ export const SelfNotesBoard = {
     })
     this.el.querySelector("[data-role=search]")?.addEventListener("input", (event) => {
       this.searchTerm = event.target.value
-      this.query = this.searchTerm.toLocaleLowerCase()
+      this.queryClauses = noteSearchClauses(this.searchTerm)
       this.applyFilters()
     })
     this.el.querySelector("[data-role=date-from]")?.addEventListener("change", (event) => {
@@ -2532,7 +2555,7 @@ export const SelfNotesBoard = {
     this.applyFilters()
   },
   applyFilters() {
-    const query = this.query || ""
+    const queryClauses = this.queryClauses || []
     const grid = this.el.querySelector("#self-notes-grid")
     const cards = [...this.el.querySelectorAll(".self-note-card")]
     grid.className = this.view === "list" ? "space-y-3" : "columns-1 gap-4 sm:columns-2 xl:columns-3"
@@ -2561,7 +2584,9 @@ export const SelfNotesBoard = {
       const labelMatch = !this.label || JSON.parse(card.dataset.noteLabels || "[]").includes(this.label)
       const updatedOn = (card.dataset.noteUpdated || "").slice(0, 10)
       const dateMatch = (!this.dateFrom || updatedOn >= this.dateFrom) && (!this.dateTo || updatedOn <= this.dateTo)
-      card.hidden = !stateMatch || !labelMatch || !dateMatch || (!!query && !(card.dataset.noteSearch || "").includes(query))
+      const noteSearch = selfNoteSearchIndex.get(card) || ""
+      const searchMatch = queryClauses.every((clause) => noteSearch.includes(clause))
+      card.hidden = !stateMatch || !labelMatch || !dateMatch || !searchMatch
       if (!card.hidden) visibleCount += 1
     })
     const filterStatus = this.el.querySelector("[data-role=filter-status]")
@@ -2783,31 +2808,46 @@ export const SelfNotes = {
     this.card?.removeEventListener("click", this.onCardClick)
     this.card?.removeEventListener("keydown", this.onCardKeydown)
     this.el.removeEventListener("self-notes:refresh", this.onRefresh)
+    if (this.card) selfNoteSearchIndex.delete(this.card)
   },
   render() {
+    const card = this.card || this.el.closest(".self-note-card")
+    selfNoteSearchIndex.delete(card)
     const secret = getSecretKey(this.el.dataset.userId)
     this.el.textContent = ""
     if (!secret) { this.payload = null; this.el.textContent = "Locked — unlock keys to read"; return }
     const payload = openFrom(this.el.dataset.ciphertext, this.el.dataset.nonce, this.el.dataset.peerKey, secret)
     if (!payload || payload.v !== 2 || payload.kind !== "self_note" || !Array.isArray(payload.checklist) || !Array.isArray(payload.labels) || !Array.isArray(payload.attachments)) { this.payload = null; this.el.textContent = "Unsupported or malformed encrypted note."; return }
     this.payload = payload
-    const card = this.card || this.el.closest(".self-note-card")
     card.tabIndex = 0
     card.setAttribute("aria-label", `Edit ${payload.title || "untitled note"}`)
-    const attachmentMetadata = payload.attachments.flatMap((attachment) => [attachment.name, attachment.mime, attachment.size, attachment.durationMs])
-    card.dataset.noteSearch = [
-      payload.title,
-      payload.body,
-      ...payload.labels,
-      ...payload.checklist.flatMap((item) => [item.text, item.checked ? "completed" : "open"]),
+    const attachmentMetadata = payload.attachments.flatMap((attachment) => [
+      "attachment",
+      attachment.id,
+      attachment.name,
+      attachment.mime,
+      attachment.size,
+      attachment.durationMs,
+    ])
+    selfNoteSearchIndex.set(card, normalizeNoteSearch([
+      "title", payload.title,
+      "body", payload.body,
+      ...payload.labels.flatMap((label) => ["label", label]),
+      ...payload.checklist.flatMap((item) => [
+        "checklist",
+        item.text,
+        item.checked ? "completed checked" : "open unchecked",
+      ]),
       ...attachmentMetadata,
-      payload.color,
-      payload.pinned ? "pinned" : "unpinned",
-      payload.archived_at ? "archived" : "active",
-      payload.trashed_at ? "trashed" : "not trashed",
-      payload.created_at,
-      payload.updated_at
-    ].filter((value) => value !== undefined && value !== null).join(" ").toLocaleLowerCase()
+      "color", payload.color,
+      "pin", payload.pinned ? "pinned" : "unpinned",
+      "archive", payload.archived_at ? "archived" : "active",
+      "trash", payload.trashed_at ? "trashed" : "not trashed",
+      "created", payload.created_at,
+      "updated", payload.updated_at,
+      "note id", payload.note_id,
+      "legacy id", payload.legacy_message_id,
+    ].filter((value) => value !== undefined && value !== null).join(" ")))
     card.dataset.noteLabels = JSON.stringify(payload.labels.filter((label) => typeof label === "string").slice(0, 10))
     card.dataset.noteUpdated = payload.updated_at || ""
     card.dataset.noteArchived = String(!!payload.archived_at)
