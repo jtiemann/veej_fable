@@ -76,6 +76,38 @@ defmodule VeejrWeb.MessagesLiveTest do
     assert has_element?(view, "#self-notes-date-filters")
   end
 
+  test "loads every self note in one action", %{conn: conn, user: user} do
+    for index <- 1..51 do
+      assert {:ok, _batch_id, []} =
+               Messaging.send_batch(user, "self_note", [
+                 %{
+                   "recipient_id" => user.id,
+                   "ciphertext" => "encrypted-note-#{index}",
+                   "nonce" => "nonce-#{index}"
+                 }
+               ])
+    end
+
+    oldest_note =
+      user
+      |> Messaging.list_self_note_envelopes(limit: :all)
+      |> List.last()
+
+    {:ok, view, _html} = live(conn, "/messages?self_notes=true")
+
+    assert has_element?(view, "#self-notes-load-more")
+    assert has_element?(view, "#self-notes-load-all[data-role='load-all-notes']")
+    refute has_element?(view, "#self-note-#{oldest_note.public_id}")
+
+    view
+    |> element("#self-notes-load-all")
+    |> render_click()
+
+    assert has_element?(view, "#self-note-#{oldest_note.public_id}")
+    refute has_element?(view, "#self-notes-load-more")
+    refute has_element?(view, "#self-notes-load-all")
+  end
+
   test "starts a multi-selected conversation from the Messages dropdown", %{
     conn: conn,
     user: user

@@ -2418,6 +2418,7 @@ export const SelfNotesBoard = {
     this.label = null
     this.searchTerm = ""
     this.queryClauses = []
+    this.allNotesRequested = false
     this.dateFrom = ""
     this.dateTo = ""
     this.selected = new Map()
@@ -2432,6 +2433,10 @@ export const SelfNotesBoard = {
     this.el.querySelector("[data-role=search]")?.addEventListener("input", (event) => {
       this.searchTerm = event.target.value
       this.queryClauses = noteSearchClauses(this.searchTerm)
+      if (this.queryClauses.length > 0 && !this.allNotesRequested && this.el.querySelector("[data-role=load-all-notes]")) {
+        this.allNotesRequested = true
+        this.pushEvent("load_all_notes", {}, () => { this.allNotesRequested = false })
+      }
       this.applyFilters()
     })
     this.el.querySelector("[data-role=date-from]")?.addEventListener("change", (event) => {

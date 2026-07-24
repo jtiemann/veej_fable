@@ -521,13 +521,27 @@ defmodule VeejrWeb.MessagesLive do
                     user={@current_scope.user}
                   />
                 </div>
-                <button
-                  :if={@has_more_self_notes}
-                  id="self-notes-load-more"
-                  type="button"
-                  phx-click="load_more_notes"
-                  class="btn btn-outline btn-sm mt-5 w-full"
-                >Load more notes</button>
+                <div :if={@has_more_self_notes} class="mt-5 grid grid-cols-2 gap-2">
+                  <button
+                    id="self-notes-load-more"
+                    type="button"
+                    phx-click="load_more_notes"
+                    phx-disable-with="Loading…"
+                    class="btn btn-outline btn-sm"
+                  >
+                    <.icon name="hero-chevron-down" class="size-4" /> Load more
+                  </button>
+                  <button
+                    id="self-notes-load-all"
+                    type="button"
+                    data-role="load-all-notes"
+                    phx-click="load_all_notes"
+                    phx-disable-with="Loading all…"
+                    class="btn btn-ghost btn-sm border border-base-300"
+                  >
+                    <.icon name="hero-queue-list" class="size-4" /> Load all notes
+                  </button>
+                </div>
               </div>
             </div>
             <div
@@ -847,8 +861,17 @@ defmodule VeejrWeb.MessagesLive do
   end
 
   def handle_event("load_more_notes", _params, socket) do
-    {:noreply,
-     socket |> assign(:self_note_limit, socket.assigns.self_note_limit + 50) |> refresh()}
+    limit =
+      case socket.assigns.self_note_limit do
+        :all -> :all
+        current -> current + 50
+      end
+
+    {:noreply, socket |> assign(:self_note_limit, limit) |> refresh()}
+  end
+
+  def handle_event("load_all_notes", _params, socket) do
+    {:noreply, socket |> assign(:self_note_limit, :all) |> refresh()}
   end
 
   def handle_event("delete_envelope", %{"id" => public_id}, socket) do
@@ -1032,10 +1055,11 @@ defmodule VeejrWeb.MessagesLive do
     if socket.assigns.self_notes do
       limit = socket.assigns.self_note_limit || 50
       self_note_envelopes = Messaging.list_self_note_envelopes(user, limit: limit)
+      self_note_count = Messaging.count_self_note_envelopes(user)
 
       assign(socket,
         self_note_envelopes: self_note_envelopes,
-        has_more_self_notes: length(self_note_envelopes) == limit and limit < 500
+        has_more_self_notes: length(self_note_envelopes) < self_note_count
       )
     else
       assign(socket, self_note_envelopes: [], has_more_self_notes: false)

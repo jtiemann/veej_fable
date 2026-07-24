@@ -913,15 +913,30 @@ defmodule Veejr.Messaging do
 
   @doc "Returns the owner's encrypted note cards, newest edit first."
   def list_self_note_envelopes(%User{id: id}, opts \\ []) do
-    limit = opts |> Keyword.get(:limit, 50) |> min(500) |> max(1)
+    query =
+      from(e in Envelope,
+        where: e.sender_id == ^id and e.recipient_id == ^id and e.kind == "self_note",
+        preload: [:sender],
+        order_by: [desc: e.edited_at, desc: e.inserted_at, desc: e.id]
+      )
 
-    from(e in Envelope,
-      where: e.sender_id == ^id and e.recipient_id == ^id and e.kind == "self_note",
-      preload: [:sender],
-      order_by: [desc: e.edited_at, desc: e.inserted_at, desc: e.id],
-      limit: ^limit
-    )
+    query =
+      case Keyword.get(opts, :limit, 50) do
+        :all -> query
+        limit when is_integer(limit) -> limit(query, ^max(limit, 1))
+        _ -> limit(query, 50)
+      end
+
+    query
     |> Repo.all()
+  end
+
+  @doc "Counts the owner's encrypted note cards without loading their ciphertext."
+  def count_self_note_envelopes(%User{id: id}) do
+    from(e in Envelope,
+      where: e.sender_id == ^id and e.recipient_id == ^id and e.kind == "self_note"
+    )
+    |> Repo.aggregate(:count)
   end
 
   @doc "Returns legacy self-addressed messages that a browser may copy into self notes."

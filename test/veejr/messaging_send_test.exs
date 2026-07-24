@@ -53,6 +53,12 @@ defmodule Veejr.MessagingSendTest do
     assert length(notes) == 50
     assert hd(notes).ciphertext == "encrypted-note-55"
     refute Enum.any?(notes, &(&1.ciphertext == "encrypted-note-1"))
+
+    all_notes = Messaging.list_self_note_envelopes(user, limit: :all)
+
+    assert length(all_notes) == 55
+    assert List.last(all_notes).ciphertext == "encrypted-note-1"
+    assert Messaging.count_self_note_envelopes(user) == 55
   end
 
   test "rejects a self note with expiry or another recipient" do
