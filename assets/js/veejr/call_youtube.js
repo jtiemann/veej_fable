@@ -90,8 +90,8 @@ export class CallYouTube {
     this.unlock?.addEventListener("click", () => {
       if (this.localController) return
       this.unlocked = true
-      this.unlockLabel.textContent = "Controlled by the other person"
-      this.unlock.classList.remove("cursor-pointer")
+      this.unlock.classList.add("hidden")
+      this.unlock.classList.remove("flex", "cursor-pointer")
       this.applyRemotePlayback()
     })
     this.input?.addEventListener("keydown", event => {
@@ -226,12 +226,10 @@ export class CallYouTube {
       ? "You control this video"
       : "Controlled by the other person"
     this.endButton?.classList.toggle("hidden", !localController)
-    this.unlock?.classList.toggle("hidden", localController)
-    this.unlock?.classList.toggle("flex", !localController)
+    this.unlock?.classList.toggle("hidden", localController || this.unlocked)
+    this.unlock?.classList.toggle("flex", !localController && !this.unlocked)
     if (!localController) {
-      this.unlockLabel.textContent = this.unlocked
-        ? "Controlled by the other person"
-        : "Tap to watch together"
+      this.unlockLabel.textContent = "Tap to watch together"
       this.unlock?.classList.toggle("cursor-pointer", !this.unlocked)
     }
 
