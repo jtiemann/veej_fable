@@ -740,6 +740,22 @@
   cursor: zoom-out;
 }
 
+.self-note-card[data-editing="true"] {
+  transform: none;
+  border-color: color-mix(in oklab, var(--color-primary) 45%, var(--color-base-300));
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--color-primary) 10%, transparent),
+    0 18px 45px -30px color-mix(in oklab, var(--color-primary) 55%, transparent);
+}
+
+.self-note-inline-editor [data-note-title] {
+  letter-spacing: -0.015em;
+}
+
+.self-note-inline-editor [data-note-body] {
+  line-height: 1.55;
+}
+
 /* ---------------------------------------------------------------------------
    Contacts appearance picker (Classic / Quiet), modeled on the chat theme
    picker above. "Quiet" is a contacts-scoped look that strips the accordion

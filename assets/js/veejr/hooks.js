@@ -1969,11 +1969,19 @@ function noteDocument(payload = {}) {
   }
 }
 
-function noteEditor(board, payload, save) {
+function noteEditor(board, payload, save, {mount = null} = {}) {
   const returnFocus = document.activeElement
+  const inline = !!mount
+  const previousContent = document.createDocumentFragment()
+  if (inline) {
+    while (mount.firstChild) previousContent.appendChild(mount.firstChild)
+    mount.closest(".self-note-card")?.setAttribute("data-editing", "true")
+  }
   const editor = document.createElement("section")
   editor.setAttribute("data-role", "note-editor")
-  editor.className = "mb-5 rounded-2xl border border-primary/30 bg-base-100 p-4 shadow-lg"
+  editor.className = inline
+    ? "self-note-inline-editor rounded-xl border border-primary/30 bg-base-100/95 p-3 shadow-inner"
+    : "mb-5 rounded-2xl border border-primary/30 bg-base-100 p-4 shadow-lg"
   editor.innerHTML = `<input data-note-title class="mb-3 w-full bg-transparent text-lg font-semibold outline-none" placeholder="Title"><textarea data-note-body class="min-h-28 w-full resize-y bg-transparent text-sm outline-none" placeholder="Take a note…"></textarea><input data-note-labels class="mt-3 w-full bg-transparent text-xs outline-none" placeholder="Labels, separated by commas"><div class="mt-3 flex flex-wrap items-center gap-2"><label title="Attach files" class="flex size-9 cursor-pointer items-center justify-center rounded-full bg-base-200 opacity-70 transition hover:bg-base-300 hover:opacity-100"><span data-note-attachment-icon aria-hidden="true"></span><span class="sr-only">Attach files</span><input data-note-files type="file" multiple class="sr-only" aria-label="Attach files"></label><button type="button" data-note-audio title="Record voice note" aria-label="Record voice note" class="flex size-9 items-center justify-center rounded-full bg-base-200 opacity-70 transition hover:bg-base-300 hover:opacity-100"><span data-note-audio-icon aria-hidden="true"></span></button><button type="button" data-note-video title="Record video note" aria-label="Record video note" class="flex size-9 items-center justify-center rounded-full bg-base-200 opacity-70 transition hover:bg-base-300 hover:opacity-100"><span data-note-video-icon aria-hidden="true"></span></button><button type="button" data-note-camera title="Switch camera" aria-label="Switch camera" class="flex size-9 items-center justify-center rounded-full bg-base-200 opacity-70 transition hover:bg-base-300 hover:opacity-100"><span data-note-camera-icon aria-hidden="true"></span></button><button type="button" data-note-checklist class="btn btn-ghost btn-xs">Checklist</button><select data-note-color class="select select-sm"><option value="default">Default</option><option value="sand">Sand</option><option value="rose">Rose</option><option value="violet">Violet</option><option value="blue">Blue</option><option value="mint">Mint</option></select><span class="flex-1"></span><button type="button" data-note-cancel class="btn btn-ghost btn-sm">Cancel</button><button type="button" data-note-save class="btn btn-primary btn-sm">Save note</button></div><p data-note-record-status class="mt-3 hidden text-sm opacity-70" aria-live="polite"></p><div data-note-recordings class="mt-3 space-y-2"></div><p data-note-error class="mt-3 hidden text-sm text-error" role="alert"></p><div data-note-items class="mt-3 space-y-2"></div>`
   const title = editor.querySelector("[data-note-title]")
   const body = editor.querySelector("[data-note-body]")
@@ -2119,10 +2127,17 @@ function noteEditor(board, payload, save) {
       if (!editor.contains(event.relatedTarget)) scheduleSave()
     }),
   )
-  const closeEditor = () => {
+  let closed = false
+  const closeEditor = ({restore = true} = {}) => {
+    if (closed) return
+    closed = true
     clearTimeout(saveTimer)
     cleanupRecordings()
     editor.remove()
+    if (inline) {
+      mount.closest(".self-note-card")?.removeAttribute("data-editing")
+      if (restore) mount.appendChild(previousContent)
+    }
     if (returnFocus?.isConnected) returnFocus.focus()
   }
   editor.querySelector("[data-note-cancel]").addEventListener("click", closeEditor)
@@ -2155,7 +2170,8 @@ function noteEditor(board, payload, save) {
         next.attachments.push(await encryptAndUpload(entry.file, {name: entry.file.name, mime: entry.file.type, size: entry.file.size, durationMs: entry.durationMs}))
       }
       await save(next)
-      closeEditor()
+      closeEditor({restore: !inline})
+      if (inline) mount.dispatchEvent(new CustomEvent("self-notes:refresh"))
     } catch (saveError) {
       saving = false
       button.disabled = false; button.textContent = "Save note"
@@ -2167,7 +2183,9 @@ function noteEditor(board, payload, save) {
   editor.addEventListener("keydown", (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") submit()
   })
-  board.prepend(editor); title.focus()
+  if (inline) mount.appendChild(editor)
+  else board.prepend(editor)
+  title.focus()
 }
 
 function noteAttachmentPreview(att) {
@@ -2458,7 +2476,10 @@ export const SelfNotesBoard = {
       const editing = event.target.matches("input, textarea, select")
       if (event.key === "Escape") {
         const editor = this.el.querySelector("[data-role=note-editor]")
-        if (editor) { editor.remove(); return }
+        if (editor) {
+          editor.querySelector("[data-note-cancel]")?.click()
+          return
+        }
         if (this.selected.size > 0) this.clearSelection()
       }
       if (editing) return
@@ -2718,7 +2739,13 @@ export const SelfNotesBoard = {
         }
         await pushWithReply(this, "edit_batch", {id: element.dataset.publicId, envelopes, attachment_ids: note.attachments.map((attachment) => attachment.id)})
       }
-    })
+      const current = envelopes.find((entry) => entry.public_id === element.dataset.publicId)
+      if (current) {
+        element.dataset.ciphertext = current.ciphertext
+        element.dataset.nonce = current.nonce
+        element.dataset.updatedAt = new Date().toISOString()
+      }
+    }, {mount: element})
   },
   async save({payload, element}) {
     const secret = getSecretKey(element.dataset.userId)
@@ -2734,16 +2761,19 @@ export const SelfNotesBoard = {
 export const SelfNotes = {
   mounted() {
     this.card = this.el.closest(".self-note-card")
-    this.onCardClick = () => {
+    this.onCardClick = (event) => {
+      if (this.card.dataset.editing === "true" || event.target.closest("button, input, textarea, select, label, a, [data-role='note-editor']")) return
       if (this.payload) window.dispatchEvent(new CustomEvent("veejr:self-note-edit", {detail: {payload: this.payload, element: this.el}}))
     }
     this.onCardKeydown = (event) => {
-      if (event.target !== this.card || !["Enter", " "].includes(event.key) || !this.payload) return
+      if (this.card.dataset.editing === "true" || event.target !== this.card || !["Enter", " "].includes(event.key) || !this.payload) return
       event.preventDefault()
       window.dispatchEvent(new CustomEvent("veejr:self-note-edit", {detail: {payload: this.payload, element: this.el}}))
     }
     this.card.addEventListener("click", this.onCardClick)
     this.card.addEventListener("keydown", this.onCardKeydown)
+    this.onRefresh = () => this.render()
+    this.el.addEventListener("self-notes:refresh", this.onRefresh)
     this.render()
   },
   updated() {
@@ -2752,6 +2782,7 @@ export const SelfNotes = {
   destroyed() {
     this.card?.removeEventListener("click", this.onCardClick)
     this.card?.removeEventListener("keydown", this.onCardKeydown)
+    this.el.removeEventListener("self-notes:refresh", this.onRefresh)
   },
   render() {
     const secret = getSecretKey(this.el.dataset.userId)
@@ -2762,7 +2793,7 @@ export const SelfNotes = {
     this.payload = payload
     const card = this.card || this.el.closest(".self-note-card")
     card.tabIndex = 0
-    card.setAttribute("aria-label", `Open ${payload.title || "untitled note"}`)
+    card.setAttribute("aria-label", `Edit ${payload.title || "untitled note"}`)
     const attachmentMetadata = payload.attachments.flatMap((attachment) => [attachment.name, attachment.mime, attachment.size, attachment.durationMs])
     card.dataset.noteSearch = [
       payload.title,

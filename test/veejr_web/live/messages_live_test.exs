@@ -67,6 +67,15 @@ defmodule VeejrWeb.MessagesLiveTest do
     assert has_element?(view, "#self-note-#{note.public_id}")
   end
 
+  test "shows the redesigned self-notes command center", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/messages?self_notes=true")
+
+    assert has_element?(view, "#self-notes-command-center[aria-label='Create and find notes']")
+    assert has_element?(view, "#self-notes-quick-create[data-role='new-note']")
+    assert has_element?(view, "#self-notes-search[data-role='search']")
+    assert has_element?(view, "#self-notes-date-filters")
+  end
+
   test "starts a multi-selected conversation from the Messages dropdown", %{
     conn: conn,
     user: user
