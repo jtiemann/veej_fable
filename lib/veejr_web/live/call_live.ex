@@ -35,6 +35,7 @@ defmodule VeejrWeb.CallLive do
         data-key-nonce={@actor.key_nonce}
         data-is-guest={to_string(@is_guest)}
         data-ice-servers={@ice_servers}
+        data-youtube-active="false"
         class="overflow-hidden rounded-[32px] border border-base-300 bg-base-200 shadow-sm"
       >
         <div

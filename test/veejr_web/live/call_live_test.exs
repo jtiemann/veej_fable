@@ -72,6 +72,7 @@ defmodule VeejrWeb.CallLiveTest do
 
     {:ok, view, _html} = live(conn, "/call/#{call.public_id}")
 
+    assert has_element?(view, "#call-session[data-youtube-active='false']")
     assert has_element?(view, "#call-youtube[data-role='share-youtube'][disabled]")
     assert has_element?(view, "[data-role='call-youtube-stage']")
     assert has_element?(view, "#call-youtube-input[data-role='call-youtube-input']")

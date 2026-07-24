@@ -72,6 +72,7 @@ export class CallYouTube {
     window.removeEventListener("message", this.onWindowMessage)
     this.clearPlayerTimers()
     this.iframe?.remove()
+    this.hook.el.dataset.youtubeActive = "false"
   }
 
   setupControls() {
@@ -213,6 +214,7 @@ export class CallYouTube {
     this.stopShare()
     this.active = true
     this.localController = localController
+    this.hook.el.dataset.youtubeActive = "true"
     this.videoId = videoId
     this.playback = playback
     this.position = position
@@ -252,14 +254,14 @@ export class CallYouTube {
       playsinline: "1",
       rel: "0",
       controls: this.localController ? "1" : "0",
+      fs: "0",
       origin: window.location.origin,
     })
     const iframe = document.createElement("iframe")
     iframe.id = `call-youtube-iframe-${this.hook.el.dataset.callId}`
     iframe.src = `https://www.youtube-nocookie.com/embed/${this.videoId}?${query}`
     iframe.title = "Shared YouTube video"
-    iframe.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen"
-    iframe.allowFullscreen = true
+    iframe.allow = "autoplay; encrypted-media; picture-in-picture"
     iframe.referrerPolicy = "strict-origin-when-cross-origin"
     iframe.className = `size-full ${this.localController ? "" : "pointer-events-none"}`
     this.playerContainer?.appendChild(iframe)
@@ -343,6 +345,7 @@ export class CallYouTube {
     this.active = false
     this.localController = false
     this.ready = false
+    this.hook.el.dataset.youtubeActive = "false"
     this.stage?.classList.add("hidden")
     this.stage?.classList.remove("block")
     this.compactCallVideos(false)
