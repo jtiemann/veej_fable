@@ -104,9 +104,19 @@ Health check: `docker service ls`, then
 
 ## Deploys and upgrades
 
-- **Release ritual** (any code change that instances should receive): bump
-  `version:` in `mix.exs` in the same PR, merge, publish a GitHub release
-  tagged `v<version>` on the merge commit of `veejr/veejr-server`.
+- **A release is not complete when the code is merely committed, pushed, or
+  deployed.** For any code change that instances should receive, complete
+  every step in order:
+  1. bump `version:` in `mix.exs` in the same change;
+  2. merge and push the release commit;
+  3. publish a non-draft, non-prerelease GitHub release tagged `v<version>`
+     on that exact commit of `veejr/veejr-server`;
+  4. verify GitHub's public `releases/latest` API reports that tag;
+  5. deploy the main instance and verify `/api/instance` reports the version;
+  6. use **Check for updates** on an older federated instance and confirm it
+     offers the new version.
+  See the executable **Release completion checklist** in
+  `docs/OPERATIONS.md`.
 - **All instances** self-upgrade from `/admin` → Software update
   (pull-based; backup, build-while-serving, restart, boot migration).
 - **The main instance** shares its checkout with the development

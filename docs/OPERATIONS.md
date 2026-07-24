@@ -64,15 +64,60 @@ Recovery, if a new version fails **after** restart: stop the service, restore
 the `-preupgrade-` database copy over `DATABASE_PATH`, `git checkout` the
 previous commit in the instance repository, and start the service again.
 
-Publishing a release (upstream maintainers): bump `version:` in `mix.exs` as
-part of the release PR, then create a GitHub release whose tag is
-`v<version>` on the merged commit. Instances compare their compiled version
-against the newest release tag.
+### Release completion checklist (upstream maintainers)
+
+A release is **not complete** after commit, push, or deployment alone.
+Instances compare their compiled version with GitHub's newest published
+release tag, so omitting the GitHub release makes an older instance
+incorrectly report that it is up to date.
+
+Complete these steps in order for every change that instances should receive:
+
+1. Bump `version:` in `mix.exs` in the same change and confirm the intended
+   version appears in the release commit.
+2. Merge and push the release commit.
+3. Create a non-draft, non-prerelease GitHub release named and tagged
+   `v<version>`. Point the tag at the exact release commit, not merely at a
+   branch name.
+4. Verify the public latest-release response reports the new tag:
+
+   ```powershell
+   $ExpectedVersion = (
+     Select-String -Path mix.exs -Pattern 'version:\s*"([^"]+)"'
+   ).Matches[0].Groups[1].Value
+   $LatestRelease = Invoke-RestMethod `
+     https://api.github.com/repos/veejr/veejr-server/releases/latest
+
+   if ($LatestRelease.tag_name -ne "v$ExpectedVersion") {
+     throw "Latest GitHub release is $($LatestRelease.tag_name), expected v$ExpectedVersion"
+   }
+   ```
+
+5. Deploy the main instance, then verify its public instance metadata reports
+   the expected version:
+
+   ```powershell
+   $Instance = Invoke-RestMethod https://veejr.example.com/api/instance
+
+   if ($Instance.version -ne $ExpectedVersion) {
+     throw "Main instance is $($Instance.version), expected $ExpectedVersion"
+   }
+   ```
+
+6. On at least one older federated instance, open `/admin` → **Software
+   update**, select **Check for updates**, and confirm it offers the new
+   version. This final check validates the same discovery path used by
+   operators rather than only proving that the main instance was deployed.
+
+Record the release URL and the verified release commit in the deployment
+notes. If any step fails, the release remains incomplete even if the main
+instance is already serving the new code.
 
 ## Deploy an update (manual)
 
-Do not deploy with an uncommitted working tree. Review upstream changes and
-take a backup before an update that includes migrations.
+Complete the release checklist above before treating a manual deployment as a
+published update. Do not deploy with an uncommitted working tree. Review
+upstream changes and take a backup before an update that includes migrations.
 
 ```powershell
 Set-Location C:\Services\veejr-server
