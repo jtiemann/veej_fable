@@ -61,6 +61,8 @@ export class CallYouTube {
     this.unlocked = false
     this.playback = "paused"
     this.position = 0
+    this.appliedPlayback = null
+    this.playerPosition = null
 
     this.onWindowMessage = event => this.handlePlayerMessage(event)
     window.addEventListener("message", this.onWindowMessage)
@@ -218,6 +220,8 @@ export class CallYouTube {
     this.videoId = videoId
     this.playback = playback
     this.position = position
+    this.appliedPlayback = null
+    this.playerPosition = null
     this.ready = false
 
     this.stage?.classList.remove("hidden")
@@ -297,7 +301,8 @@ export class CallYouTube {
     }
 
     if (message?.event === "infoDelivery" && Number.isFinite(message.info?.currentTime)) {
-      this.position = this.validPosition(message.info.currentTime)
+      this.playerPosition = this.validPosition(message.info.currentTime)
+      if (this.localController) this.position = this.playerPosition
     }
 
     if (this.localController && message?.event === "onStateChange") {
@@ -322,8 +327,18 @@ export class CallYouTube {
 
   applyRemotePlayback() {
     if (!this.ready || !this.unlocked || this.localController) return
-    command(this.iframe, "seekTo", [this.position, true])
-    command(this.iframe, this.playback === "playing" ? "playVideo" : "pauseVideo")
+
+    if (
+      this.playerPosition === null ||
+      Math.abs(this.playerPosition - this.position) > 2
+    ) {
+      command(this.iframe, "seekTo", [this.position, true])
+    }
+
+    if (this.appliedPlayback !== this.playback) {
+      command(this.iframe, this.playback === "playing" ? "playVideo" : "pauseVideo")
+      this.appliedPlayback = this.playback
+    }
   }
 
   stopLocal() {
@@ -345,6 +360,8 @@ export class CallYouTube {
     this.active = false
     this.localController = false
     this.ready = false
+    this.appliedPlayback = null
+    this.playerPosition = null
     this.hook.el.dataset.youtubeActive = "false"
     this.stage?.classList.add("hidden")
     this.stage?.classList.remove("block")
