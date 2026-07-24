@@ -761,6 +761,55 @@
   min-height: min(32rem, 58vh);
 }
 
+:is(.self-note-card, [data-role="note-editor"])[data-note-color="sand"] {
+  --self-note-bg: #f6e6bd;
+  --self-note-fg: #3b2b0c;
+}
+
+:is(.self-note-card, [data-role="note-editor"])[data-note-color="rose"] {
+  --self-note-bg: #f7d9df;
+  --self-note-fg: #4a1f2a;
+}
+
+:is(.self-note-card, [data-role="note-editor"])[data-note-color="violet"] {
+  --self-note-bg: #e7ddfa;
+  --self-note-fg: #34245a;
+}
+
+:is(.self-note-card, [data-role="note-editor"])[data-note-color="blue"] {
+  --self-note-bg: #d8eafa;
+  --self-note-fg: #173a59;
+}
+
+:is(.self-note-card, [data-role="note-editor"])[data-note-color="mint"] {
+  --self-note-bg: #d9efe1;
+  --self-note-fg: #173d29;
+}
+
+:is(.self-note-card, [data-role="note-editor"])[data-note-color]:not([data-note-color="default"]) {
+  --self-note-border: color-mix(in oklab, var(--self-note-fg) 22%, var(--self-note-bg));
+  --self-note-surface: color-mix(in oklab, var(--self-note-fg) 9%, var(--self-note-bg));
+  background-color: var(--self-note-bg);
+  border-color: var(--self-note-border);
+  color: var(--self-note-fg);
+}
+
+.self-note-card[data-note-color]:not([data-note-color="default"]) .bg-base-200,
+.self-note-inline-editor[data-note-color]:not([data-note-color="default"]) :is(.select, .bg-base-200) {
+  background-color: var(--self-note-surface);
+  color: var(--self-note-fg);
+}
+
+.self-note-inline-editor[data-note-color]:not([data-note-color="default"])
+  :is([data-note-title], [data-note-body], [data-note-labels]) {
+  color: inherit;
+}
+
+.self-note-inline-editor[data-note-color]:not([data-note-color="default"])
+  :is([data-note-title], [data-note-body], [data-note-labels])::placeholder {
+  color: color-mix(in oklab, var(--self-note-fg) 58%, transparent);
+}
+
 /* ---------------------------------------------------------------------------
    Contacts appearance picker (Classic / Quiet), modeled on the chat theme
    picker above. "Quiet" is a contacts-scoped look that strips the accordion

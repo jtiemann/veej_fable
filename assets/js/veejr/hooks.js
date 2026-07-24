@@ -1947,6 +1947,12 @@ export const MessageBubble = {
   },
 }
 
+const selfNoteColors = new Set(["default", "sand", "rose", "violet", "blue", "mint"])
+
+function normalizeSelfNoteColor(value) {
+  return selfNoteColors.has(value) ? value : "default"
+}
+
 function noteDocument(payload = {}) {
   const now = new Date().toISOString()
   return {
@@ -1957,7 +1963,7 @@ function noteDocument(payload = {}) {
     body: payload.body || "",
     checklist: Array.isArray(payload.checklist) ? payload.checklist : [],
     labels: Array.isArray(payload.labels) ? payload.labels : [],
-    color: payload.color || "default",
+    color: normalizeSelfNoteColor(payload.color),
     pinned: !!payload.pinned,
     archived_at: payload.archived_at || null,
     trashed_at: payload.trashed_at || null,
@@ -1995,6 +2001,8 @@ const selfNoteSearchIndex = new WeakMap()
 function noteEditor(board, payload, save, {mount = null, tall = false} = {}) {
   const returnFocus = document.activeElement
   const inline = !!mount
+  const colorCard = mount?.closest(".self-note-card")
+  const originalColor = normalizeSelfNoteColor(colorCard?.dataset.noteColor || payload.color)
   const previousContent = document.createDocumentFragment()
   if (inline) {
     while (mount.firstChild) previousContent.appendChild(mount.firstChild)
@@ -2012,6 +2020,7 @@ function noteEditor(board, payload, save, {mount = null, tall = false} = {}) {
   const labels = editor.querySelector("[data-note-labels]")
   const fileInput = editor.querySelector("[data-note-files]")
   const color = editor.querySelector("[data-note-color]")
+  color.setAttribute("aria-label", "Note color")
   const items = editor.querySelector("[data-note-items]")
   const settings = payload.settings || {}
   const completedLast = document.createElement("label")
@@ -2096,7 +2105,14 @@ function noteEditor(board, payload, save, {mount = null, tall = false} = {}) {
   title.value = payload.title || ""
   body.value = payload.body || ""
   labels.value = (payload.labels || []).join(", ")
-  color.value = payload.color || "default"
+  color.value = normalizeSelfNoteColor(payload.color)
+  const previewColor = () => {
+    const value = normalizeSelfNoteColor(color.value)
+    editor.dataset.noteColor = value
+    if (colorCard) colorCard.dataset.noteColor = value
+  }
+  color.addEventListener("change", previewColor)
+  previewColor()
   const renderItems = () => {
     items.textContent = ""
     ;(payload.checklist || []).forEach((item, index) => {
@@ -2159,6 +2175,7 @@ function noteEditor(board, payload, save, {mount = null, tall = false} = {}) {
     cleanupRecordings()
     editor.remove()
     if (inline) {
+      if (restore && colorCard) colorCard.dataset.noteColor = originalColor
       mount.closest(".self-note-card")?.removeAttribute("data-editing")
       if (restore) mount.appendChild(previousContent)
     }
@@ -2488,8 +2505,11 @@ export const SelfNotesBoard = {
     this.el.querySelector("[data-role=bulk-archive]")?.addEventListener("click", () => this.bulk((note) => { note.archived_at = new Date().toISOString(); note.trashed_at = null }))
     this.el.querySelector("[data-role=bulk-trash]")?.addEventListener("click", () => this.bulk((note) => { note.trashed_at = new Date().toISOString() }))
     this.el.querySelector("[data-role=bulk-color]")?.addEventListener("click", () => {
-      const color = window.prompt("Color: default, sand, rose, violet, blue, or mint", "default")
-      if (["default", "sand", "rose", "violet", "blue", "mint"].includes(color)) this.bulk((note) => { note.color = color })
+      const input = window.prompt("Color: default, sand, rose, violet, blue, or mint", "default")
+      if (!input) return
+      const color = input.trim().toLocaleLowerCase()
+      if (!selfNoteColors.has(color)) return
+      this.bulk((note) => { note.color = color })
     })
     this.el.querySelector("[data-role=bulk-label]")?.addEventListener("click", () => {
       const label = window.prompt("Add a label to selected notes")?.trim()
@@ -2976,7 +2996,8 @@ export const SelfNotes = {
         setBodyExpanded(false)
       }
     })
-    card.style.background = {sand:"#f8edcf",rose:"#f8dfe1",violet:"#ebe2fb",blue:"#dceefa",mint:"#dff3e7"}[payload.color] || ""
+    card.dataset.noteColor = normalizeSelfNoteColor(payload.color)
+    card.style.removeProperty("background")
   },
 }
 
