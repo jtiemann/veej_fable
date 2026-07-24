@@ -717,7 +717,7 @@
 }
 
 /* Self-note bodies stay compact in the board while preserving the full
-   decrypted text in the DOM for search and an explicit click-to-expand view. */
+   decrypted text in the DOM for search, expansion, and inline editing. */
 .self-note-body[data-expanded="false"] {
   display: -webkit-box;
   overflow: hidden;
@@ -737,7 +737,7 @@
 
 .self-note-body[data-collapsible="true"][data-expanded="true"] {
   display: block;
-  cursor: zoom-out;
+  cursor: pointer;
 }
 
 .self-note-card[data-editing="true"] {
@@ -753,7 +753,12 @@
 }
 
 .self-note-inline-editor [data-note-body] {
+  min-height: 16rem;
   line-height: 1.55;
+}
+
+.self-note-inline-editor[data-tall="true"] [data-note-body] {
+  min-height: min(32rem, 58vh);
 }
 
 /* ---------------------------------------------------------------------------
