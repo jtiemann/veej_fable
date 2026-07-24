@@ -566,6 +566,60 @@ export const ChatTheme = {
   },
 }
 
+// A Contacts-only appearance preference, modeled on ChatTheme. "Quiet" strips
+// the accordion chrome for a flat, calm directory; the CSS lives under
+// [data-contacts-theme="quiet"] in app.css. Because that look wants every
+// section visible at once, we also open the top-level <details> natively
+// rather than fighting daisyUI's collapse styles from CSS.
+export const ContactsTheme = {
+  mounted() {
+    this.storageKey = "veejr:contacts-theme"
+    this.allowedThemes = new Set(["classic", "quiet"])
+    this.onThemeClick = (event) => {
+      const option = event.target.closest("[data-contacts-theme-option]")
+      if (!option || !this.el.contains(option)) return
+      this.applyTheme(option.dataset.contactsThemeOption, true)
+    }
+    this.onThemeStorage = (event) => {
+      if (event.key === this.storageKey) this.applyTheme(event.newValue, false)
+    }
+
+    this.el.addEventListener("click", this.onThemeClick)
+    window.addEventListener("storage", this.onThemeStorage)
+    this.applyTheme(localStorage.getItem(this.storageKey) || "classic", false)
+  },
+
+  updated() {
+    this.applyTheme(this.currentTheme || "classic", false)
+  },
+
+  destroyed() {
+    this.el.removeEventListener("click", this.onThemeClick)
+    window.removeEventListener("storage", this.onThemeStorage)
+  },
+
+  applyTheme(theme, persist) {
+    const selected = this.allowedThemes.has(theme) ? theme : "classic"
+    this.currentTheme = selected
+    this.el.dataset.contactsTheme = selected
+
+    this.el.querySelectorAll("[data-contacts-theme-option]").forEach((option) => {
+      option.setAttribute(
+        "aria-pressed",
+        String(option.dataset.contactsThemeOption === selected),
+      )
+    })
+
+    // Quiet shows all sections flat; Classic keeps its default of only the
+    // first section open.
+    if (selected === "quiet") {
+      this.el.querySelectorAll(".contacts-section").forEach((s) => (s.open = true))
+    }
+
+    if (persist) localStorage.setItem(this.storageKey, selected)
+  },
+}
+
 // Keeps a chat thread scrolled to the newest message at the bottom, the way
 // a messaging app does. Runs on mount and whenever the thread re-renders.
 export const ScrollBottom = {
@@ -3017,6 +3071,7 @@ export default {
   AccountStatus,
   InstallApp,
   ChatTheme,
+  ContactsTheme,
   Composer,
   Decrypt,
   ConversationPreview,

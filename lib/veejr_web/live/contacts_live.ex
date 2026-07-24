@@ -13,8 +13,14 @@ defmodule VeejrWeb.ContactsLive do
       flash={@flash}
       current_scope={@current_scope}
       pending_count={@pending_count}
-      container_class="mx-auto max-w-7xl space-y-6"
+      container_class="mx-auto max-w-7xl"
     >
+      <div
+        id="contacts-workspace"
+        phx-hook="ContactsTheme"
+        data-contacts-theme="classic"
+        class="contacts-workspace space-y-6"
+      >
       <.header>
         Contacts
         <:subtitle>
@@ -22,6 +28,31 @@ defmodule VeejrWeb.ContactsLive do
           <code>{Social.Address.full(@current_scope.user)}</code>
         </:subtitle>
         <:actions>
+          <div
+            id="contacts-theme-picker"
+            class="contacts-theme-picker flex items-center gap-1 rounded-full border border-base-300 bg-base-200 p-1"
+            role="group"
+            aria-label="Contacts appearance"
+          >
+            <button
+              id="contacts-theme-classic"
+              type="button"
+              data-contacts-theme-option="classic"
+              aria-pressed="true"
+              class="contacts-theme-option rounded-full px-3 py-1.5 text-xs font-medium transition"
+            >
+              Classic
+            </button>
+            <button
+              id="contacts-theme-quiet"
+              type="button"
+              data-contacts-theme-option="quiet"
+              aria-pressed="false"
+              class="contacts-theme-option rounded-full px-3 py-1.5 text-xs font-medium transition"
+            >
+              Quiet
+            </button>
+          </div>
           <.link navigate={~p"/invites/new"} class="btn btn-outline btn-sm">
             <.icon name="hero-qr-code" class="size-4" /> Invite person
           </.link>
@@ -112,7 +143,7 @@ defmodule VeejrWeb.ContactsLive do
       </section>
 
       <div class="space-y-4">
-        <details open class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-100">
+        <details open class="contacts-section collapse collapse-arrow rounded-lg border border-base-300 bg-base-100">
           <summary class="collapse-title">
             <div class="flex items-center justify-between gap-3 pr-6">
               <div>
@@ -197,7 +228,7 @@ defmodule VeejrWeb.ContactsLive do
           </div>
         </details>
 
-        <details class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-100">
+        <details class="contacts-section collapse collapse-arrow rounded-lg border border-base-300 bg-base-100">
           <summary class="collapse-title">
             <div class="flex items-center justify-between gap-3 pr-6">
               <h2 class="text-lg font-semibold">Friends</h2>
@@ -356,7 +387,7 @@ defmodule VeejrWeb.ContactsLive do
           </div>
         </details>
 
-        <details class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-100">
+        <details class="contacts-section collapse collapse-arrow rounded-lg border border-base-300 bg-base-100">
           <summary class="collapse-title">
             <div class="flex items-center justify-between gap-3 pr-6">
               <h2 class="text-lg font-semibold">Groups</h2>
@@ -504,6 +535,7 @@ defmodule VeejrWeb.ContactsLive do
         note={profile_note(@contact_notes, @selected_profile)}
         editable={profile_editable?(@friends, @selected_profile)}
       />
+      </div>
     </Layouts.app>
     """
   end

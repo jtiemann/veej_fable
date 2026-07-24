@@ -715,3 +715,80 @@
     transition: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Contacts appearance picker (Classic / Quiet), modeled on the chat theme
+   picker above. "Quiet" is a contacts-scoped look that strips the accordion
+   chrome for a flat, calm directory: hairline dividers instead of boxed
+   cards, quiet uppercase section labels instead of collapse bars. All rules
+   are token-based so they follow the active site theme (Classic light/dark
+   and Art Deco). The ContactsTheme hook opens the top-level <details> when
+   Quiet is active, so here we only restyle. */
+#contacts-workspace .contacts-theme-option[aria-pressed="true"] {
+  background: var(--color-base-100);
+  color: var(--color-base-content);
+  box-shadow: 0 1px 5px color-mix(in oklab, var(--color-base-content) 12%, transparent);
+}
+
+/* Flatten the three section shells: no card border, background, shadow, or
+   collapse arrow. */
+#contacts-workspace[data-contacts-theme="quiet"] .contacts-section {
+  border-color: transparent;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+#contacts-workspace[data-contacts-theme="quiet"] .contacts-section > .collapse-title {
+  min-height: 0;
+  padding: 0 0 0.35rem;
+  cursor: default;
+}
+
+#contacts-workspace[data-contacts-theme="quiet"] .contacts-section > .collapse-title:after {
+  display: none;
+}
+
+/* Section heading becomes a quiet uppercase label; drop the sub-line. */
+#contacts-workspace[data-contacts-theme="quiet"] .contacts-section > .collapse-title h2 {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+#contacts-workspace[data-contacts-theme="quiet"] .contacts-section > .collapse-title p {
+  display: none;
+}
+
+/* Count reads as a plain muted number, not an outlined badge. */
+#contacts-workspace[data-contacts-theme="quiet"] .contacts-section > .collapse-title .badge {
+  border-color: transparent;
+  background: transparent;
+  color: inherit;
+  opacity: 0.55;
+  padding: 0;
+}
+
+#contacts-workspace[data-contacts-theme="quiet"] .contacts-section > .collapse-content {
+  padding-inline: 0;
+}
+
+/* Boxed list items become flat, hairline-divided rows. Covers conversation,
+   friend, and incoming-request items, group cards, and the Add-Friend panel. */
+#contacts-workspace[data-contacts-theme="quiet"] .contacts-section .collapse-content li,
+#contacts-workspace[data-contacts-theme="quiet"] .contacts-section .collapse-content > div > section,
+#contacts-workspace[data-contacts-theme="quiet"] .space-y-4 > section {
+  border: 0;
+  border-top: 1.5px solid color-mix(in oklch, var(--color-base-content) 10%, transparent);
+  border-radius: 0;
+  padding-inline: 0;
+  background: transparent;
+}
+
+/* Nested "Personal info & notes" panels lose their frame but stay collapsible. */
+#contacts-workspace[data-contacts-theme="quiet"] .contacts-section .collapse-content .collapse {
+  border-color: transparent;
+  background: transparent;
+}
