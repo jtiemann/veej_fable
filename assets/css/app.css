@@ -716,6 +716,30 @@
   }
 }
 
+/* Self-note bodies stay compact in the board while preserving the full
+   decrypted text in the DOM for search and an explicit click-to-expand view. */
+.self-note-body[data-expanded="false"] {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 10;
+}
+
+.self-note-body[data-collapsible="true"] {
+  cursor: zoom-in;
+  border-radius: 0.375rem;
+  outline: none;
+}
+
+.self-note-body[data-collapsible="true"]:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 25%, transparent);
+}
+
+.self-note-body[data-collapsible="true"][data-expanded="true"] {
+  display: block;
+  cursor: zoom-out;
+}
+
 /* ---------------------------------------------------------------------------
    Contacts appearance picker (Classic / Quiet), modeled on the chat theme
    picker above. "Quiet" is a contacts-scoped look that strips the accordion

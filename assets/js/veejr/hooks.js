@@ -2786,7 +2786,24 @@ export const SelfNotes = {
     window.dispatchEvent(new CustomEvent("veejr:self-note-rendered"))
     const title = document.createElement("h3"); title.className = "font-semibold"; title.textContent = payload.title || "Untitled note"
     if (payload.pinned) title.textContent = `📌 ${title.textContent}`
-    const body = document.createElement("p"); body.className = "mt-2 whitespace-pre-wrap text-sm"; body.textContent = payload.body || ""
+    const body = document.createElement("p")
+    body.className = "self-note-body mt-2 whitespace-pre-wrap text-sm"
+    body.textContent = payload.body || ""
+    body.dataset.expanded = "false"
+    const toggleBody = (event) => {
+      if (body.dataset.collapsible !== "true") return
+      event.preventDefault()
+      event.stopPropagation()
+      const expanded = body.dataset.expanded !== "true"
+      body.dataset.expanded = String(expanded)
+      body.setAttribute("aria-expanded", String(expanded))
+      body.setAttribute("aria-label", `${expanded ? "Collapse" : "Expand"} note text`)
+      body.title = `${expanded ? "Collapse" : "Expand"} note text`
+    }
+    body.addEventListener("click", toggleBody)
+    body.addEventListener("keydown", (event) => {
+      if (["Enter", " "].includes(event.key)) toggleBody(event)
+    })
     const list = document.createElement("ul"); list.className = "mt-2 space-y-1 text-sm"
     ;(payload.checklist || []).forEach((item) => { const li = document.createElement("li"); li.textContent = `${item.checked ? "✓" : "○"} ${item.text}`; li.className = item.checked ? "opacity-50 line-through" : ""; list.appendChild(li) })
     const meta = document.createElement("div"); meta.className = "mt-3 flex flex-wrap gap-1"
@@ -2856,6 +2873,18 @@ export const SelfNotes = {
       actions.appendChild(remove)
     }
     this.el.append(title, body, list, meta, attachments, actions)
+    requestAnimationFrame(() => {
+      if (!body.isConnected || !body.textContent) return
+      const collapsible = body.scrollHeight > body.clientHeight + 1
+      body.dataset.collapsible = String(collapsible)
+      if (collapsible) {
+        body.tabIndex = 0
+        body.setAttribute("role", "button")
+        body.setAttribute("aria-expanded", "false")
+        body.setAttribute("aria-label", "Expand note text")
+        body.title = "Expand note text"
+      }
+    })
     card.style.background = {sand:"#f8edcf",rose:"#f8dfe1",violet:"#ebe2fb",blue:"#dceefa",mint:"#dff3e7"}[payload.color] || ""
   },
 }
